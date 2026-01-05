@@ -24,6 +24,7 @@
 "onboarding.feature.snippets.title" = "קטעי טקסט";
 "onboarding.feature.snippets.description" = "צור קיצורי דרך שמתרחבים לטקסט מלא אוטומטית";
 "onboarding.feature.snippets.example" = "דוגמה: הקלד '!mail' → מתרחב ל-'gal@joyatech.com'";
+"onboarding.ai.features.note" = "תכונות AI (שיפור טקסט) דורשות מפתח Gemini API חינמי. קבל את שלך מ-Google AI Studio.";
 "onboarding.permissions.title" = "הרשאות נדרשות";
 "onboarding.permissions.description" = "JoyaFix צריך את ההרשאות הבאות כדי לעבוד כראוי:";
 "onboarding.permissions.accessibility.title" = "נגישות";
@@ -123,4 +124,13 @@
 "settings.launch.at.login.error" = "נכשל ב-%@ ההפעלה בעת עלייה. אנא בדוק בהגדרות המערכת → כללי → פריטי התחלה.";
 "enable" = "הפעלת";
 "disable" = "ביטול";
+
+/* Prompt Enhancer */
+"settings.prompt.enhancer.hotkey" = "קיצור מקלדת לשיפור טקסט (AI)";
+"settings.prompt.enhancer.hotkey.description" = "לחץ על הכפתור והקלד את צירוף המקשים הרצוי:";
+"menu.enhance.prompt" = "שפר טקסט נבחר (AI)";
+"prompt.enhancer.error.no.text" = "לא נבחר טקסט או שהלוח ריק.";
+"prompt.enhancer.error.api.failed" = "השיפור נכשל. אנא בדוק את מפתח ה-API ואת החיבור לרשת.";
+"prompt.enhancer.error.api.key.title" = "נדרש מפתח Gemini API";
+"prompt.enhancer.error.api.key.message" = "כדי להשתמש בתכונות AI, יש להזין מפתח Google Gemini API בהגדרות.";
 

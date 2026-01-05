@@ -79,29 +79,102 @@ You are an expert Prompt Engineer.
                     
                     print("✅ Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
                     
-                    // Step 7: Notify clipboard manager to ignore this write
-                    ClipboardHistoryManager.shared.notifyInternalWrite()
-                    
-                    // Step 8: Write enhanced prompt to clipboard
-                    self.writeToClipboard(enhancedPrompt)
-                    print("📋 Enhanced prompt written to clipboard")
-                    
-                    // Step 9: Play success sound
-                    SoundManager.shared.playSuccess()
-                    
-                    // Step 10: Delete selected text, then paste
-                    DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.clipboardPasteDelay) {
-                        // Delete the selected text first
-                        print("🗑️ Deleting selected text...")
-                        self.simulateDelete()
-                        
-                        // Wait a bit before pasting
-                        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.textConversionDeleteDelay) {
-                            print("📋 Simulating paste...")
-                            self.simulatePaste()
+                    // Step 7: Show review window instead of pasting immediately
+                    Task { @MainActor in
+                        self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Shows the review window for the enhanced prompt
+    private func showReviewWindow(enhancedPrompt: String, originalText: String) {
+        // Store original text for refine operations
+        let storedOriginalText = originalText
+        
+        // Create a mutable reference for the prompt
+        class PromptHolder {
+            var value: String
+            init(_ value: String) { self.value = value }
+        }
+        let promptHolder = PromptHolder(enhancedPrompt)
+        
+        func showWindowWithPrompt(_ prompt: String) {
+            PromptReviewWindowController.show(
+                promptText: prompt,
+                onConfirm: {
+                    // User confirmed - paste the prompt
+                    self.confirmAndPaste(prompt: promptHolder.value)
+                },
+                onCancel: {
+                    // User cancelled - do nothing
+                    print("❌ User cancelled prompt review")
+                },
+                onRefine: { refineRequest in
+                    // User wants to refine the prompt
+                    print("🔄 Refining prompt: \(refineRequest)")
+                    self.refinePrompt(currentPrompt: promptHolder.value, originalText: storedOriginalText, refineRequest: refineRequest) { refinedPrompt in
+                        if let refined = refinedPrompt {
+                            print("✅ Prompt refined successfully")
+                            promptHolder.value = refined
+                            // Update the window with new prompt
+                            showWindowWithPrompt(refined)
+                        } else {
+                            print("❌ Failed to refine prompt")
                         }
                     }
                 }
+            )
+        }
+        
+        showWindowWithPrompt(enhancedPrompt)
+    }
+    
+    /// Confirms and pastes the prompt
+    private func confirmAndPaste(prompt: String) {
+        // Notify clipboard manager to ignore this write
+        ClipboardHistoryManager.shared.notifyInternalWrite()
+        
+        // Write enhanced prompt to clipboard
+        writeToClipboard(prompt)
+        print("📋 Enhanced prompt written to clipboard")
+        
+        // Play success sound
+        SoundManager.shared.playSuccess()
+        
+        // Delete selected text, then paste
+        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.clipboardPasteDelay) {
+            // Delete the selected text first
+            print("🗑️ Deleting selected text...")
+            self.simulateDelete()
+            
+            // Wait a bit before pasting
+            DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.textConversionDeleteDelay) {
+                print("📋 Simulating paste...")
+                self.simulatePaste()
+            }
+        }
+    }
+    
+    /// Refines the prompt based on user request
+    private func refinePrompt(currentPrompt: String, originalText: String, refineRequest: String, completion: @escaping (String?) -> Void) {
+        let refinePrompt = """
+You are an expert Prompt Engineer.
+**Task:** Refine the following enhanced prompt based on the user's refinement request.
+**Original User Input:** "\(originalText)"
+**Current Enhanced Prompt:**
+\(currentPrompt)
+**User's Refinement Request:** "\(refineRequest)"
+**Rules:**
+1. Apply the refinement request to the current enhanced prompt.
+2. Maintain the structured format (Role, Context, Task, Constraints, Output Format).
+3. Return ONLY the refined prompt. No explanations or prefixes.
+"""
+        
+        Task { @MainActor in
+            GeminiService.shared.sendPrompt(refinePrompt) { refinedPrompt in
+                completion(refinedPrompt)
             }
         }
     }

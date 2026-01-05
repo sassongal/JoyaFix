@@ -18,8 +18,16 @@ struct HistoryView: View {
         if searchText.isEmpty {
             return clipboardManager.history
         }
+        // Use fuzzy search with threshold
+        let threshold = 0.3 // Minimum score to show (0.0 = no match, 1.0 = exact match)
         return clipboardManager.history.filter { item in
-            item.plainTextPreview.localizedCaseInsensitiveContains(searchText)
+            let score = item.plainTextPreview.fuzzyScore(word: searchText)
+            return score >= threshold
+        }.sorted { item1, item2 in
+            // Sort by score (highest first)
+            let score1 = item1.plainTextPreview.fuzzyScore(word: searchText)
+            let score2 = item2.plainTextPreview.fuzzyScore(word: searchText)
+            return score1 > score2
         }
     }
     
@@ -27,8 +35,16 @@ struct HistoryView: View {
         if searchText.isEmpty {
             return ocrManager.history
         }
+        // Use fuzzy search with threshold
+        let threshold = 0.3
         return ocrManager.history.filter { scan in
-            scan.extractedText.localizedCaseInsensitiveContains(searchText)
+            let score = scan.extractedText.fuzzyScore(word: searchText)
+            return score >= threshold
+        }.sorted { scan1, scan2 in
+            // Sort by score (highest first)
+            let score1 = scan1.extractedText.fuzzyScore(word: searchText)
+            let score2 = scan2.extractedText.fuzzyScore(word: searchText)
+            return score1 > score2
         }
     }
 
@@ -457,18 +473,38 @@ struct HistoryItemRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Icon
-            Image(systemName: contentIcon)
-                .font(.system(size: 16))
-                .foregroundColor(isSelected ? .accentColor : .secondary)
-                .frame(width: 24)
+            // Icon or Image Thumbnail
+            if let imagePath = item.imagePath, let nsImage = NSImage(contentsOfFile: imagePath) {
+                // Show image thumbnail
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    )
+            } else {
+                // Show icon for text items
+                Image(systemName: contentIcon)
+                    .font(.system(size: 16))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .frame(width: 24)
+            }
 
             // Content
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.singleLineText(maxLength: 60))
-                    .font(.system(size: 13))
-                    .lineLimit(2)
-                    .foregroundColor(.primary)
+                if item.isImage {
+                    Text("Image")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary)
+                } else {
+                    Text(item.singleLineText(maxLength: 60))
+                        .font(.system(size: 13))
+                        .lineLimit(2)
+                        .foregroundColor(.primary)
+                }
 
                 HStack(spacing: 8) {
                     // Timestamp
@@ -476,10 +512,16 @@ struct HistoryItemRow: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
 
-                    // Character count
-                    Text("\(item.plainTextPreview.count) chars")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                    // Character count or image indicator
+                    if item.isImage {
+                        Text("Image")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("\(item.plainTextPreview.count) chars")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 

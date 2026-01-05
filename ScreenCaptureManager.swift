@@ -199,7 +199,7 @@ class ScreenCaptureManager {
             return
         }
 
-        // Get overlay window ID for capturing underneath it
+        // Get overlay window for hiding during capture
         guard let overlayWindow = self.overlayWindow else {
             print("❌ Overlay window not available")
             completion?(nil)
@@ -207,86 +207,27 @@ class ScreenCaptureManager {
             return
         }
         
-        let windowID = CGWindowID(overlayWindow.windowNumber)
-        
-        // Convert NSRect (Cocoa coordinates, bottom-left origin) to CGRect (Quartz coordinates, top-left origin)
-        // Get the primary screen height to flip Y coordinate
-        let primaryScreen = NSScreen.main ?? NSScreen.screens.first!
-        let primaryScreenHeight = primaryScreen.frame.height
-        
-        // Calculate global screen bounds (all monitors combined)
-        let allScreensFrame = NSScreen.screens.reduce(NSRect.zero) { result, screen in
-            return result.union(screen.frame)
-        }
-        let globalScreenHeight = allScreensFrame.height
-        
-        // Convert Cocoa coordinates (bottom-left origin) to Quartz coordinates (top-left origin)
-        // The rect is already in global coordinates, so we need to flip Y relative to the global screen height
-        let quartzRect = CGRect(
-            x: rect.origin.x,
-            y: globalScreenHeight - rect.origin.y - rect.height,
-            width: rect.width,
-            height: rect.height
-        )
-        
-        // Validate converted rect
-        guard quartzRect.origin.x >= 0 && quartzRect.origin.y >= 0 &&
-              quartzRect.width > 0 && quartzRect.height > 0 else {
-            print("❌ Invalid capture rect after conversion: \(quartzRect)")
-            print("   Original rect: \(rect)")
-            print("   Global screen height: \(globalScreenHeight)")
+        // Validate rect
+        guard rect.origin.x >= 0 && rect.origin.y >= 0 &&
+              rect.width > 0 && rect.height > 0 else {
+            print("❌ Invalid capture rect: \(rect)")
             completion?(nil)
             isCapturing = false
             return
         }
         
-        print("📐 Converted rect for CGWindowListCreateImage: \(quartzRect)")
+        print("📐 Capturing screen region: \(rect)")
         
-        // Capture using CGWindowListCreateImage - this captures the screen content
-        // underneath the overlay window without needing to hide it or use delays
-        // .optionOnScreenBelowWindow captures everything on screen below the specified window
-        guard let cgImage = CGWindowListCreateImage(
-            quartzRect,
-            .optionOnScreenBelowWindow,
-            windowID,
-            .bestResolution
-        ) else {
-            print("❌ CGWindowListCreateImage failed to capture screen region")
-            completion?(nil)
-            isCapturing = false
-            return
-        }
+        // On macOS 15.0+, CGWindowListCreateImage is unavailable
+        // Use screencapture CLI as fallback
+        // Hide overlay first, then capture
+        overlayWindow.orderOut(nil)
         
-        print("✓ Screen captured via CGWindowListCreateImage (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
-        
-        // Store completion handler before any async operations
-        let completionHandler = self.completion
-        
-        // Perform OCR directly with the CGImage (no disk I/O)
-        self.extractText(from: cgImage) { text in
-            Task { @MainActor in
-                self.isCapturing = false
-                
-                // Save to OCR history if text was extracted
-                if let extractedText = text, !extractedText.isEmpty {
-                    // Create scan first
-                    let scan = OCRScan(extractedText: extractedText)
-                    
-                    // Save preview image (only if OCR succeeded)
-                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    var finalScan = scan
-                    if let previewPath = OCRHistoryManager.shared.savePreviewImage(nsImage, for: scan) {
-                        finalScan = scan.withPreviewImagePath(previewPath)
-                    }
-                    
-                    // Add to history
-                    OCRHistoryManager.shared.addScan(finalScan)
-                    
-                    print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
-                }
-                
-                completionHandler?(text)
-            }
+        // Small delay to ensure overlay is hidden
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self = self else { return }
+            // Use screencapture CLI for screen capture
+            self.captureScreenWithCLI(rect: rect, completion: self.completion)
         }
     }
     
@@ -390,6 +331,72 @@ class ScreenCaptureManager {
         }
     }
 
+    // MARK: - CLI Screen Capture (Fallback for macOS 15.0+)
+    
+    /// Captures screen region using screencapture CLI (fallback for macOS 15.0+)
+    private func captureScreenWithCLI(rect: NSRect, completion: ((String?) -> Void)?) {
+        let tempFile = NSTemporaryDirectory() + "joyafix_capture_\(UUID().uuidString).png"
+        
+        // Convert rect to screencapture format: x,y,width,height
+        let captureRect = "\(Int(rect.origin.x)),\(Int(rect.origin.y)),\(Int(rect.width)),\(Int(rect.height))"
+        
+        let task = Process()
+        task.launchPath = "/usr/sbin/screencapture"
+        task.arguments = [
+            "-R", captureRect,
+            "-x",  // No sound
+            "-t", "png",
+            tempFile
+        ]
+        
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        
+        task.launch()
+        task.waitUntilExit()
+        
+        defer {
+            // Clean up temp file
+            try? FileManager.default.removeItem(atPath: tempFile)
+        }
+        
+        guard task.terminationStatus == 0,
+              FileManager.default.fileExists(atPath: tempFile),
+              let image = NSImage(contentsOfFile: tempFile),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            print("❌ CLI screen capture failed")
+            completion?(nil)
+            isCapturing = false
+            return
+        }
+        
+        print("✓ Screen captured via CLI (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
+        
+        // Store completion handler before any async operations
+        let completionHandler = self.completion
+        
+        // Perform OCR
+        self.extractText(from: cgImage) { text in
+            Task { @MainActor in
+                self.isCapturing = false
+                
+                // Save to OCR history if text was extracted
+                if let extractedText = text, !extractedText.isEmpty {
+                    let scan = OCRScan(extractedText: extractedText)
+                    let nsImage = NSImage(contentsOfFile: tempFile)
+                    var finalScan = scan
+                    if let previewImage = nsImage, let previewPath = OCRHistoryManager.shared.savePreviewImage(previewImage, for: scan) {
+                        finalScan = scan.withPreviewImagePath(previewPath)
+                    }
+                    OCRHistoryManager.shared.addScan(finalScan)
+                    print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
+                }
+                
+                completionHandler?(text)
+            }
+        }
+    }
+    
     // MARK: - Rate Limit Error
     
     /// Shows a user-friendly rate limit error

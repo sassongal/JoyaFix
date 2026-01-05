@@ -24,6 +24,7 @@
 "onboarding.feature.snippets.title" = "Text Snippets";
 "onboarding.feature.snippets.description" = "Create shortcuts that expand into full text automatically";
 "onboarding.feature.snippets.example" = "Example: Type '!mail' → expands to 'gal@joyatech.com'";
+"onboarding.ai.features.note" = "AI features (Prompt Enhancer) require a free Gemini API Key. Get yours from Google AI Studio.";
 "onboarding.permissions.title" = "Permissions Required";
 "onboarding.permissions.description" = "JoyaFix needs the following permissions to work properly:";
 "onboarding.permissions.accessibility.title" = "Accessibility";
@@ -123,4 +124,13 @@
 "settings.launch.at.login.error" = "Failed to %@ Launch at Login. Please check System Settings → General → Login Items.";
 "enable" = "enable";
 "disable" = "disable";
+
+/* Prompt Enhancer */
+"settings.prompt.enhancer.hotkey" = "Prompt Enhancer Hotkey";
+"settings.prompt.enhancer.hotkey.description" = "Press the button and type your desired key combination:";
+"menu.enhance.prompt" = "Enhance Selected Text (AI)";
+"prompt.enhancer.error.no.text" = "No text selected or clipboard is empty.";
+"prompt.enhancer.error.api.failed" = "Failed to enhance text. Please check your API key and internet connection.";
+"prompt.enhancer.error.api.key.title" = "Gemini API Key Required";
+"prompt.enhancer.error.api.key.message" = "To use AI features, please enter your Google Gemini API Key in Settings.";
 

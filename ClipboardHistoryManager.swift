@@ -109,11 +109,16 @@ class ClipboardHistoryManager: ObservableObject {
         lastCopiedText = itemFullText
     }
 
-    /// Captures the current clipboard content including RTF data
+    /// Captures the current clipboard content including RTF data and images
     private func captureClipboardContent() -> ClipboardItem? {
         let pasteboard = NSPasteboard.general
 
-        // Try to get plain text (required)
+        // Check for images first (TIFF or PNG)
+        if let imageData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png) {
+            return captureImageContent(imageData: imageData, pasteboard: pasteboard)
+        }
+
+        // Try to get plain text (required for text items)
         guard let plainText = pasteboard.string(forType: .string) else {
             return nil
         }
@@ -158,7 +163,31 @@ class ClipboardHistoryManager: ObservableObject {
             timestamp: Date(),
             isPinned: false,
             rtfDataPath: rtfDataPath,
-            htmlDataPath: htmlDataPath
+            htmlDataPath: htmlDataPath,
+            imagePath: nil
+        )
+    }
+    
+    /// Captures image content from clipboard
+    private func captureImageContent(imageData: Data, pasteboard: NSPasteboard) -> ClipboardItem? {
+        // Save image to disk
+        guard let imagePath = saveImageData(imageData) else {
+            print("❌ Failed to save image to disk")
+            return nil
+        }
+        
+        // Try to get text representation if available (for image descriptions)
+        let textPreview = pasteboard.string(forType: .string) ?? "Image"
+        
+        return ClipboardItem(
+            plainTextPreview: textPreview,
+            rtfData: nil,
+            htmlData: nil,
+            timestamp: Date(),
+            isPinned: false,
+            rtfDataPath: nil,
+            htmlDataPath: nil,
+            imagePath: imagePath
         )
     }
     
@@ -168,11 +197,13 @@ class ClipboardHistoryManager: ObservableObject {
     private enum RichDataType {
         case rtf
         case html
+        case image
         
         var fileExtension: String {
             switch self {
             case .rtf: return "rtf"
             case .html: return "html"
+            case .image: return "png"
             }
         }
     }
@@ -206,6 +237,22 @@ class ClipboardHistoryManager: ObservableObject {
             return data
         } catch {
             print("❌ Failed to load rich data from disk: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    /// Saves image data to disk and returns the file path
+    private func saveImageData(_ data: Data) -> String? {
+        let fileName = "\(UUID().uuidString).png"
+        let fileURL = dataDirectory.appendingPathComponent(fileName)
+        
+        do {
+            try data.write(to: fileURL)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+            print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
+            return fileURL.path
+        } catch {
+            print("❌ Failed to save image data to disk: \(error.localizedDescription)")
             return nil
         }
     }
@@ -245,6 +292,9 @@ class ClipboardHistoryManager: ObservableObject {
                 if let htmlPath = item.htmlDataPath {
                     try? FileManager.default.removeItem(atPath: htmlPath)
                 }
+                if let imagePath = item.imagePath {
+                    try? FileManager.default.removeItem(atPath: imagePath)
+                }
             }
             
             // Truncate to maxHistoryCount
@@ -282,6 +332,9 @@ class ClipboardHistoryManager: ObservableObject {
             }
             if let htmlPath = item.htmlDataPath {
                 try? FileManager.default.removeItem(atPath: htmlPath)
+            }
+            if let imagePath = item.imagePath {
+                try? FileManager.default.removeItem(atPath: imagePath)
             }
         }
         
@@ -326,6 +379,9 @@ class ClipboardHistoryManager: ObservableObject {
         if let htmlPath = item.htmlDataPath {
             try? FileManager.default.removeItem(atPath: htmlPath)
         }
+        if let imagePath = item.imagePath {
+            try? FileManager.default.removeItem(atPath: imagePath)
+        }
         
         history.removeAll { $0.id == item.id }
         saveHistory()
@@ -351,6 +407,13 @@ class ClipboardHistoryManager: ObservableObject {
             writtenTypes.append(.string)
             print("📋 Restored plain text only to clipboard: \(item.plainTextPreview.prefix(30))...")
         } else {
+            // Write image if available
+            if let imagePath = item.imagePath, let imageData = loadRichData(from: imagePath) {
+                pasteboard.setData(imageData, forType: .tiff)
+                writtenTypes.append(.tiff)
+                print("🖼️ Restored image to clipboard (\(imageData.count) bytes)")
+            }
+            
             // Write RTF data if available (preserves formatting)
             // Try to load from disk first, then fall back to legacy data
             if let rtfPath = item.rtfDataPath, let rtfData = loadRichData(from: rtfPath) {
@@ -507,6 +570,7 @@ struct ClipboardItem: Codable, Identifiable {
     let fullText: String?         // Full text stored separately for large content
     let rtfDataPath: String?     // Path to RTF file on disk (replaces rtfData)
     let htmlDataPath: String?     // Path to HTML file on disk (replaces htmlData)
+    let imagePath: String?        // Path to image file on disk (for image clipboard items)
     let timestamp: Date
     var isPinned: Bool
     
@@ -518,7 +582,7 @@ struct ClipboardItem: Codable, Identifiable {
     private static let maxPreviewLength = 200
     private static let largeTextThreshold = 500 // Characters
 
-    init(plainTextPreview: String, rtfData: Data? = nil, htmlData: Data? = nil, timestamp: Date, isPinned: Bool = false, rtfDataPath: String? = nil, htmlDataPath: String? = nil) {
+    init(plainTextPreview: String, rtfData: Data? = nil, htmlData: Data? = nil, timestamp: Date, isPinned: Bool = false, rtfDataPath: String? = nil, htmlDataPath: String? = nil, imagePath: String? = nil) {
         self.id = UUID()
 
         // Memory optimization: Truncate preview if text is large
@@ -540,6 +604,7 @@ struct ClipboardItem: Codable, Identifiable {
         // Store paths (preferred) or legacy data (for migration)
         self.rtfDataPath = rtfDataPath
         self.htmlDataPath = htmlDataPath
+        self.imagePath = imagePath
         self.rtfData = rtfData  // Legacy - only for migration
         self.htmlData = htmlData  // Legacy - only for migration
         self.timestamp = timestamp
@@ -567,6 +632,7 @@ struct ClipboardItem: Codable, Identifiable {
 
         self.rtfDataPath = nil
         self.htmlDataPath = nil
+        self.imagePath = nil
         self.rtfData = nil
         self.htmlData = nil
         self.timestamp = timestamp
@@ -576,7 +642,7 @@ struct ClipboardItem: Codable, Identifiable {
     // MARK: - Codable Support (Custom Encoding/Decoding)
     
     enum CodingKeys: String, CodingKey {
-        case id, plainTextPreview, fullText, rtfDataPath, htmlDataPath, timestamp, isPinned
+        case id, plainTextPreview, fullText, rtfDataPath, htmlDataPath, imagePath, timestamp, isPinned
         // Legacy keys for migration
         case rtfData, htmlData
     }
@@ -588,6 +654,7 @@ struct ClipboardItem: Codable, Identifiable {
         fullText = try container.decodeIfPresent(String.self, forKey: .fullText)
         rtfDataPath = try container.decodeIfPresent(String.self, forKey: .rtfDataPath)
         htmlDataPath = try container.decodeIfPresent(String.self, forKey: .htmlDataPath)
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         
@@ -603,6 +670,7 @@ struct ClipboardItem: Codable, Identifiable {
         try container.encodeIfPresent(fullText, forKey: .fullText)
         try container.encodeIfPresent(rtfDataPath, forKey: .rtfDataPath)
         try container.encodeIfPresent(htmlDataPath, forKey: .htmlDataPath)
+        try container.encodeIfPresent(imagePath, forKey: .imagePath)
         try container.encode(timestamp, forKey: .timestamp)
         try container.encode(isPinned, forKey: .isPinned)
         // Don't encode legacy rtfData/htmlData - they should be migrated to paths
@@ -623,6 +691,11 @@ struct ClipboardItem: Codable, Identifiable {
     /// Indicates if this item has rich formatting
     var hasRichFormatting: Bool {
         return rtfDataPath != nil || htmlDataPath != nil || rtfData != nil || htmlData != nil
+    }
+    
+    /// Indicates if this item is an image
+    var isImage: Bool {
+        return imagePath != nil
     }
 
     // MARK: - Display Helpers

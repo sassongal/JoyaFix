@@ -515,7 +515,9 @@ class HotkeyManager {
     /// Called when the prompt enhancer hotkey is pressed
     private func promptHotkeyPressed() {
         print("✨ Prompt enhancer hotkey pressed!")
-        PromptEnhancerManager.shared.enhanceSelectedText()
+        Task { @MainActor in
+            PromptEnhancerManager.shared.enhanceSelectedText()
+        }
     }
 
     // MARK: - Clipboard Operations

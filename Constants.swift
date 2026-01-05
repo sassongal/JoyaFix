@@ -90,7 +90,7 @@ enum JoyaFixConstants {
     // MARK: - UI Sizes
     
     /// Menubar icon size (pixels)
-    static let menubarIconSize: CGFloat = 18.0
+    static let menubarIconSize: CGFloat = 22.0
     
     /// About window logo size (pixels)
     static let aboutLogoSize: CGFloat = 128.0

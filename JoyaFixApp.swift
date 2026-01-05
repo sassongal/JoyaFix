@@ -342,7 +342,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // Call the prompt enhancement method
-        PromptEnhancerManager.shared.enhanceSelectedText()
+        Task { @MainActor in
+            PromptEnhancerManager.shared.enhanceSelectedText()
+        }
     }
 
     /// Opens the settings window

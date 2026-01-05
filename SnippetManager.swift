@@ -1,16 +1,100 @@
 import Foundation
 import Combine
+import Cocoa
 
-/// Manages text snippets for auto-expansion
+/// Manages text snippets for auto-expansion with iCloud sync
 class SnippetManager: ObservableObject {
     static let shared = SnippetManager()
     
     @Published private(set) var snippets: [Snippet] = []
     
     private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.snippets
+    private let iCloudStore = NSUbiquitousKeyValueStore.default
+    private let iCloudKey = "JoyaFixSnippets"
     
     private init() {
         loadSnippets()
+        setupiCloudSync()
+    }
+    
+    // MARK: - iCloud Sync Setup
+    
+    private func setupiCloudSync() {
+        // Listen for external changes from iCloud
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(iCloudStoreDidChange),
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: iCloudStore
+        )
+        
+        // Initial sync from iCloud
+        syncFromiCloud()
+    }
+    
+    @objc private func iCloudStoreDidChange(_ notification: Notification) {
+        print("☁️ iCloud store changed externally")
+        syncFromiCloud()
+    }
+    
+    private func syncFromiCloud() {
+        guard let iCloudData = iCloudStore.data(forKey: iCloudKey) else {
+            print("ℹ️ No iCloud data found")
+            return
+        }
+        
+        do {
+            let iCloudSnippets = try JSONDecoder().decode([Snippet].self, from: iCloudData)
+            print("☁️ Loaded \(iCloudSnippets.count) snippets from iCloud")
+            
+            // Merge with local snippets (iCloud takes precedence for conflicts)
+            mergeSnippets(iCloudSnippets: iCloudSnippets)
+        } catch {
+            print("❌ Failed to decode iCloud snippets: \(error.localizedDescription)")
+        }
+    }
+    
+    private func mergeSnippets(iCloudSnippets: [Snippet]) {
+        var mergedSnippets: [Snippet] = []
+        var seenTriggers = Set<String>()
+        
+        // Add iCloud snippets first (they take precedence)
+        for snippet in iCloudSnippets {
+            if !seenTriggers.contains(snippet.trigger) {
+                mergedSnippets.append(snippet)
+                seenTriggers.insert(snippet.trigger)
+            }
+        }
+        
+        // Add local snippets that don't conflict
+        for snippet in snippets {
+            if !seenTriggers.contains(snippet.trigger) {
+                mergedSnippets.append(snippet)
+                seenTriggers.insert(snippet.trigger)
+            }
+        }
+        
+        if mergedSnippets != snippets {
+            snippets = mergedSnippets
+            saveSnippets() // Save merged result locally
+            print("✓ Merged snippets: \(snippets.count) total")
+        }
+    }
+    
+    private func syncToiCloud() {
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(snippets)
+            iCloudStore.set(data, forKey: iCloudKey)
+            let success = iCloudStore.synchronize()
+            if success {
+                print("☁️ Synced \(snippets.count) snippets to iCloud")
+            } else {
+                print("⚠️ Failed to synchronize with iCloud")
+            }
+        } catch {
+            print("❌ Failed to encode snippets for iCloud: \(error.localizedDescription)")
+        }
     }
     
     // MARK: - Persistence
@@ -61,8 +145,12 @@ class SnippetManager: ObservableObject {
     private func saveSnippets() {
         do {
             let encoded = try JSONEncoder().encode(snippets)
+            // Save locally
             UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
             print("✓ Snippets saved (\(snippets.count) snippets, \(encoded.count) bytes)")
+            
+            // Sync to iCloud
+            syncToiCloud()
         } catch {
             print("❌ Failed to save snippets: \(error.localizedDescription)")
             print("   Snippets count: \(snippets.count)")

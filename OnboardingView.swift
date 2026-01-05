@@ -194,6 +194,18 @@ struct FeaturesSlide: View {
                     example: NSLocalizedString("onboarding.feature.snippets.example", comment: "Snippets feature example")
                 )
             }
+            
+            // AI Features Note
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12))
+                    .foregroundColor(.orange)
+                Text(NSLocalizedString("onboarding.ai.features.note", comment: "AI features note"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .italic()
+            }
+            .padding(.top, 8)
         }
         .padding(40)
     }

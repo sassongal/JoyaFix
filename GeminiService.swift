@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 /// Service for interacting with Google Gemini API
 /// Handles both text-only and image-based requests
