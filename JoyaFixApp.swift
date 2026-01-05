@@ -95,12 +95,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let convertSuccess = HotkeyManager.shared.registerHotkey()
         let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
         let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
+        let promptSuccess = HotkeyManager.shared.registerPromptHotkey()
 
-        if convertSuccess && ocrSuccess && keyboardLockSuccess {
+        if convertSuccess && ocrSuccess && keyboardLockSuccess && promptSuccess {
             print("✓ Hotkeys registered successfully")
             print("  - Text conversion hotkey registered")
             print("  - OCR hotkey registered")
             print("  - Keyboard lock hotkey registered")
+            print("  - Prompt enhancer hotkey registered")
         } else {
             if !convertSuccess {
                 print("✗ Failed to register conversion hotkey")
@@ -110,6 +112,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             if !keyboardLockSuccess {
                 print("✗ Failed to register keyboard lock hotkey")
+            }
+            if !promptSuccess {
+                print("✗ Failed to register prompt enhancer hotkey")
             }
         }
         
@@ -199,6 +204,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ocrItem.keyEquivalentModifierMask = [.command, .option]
         ocrItem.target = self
         menu.addItem(ocrItem)
+        
+        // Add Prompt Enhancer menu item
+        let promptItem = NSMenuItem(
+            title: NSLocalizedString("menu.enhance.prompt", comment: "Enhance prompt"),
+            action: #selector(enhancePrompt),
+            keyEquivalent: "p"
+        )
+        promptItem.keyEquivalentModifierMask = [.command, .option]
+        promptItem.target = self
+        menu.addItem(promptItem)
         
         // Add Keyboard Cleaner menu item
         let keyboardCleanerItem = NSMenuItem(
@@ -306,6 +321,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+    
+    /// Enhances selected text prompt
+    @objc func enhancePrompt() {
+        // Check permissions first
+        guard PermissionManager.shared.isAccessibilityTrusted() else {
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("alert.accessibility.title", comment: "Accessibility alert title")
+            alert.informativeText = NSLocalizedString("alert.accessibility.message", comment: "Accessibility alert message")
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open settings"))
+            alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                PermissionManager.shared.openAccessibilitySettings()
+            }
+            return
+        }
+        
+        // Call the prompt enhancement method
+        PromptEnhancerManager.shared.enhanceSelectedText()
     }
 
     /// Opens the settings window

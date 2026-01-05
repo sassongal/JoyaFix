@@ -49,6 +49,18 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    @Published var promptHotkeyKeyCode: UInt32 {
+        didSet {
+            UserDefaults.standard.set(promptHotkeyKeyCode, forKey: Keys.promptHotkeyKeyCode)
+        }
+    }
+
+    @Published var promptHotkeyModifiers: UInt32 {
+        didSet {
+            UserDefaults.standard.set(promptHotkeyModifiers, forKey: Keys.promptHotkeyModifiers)
+        }
+    }
+
     @Published var geminiKey: String {
         didSet {
             // Store securely in Keychain instead of UserDefaults
@@ -76,6 +88,8 @@ class SettingsManager: ObservableObject {
         static let autoPasteAfterConvert = "autoPasteAfterConvert"
         static let ocrHotkeyKeyCode = "ocrHotkeyKeyCode"
         static let ocrHotkeyModifiers = "ocrHotkeyModifiers"
+        static let promptHotkeyKeyCode = "promptHotkeyKeyCode"
+        static let promptHotkeyModifiers = "promptHotkeyModifiers"
         static let geminiKey = "geminiKey"
         static let useCloudOCR = "useCloudOCR"
     }
@@ -91,6 +105,8 @@ class SettingsManager: ObservableObject {
         self.autoPasteAfterConvert = UserDefaults.standard.object(forKey: Keys.autoPasteAfterConvert) as? Bool ?? true
         self.ocrHotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.ocrHotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_X)
         self.ocrHotkeyModifiers = UserDefaults.standard.object(forKey: Keys.ocrHotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
+        self.promptHotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.promptHotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_P)
+        self.promptHotkeyModifiers = UserDefaults.standard.object(forKey: Keys.promptHotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
         
         // Load Gemini key from Keychain (secure storage)
         // First try Keychain, then fallback to UserDefaults for migration

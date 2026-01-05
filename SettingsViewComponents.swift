@@ -10,6 +10,8 @@ struct GeneralSettingsTab: View {
     @Binding var localConvertModifiers: UInt32
     @Binding var localOCRKeyCode: UInt32
     @Binding var localOCRModifiers: UInt32
+    @Binding var localPromptKeyCode: UInt32
+    @Binding var localPromptModifiers: UInt32
     @Binding var localMaxHistoryCount: Int
     @Binding var localPlaySound: Bool
     @Binding var localAutoPaste: Bool
@@ -17,6 +19,7 @@ struct GeneralSettingsTab: View {
     @Binding var localUseCloudOCR: Bool
     @Binding var isRecordingConvertHotkey: Bool
     @Binding var isRecordingOCRHotkey: Bool
+    @Binding var isRecordingPromptHotkey: Bool
     @Binding var hasUnsavedChanges: Bool
     @Binding var showSavedMessage: Bool
     let onSave: () -> Void
@@ -64,6 +67,25 @@ struct GeneralSettingsTab: View {
                             ) { keyCode, modifiers in
                                 localOCRKeyCode = keyCode
                                 localOCRModifiers = modifiers
+                                hasUnsavedChanges = true
+                            }
+                        }
+                        .padding(8)
+                    }
+
+                    // Prompt Enhancer Hotkey Section
+                    GroupBox(label: Label(NSLocalizedString("settings.prompt.enhancer.hotkey", comment: "Prompt enhancer hotkey"), systemImage: "sparkles")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(NSLocalizedString("settings.prompt.enhancer.hotkey.description", comment: "Prompt enhancer hotkey description"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            HotkeyRecorderButton(
+                                isRecording: $isRecordingPromptHotkey,
+                                currentHotkey: displayString(localPromptKeyCode, localPromptModifiers)
+                            ) { keyCode, modifiers in
+                                localPromptKeyCode = keyCode
+                                localPromptModifiers = modifiers
                                 hasUnsavedChanges = true
                             }
                         }

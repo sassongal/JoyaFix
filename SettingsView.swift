@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var localConvertModifiers: UInt32
     @State private var localOCRKeyCode: UInt32
     @State private var localOCRModifiers: UInt32
+    @State private var localPromptKeyCode: UInt32
+    @State private var localPromptModifiers: UInt32
     @State private var localMaxHistoryCount: Int
     @State private var localPlaySound: Bool
     @State private var localAutoPaste: Bool
@@ -17,6 +19,7 @@ struct SettingsView: View {
 
     @State private var isRecordingConvertHotkey = false
     @State private var isRecordingOCRHotkey = false
+    @State private var isRecordingPromptHotkey = false
     @State private var hasUnsavedChanges = false
     @State private var showSavedMessage = false
 
@@ -27,6 +30,8 @@ struct SettingsView: View {
         _localConvertModifiers = State(initialValue: settings.hotkeyModifiers)
         _localOCRKeyCode = State(initialValue: settings.ocrHotkeyKeyCode)
         _localOCRModifiers = State(initialValue: settings.ocrHotkeyModifiers)
+        _localPromptKeyCode = State(initialValue: settings.promptHotkeyKeyCode)
+        _localPromptModifiers = State(initialValue: settings.promptHotkeyModifiers)
         _localMaxHistoryCount = State(initialValue: settings.maxHistoryCount)
         _localPlaySound = State(initialValue: settings.playSoundOnConvert)
         _localAutoPaste = State(initialValue: settings.autoPasteAfterConvert)
@@ -43,6 +48,8 @@ struct SettingsView: View {
                 localConvertModifiers: $localConvertModifiers,
                 localOCRKeyCode: $localOCRKeyCode,
                 localOCRModifiers: $localOCRModifiers,
+                localPromptKeyCode: $localPromptKeyCode,
+                localPromptModifiers: $localPromptModifiers,
                 localMaxHistoryCount: $localMaxHistoryCount,
                 localPlaySound: $localPlaySound,
                 localAutoPaste: $localAutoPaste,
@@ -50,6 +57,7 @@ struct SettingsView: View {
                 localUseCloudOCR: $localUseCloudOCR,
                 isRecordingConvertHotkey: $isRecordingConvertHotkey,
                 isRecordingOCRHotkey: $isRecordingOCRHotkey,
+                isRecordingPromptHotkey: $isRecordingPromptHotkey,
                 hasUnsavedChanges: $hasUnsavedChanges,
                 showSavedMessage: $showSavedMessage,
                 onSave: saveChanges,
@@ -77,6 +85,8 @@ struct SettingsView: View {
         settings.hotkeyModifiers = localConvertModifiers
         settings.ocrHotkeyKeyCode = localOCRKeyCode
         settings.ocrHotkeyModifiers = localOCRModifiers
+        settings.promptHotkeyKeyCode = localPromptKeyCode
+        settings.promptHotkeyModifiers = localPromptModifiers
         settings.maxHistoryCount = localMaxHistoryCount
         settings.playSoundOnConvert = localPlaySound
         settings.autoPasteAfterConvert = localAutoPaste
@@ -85,7 +95,6 @@ struct SettingsView: View {
 
         // Rebind hotkeys immediately
         let result = HotkeyManager.shared.rebindHotkeys()
-        let _ = result.keyboardLockSuccess // Acknowledge the third return value
 
         // Show feedback
         hasUnsavedChanges = false
@@ -101,7 +110,7 @@ struct SettingsView: View {
         }
 
         // Print results
-        if result.convertSuccess && result.ocrSuccess {
+        if result.convertSuccess && result.ocrSuccess && result.keyboardLockSuccess && result.promptSuccess {
             print("✓ Settings saved and hotkeys rebound successfully")
         } else {
             print("⚠️ Settings saved but some hotkeys failed to bind")
@@ -114,6 +123,8 @@ struct SettingsView: View {
         localConvertModifiers = UInt32(cmdKey | optionKey)
         localOCRKeyCode = UInt32(kVK_ANSI_X)
         localOCRModifiers = UInt32(cmdKey | optionKey)
+        localPromptKeyCode = UInt32(kVK_ANSI_P)
+        localPromptModifiers = UInt32(cmdKey | optionKey)
         localMaxHistoryCount = 20
         localPlaySound = true
         localAutoPaste = true

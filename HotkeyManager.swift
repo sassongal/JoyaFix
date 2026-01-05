@@ -8,12 +8,14 @@ class HotkeyManager {
     private var eventHotKeyRef: EventHotKeyRef?
     private var ocrHotKeyRef: EventHotKeyRef?
     private var keyboardLockHotKeyRef: EventHotKeyRef?
+    private var promptHotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
 
     // Hotkey signatures
     private let hotkeyID = EventHotKeyID(signature: OSType(0x4A4F5941), id: 1) // 'JOYA'
     private let ocrHotkeyID = EventHotKeyID(signature: OSType(0x4F435231), id: 2) // 'OCR1'
     private let keyboardLockHotkeyID = EventHotKeyID(signature: OSType(0x4B424C4B), id: 3) // 'KBLK'
+    private let promptHotkeyID = EventHotKeyID(signature: OSType(0x50524F4D), id: 4) // 'PROM'
 
     private let settings = SettingsManager.shared
 
@@ -24,7 +26,7 @@ class HotkeyManager {
     /// Rebinds all hotkeys with current settings from UserDefaults
     /// Call this after saving new hotkey settings to apply changes immediately
     @discardableResult
-    func rebindHotkeys() -> (convertSuccess: Bool, ocrSuccess: Bool, keyboardLockSuccess: Bool) {
+    func rebindHotkeys() -> (convertSuccess: Bool, ocrSuccess: Bool, keyboardLockSuccess: Bool, promptSuccess: Bool) {
         print("🔄 Rebinding hotkeys...")
 
         // Step 1: Unregister all existing hotkeys
@@ -37,9 +39,10 @@ class HotkeyManager {
         let convertSuccess = registerHotkey()
         let ocrSuccess = registerOCRHotkey()
         let keyboardLockSuccess = registerKeyboardLockHotkey()
+        let promptSuccess = registerPromptHotkey()
 
         // Step 4: Report results
-        if convertSuccess && ocrSuccess && keyboardLockSuccess {
+        if convertSuccess && ocrSuccess && keyboardLockSuccess && promptSuccess {
             print("✓ All hotkeys rebound successfully")
             SoundManager.shared.playSuccess()
         } else {
@@ -53,9 +56,12 @@ class HotkeyManager {
             if !keyboardLockSuccess {
                 print("  - Keyboard lock hotkey failed")
             }
+            if !promptSuccess {
+                print("  - Prompt enhancer hotkey failed")
+            }
         }
 
-        return (convertSuccess, ocrSuccess, keyboardLockSuccess)
+        return (convertSuccess, ocrSuccess, keyboardLockSuccess, promptSuccess)
     }
 
     // MARK: - Registration
@@ -95,6 +101,8 @@ class HotkeyManager {
                         HotkeyManager.shared.ocrHotkeyPressed()
                     } else if hotkeyID.id == 3 {
                         HotkeyManager.shared.keyboardLockHotkeyPressed()
+                    } else if hotkeyID.id == 4 {
+                        HotkeyManager.shared.promptHotkeyPressed()
                     }
 
                     return noErr
@@ -168,6 +176,8 @@ class HotkeyManager {
                         HotkeyManager.shared.ocrHotkeyPressed()
                     } else if hotkeyID.id == 3 {
                         HotkeyManager.shared.keyboardLockHotkeyPressed()
+                    } else if hotkeyID.id == 4 {
+                        HotkeyManager.shared.promptHotkeyPressed()
                     }
 
                     return noErr
@@ -278,6 +288,83 @@ class HotkeyManager {
         return true
     }
     
+    /// Registers the prompt enhancer hotkey using settings
+    func registerPromptHotkey() -> Bool {
+        // Get prompt hotkey from settings
+        let keyCode = settings.promptHotkeyKeyCode
+        let modifiers = settings.promptHotkeyModifiers
+        
+        print("🔧 Registering prompt enhancer hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
+        
+        // Create event type spec for hotkey
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                       eventKind: UInt32(kEventHotKeyPressed))
+        
+        // Use existing event handler
+        if eventHandler == nil {
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                { (nextHandler, event, userData) -> OSStatus in
+                    var hotkeyID = EventHotKeyID()
+                    GetEventParameter(
+                        event,
+                        EventParamName(kEventParamDirectObject),
+                        EventParamType(typeEventHotKeyID),
+                        nil,
+                        MemoryLayout<EventHotKeyID>.size,
+                        nil,
+                        &hotkeyID
+                    )
+                    
+                    // Check which hotkey was pressed
+                    if hotkeyID.id == 1 {
+                        HotkeyManager.shared.hotkeyPressed()
+                    } else if hotkeyID.id == 2 {
+                        HotkeyManager.shared.ocrHotkeyPressed()
+                    } else if hotkeyID.id == 3 {
+                        HotkeyManager.shared.keyboardLockHotkeyPressed()
+                    } else if hotkeyID.id == 4 {
+                        HotkeyManager.shared.promptHotkeyPressed()
+                    }
+                    
+                    return noErr
+                },
+                1,
+                &eventType,
+                nil,
+                &eventHandler
+            )
+            
+            guard status == noErr else {
+                print("Failed to install event handler")
+                return false
+            }
+        }
+        
+        // Register the prompt hotkey
+        let registerStatus = RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            promptHotkeyID,
+            GetApplicationEventTarget(),
+            0,
+            &promptHotKeyRef
+        )
+        
+        guard registerStatus == noErr else {
+            let errorMessage = getErrorMessage(for: registerStatus)
+            let promptHotkeyDisplay = hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
+            print("❌ Failed to register prompt enhancer hotkey: \(errorMessage)")
+            print("   Attempted: \(promptHotkeyDisplay)")
+            print("   This key combination may be reserved by the system or another app")
+            return false
+        }
+        
+        let promptHotkeyDisplay = hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
+        print("✓ Prompt enhancer hotkey registered: \(promptHotkeyDisplay)")
+        return true
+    }
+    
     /// Unregisters all global hotkeys
     func unregisterHotkey() {
         if let eventHotKeyRef = eventHotKeyRef {
@@ -293,6 +380,11 @@ class HotkeyManager {
         if let keyboardLockHotKeyRef = keyboardLockHotKeyRef {
             UnregisterEventHotKey(keyboardLockHotKeyRef)
             self.keyboardLockHotKeyRef = nil
+        }
+        
+        if let promptHotKeyRef = promptHotKeyRef {
+            UnregisterEventHotKey(promptHotKeyRef)
+            self.promptHotKeyRef = nil
         }
 
         if let eventHandler = eventHandler {
@@ -418,6 +510,12 @@ class HotkeyManager {
     private func keyboardLockHotkeyPressed() {
         print("🔒 Keyboard lock hotkey pressed!")
         KeyboardBlocker.shared.toggleLock()
+    }
+    
+    /// Called when the prompt enhancer hotkey is pressed
+    private func promptHotkeyPressed() {
+        print("✨ Prompt enhancer hotkey pressed!")
+        PromptEnhancerManager.shared.enhanceSelectedText()
     }
 
     // MARK: - Clipboard Operations
