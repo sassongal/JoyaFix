@@ -509,10 +509,18 @@ struct HistoryItemRow: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.primary)
                 } else {
-                    Text(item.singleLineText(maxLength: 60))
-                        .font(.system(size: 13))
-                        .lineLimit(2)
-                        .foregroundColor(.primary)
+                    // Mask sensitive content (passwords) for security
+                    if item.isSensitive {
+                        Text("••••••")
+                            .font(.system(size: 13))
+                            .lineLimit(2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text(item.singleLineText(maxLength: 60))
+                            .font(.system(size: 13))
+                            .lineLimit(2)
+                            .foregroundColor(.primary)
+                    }
                 }
 
                 HStack(spacing: 8) {
@@ -524,6 +532,11 @@ struct HistoryItemRow: View {
                     // Character count or image indicator
                     if item.isImage {
                         Text("Image")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    } else if item.isSensitive {
+                        // Don't show character count for sensitive items
+                        Text("Password")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                     } else {

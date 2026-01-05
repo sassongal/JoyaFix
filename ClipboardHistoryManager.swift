@@ -154,8 +154,8 @@ class ClipboardHistoryManager: ObservableObject {
         let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
                          pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
 
-        // STEP 2: Switch to background task for file I/O and item construction
-        Task.detached(priority: .utility) {
+        // STEP 2: Switch to background queue for file I/O (userInitiated priority for responsive UI)
+        DispatchQueue.global(qos: .userInitiated).async {
             // Save RTF/HTML to disk on background thread
             let group = DispatchGroup()
             var rtfDataPath: String? = nil
@@ -193,8 +193,8 @@ class ClipboardHistoryManager: ObservableObject {
                 isSensitive: isSensitive
             )
             
-            // STEP 3: Switch back to MainActor to call completion
-            await MainActor.run {
+            // STEP 3: Switch to MainActor ONLY when updating @Published history
+            DispatchQueue.main.async {
                 completion(item)
             }
         }
@@ -210,8 +210,8 @@ class ClipboardHistoryManager: ObservableObject {
         // Get text representation if available (for image descriptions) - on main thread
         let textPreview = pasteboard.string(forType: .string) ?? "Image"
         
-        // Switch to background task for file I/O
-        Task.detached(priority: .utility) {
+        // Switch to background queue for file I/O (userInitiated priority for responsive UI)
+        DispatchQueue.global(qos: .userInitiated).async {
             // Save image to disk on background thread
             let group = DispatchGroup()
             var imagePath: String? = nil
@@ -227,7 +227,7 @@ class ClipboardHistoryManager: ObservableObject {
             
             guard let savedImagePath = imagePath else {
                 print("❌ Failed to save image to disk")
-                await MainActor.run {
+                DispatchQueue.main.async {
                     completion(nil)
                 }
                 return
@@ -246,8 +246,8 @@ class ClipboardHistoryManager: ObservableObject {
                 isSensitive: isSensitive
             )
             
-            // Switch back to MainActor to call completion
-            await MainActor.run {
+            // Switch to MainActor ONLY when updating @Published history
+            DispatchQueue.main.async {
                 completion(item)
             }
         }
@@ -270,9 +270,10 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
-    /// Saves RTF/HTML data to disk asynchronously and returns the file path via completion handler
+    /// Saves RTF/HTML data to disk asynchronously on background thread
+    /// Completion handler is called on the same background queue (not MainActor)
     private func saveRichData(_ data: Data, type: RichDataType, completion: @escaping (String?) -> Void) {
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.global(qos: .userInitiated).async {
             let fileName = "\(UUID().uuidString).\(type.fileExtension)"
             let fileURL = self.dataDirectory.appendingPathComponent(fileName)
             
@@ -280,14 +281,10 @@ class ClipboardHistoryManager: ObservableObject {
                 try data.write(to: fileURL)
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
                 print("✓ Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)")
-                Task { @MainActor in
-                    completion(fileURL.path)
-                }
+                completion(fileURL.path)
             } catch {
                 print("❌ Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)")
-                Task { @MainActor in
-                    completion(nil)
-                }
+                completion(nil)
             }
         }
     }
@@ -309,9 +306,10 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
-    /// Saves image data to disk asynchronously and returns the file path via completion handler
+    /// Saves image data to disk asynchronously on background thread
+    /// Completion handler is called on the same background queue (not MainActor)
     private func saveImageData(_ data: Data, completion: @escaping (String?) -> Void) {
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.global(qos: .userInitiated).async {
             let fileName = "\(UUID().uuidString).png"
             let fileURL = self.dataDirectory.appendingPathComponent(fileName)
             
@@ -319,14 +317,10 @@ class ClipboardHistoryManager: ObservableObject {
                 try data.write(to: fileURL)
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
                 print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
-                Task { @MainActor in
-                    completion(fileURL.path)
-                }
+                completion(fileURL.path)
             } catch {
                 print("❌ Failed to save image data to disk: \(error.localizedDescription)")
-                Task { @MainActor in
-                    completion(nil)
-                }
+                completion(nil)
             }
         }
     }
@@ -334,6 +328,8 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - History Management
 
     /// Adds a new item to the clipboard history
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     private func addToHistory(_ item: ClipboardItem) {
         // Remove duplicate if it exists elsewhere in the list (preserve pin status if it was pinned)
         var wasPinned = false
@@ -386,6 +382,8 @@ class ClipboardHistoryManager: ObservableObject {
     }
 
     /// Clears all clipboard history (optionally keeping pinned items)
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     func clearHistory(keepPinned: Bool = false) {
         // Delete files from disk for removed items
         let itemsToRemove: [ClipboardItem]
@@ -417,6 +415,8 @@ class ClipboardHistoryManager: ObservableObject {
     }
 
     /// Toggles the pin status of a clipboard item
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     func togglePin(for item: ClipboardItem) {
         guard let index = history.firstIndex(where: { $0.id == item.id }) else { return }
 
@@ -445,6 +445,8 @@ class ClipboardHistoryManager: ObservableObject {
     }
 
     /// Deletes a specific clipboard item from history
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     func deleteItem(_ item: ClipboardItem) {
         // Delete files from disk
         if let rtfPath = item.rtfDataPath {
@@ -557,6 +559,8 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - Persistence
 
     /// Saves clipboard history to UserDefaults
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     private func saveHistory() {
         let encoder = JSONEncoder()
         if let encoded = try? encoder.encode(history) {
@@ -565,6 +569,8 @@ class ClipboardHistoryManager: ObservableObject {
     }
 
     /// Loads clipboard history from UserDefaults
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     private func loadHistory() {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey) {
             let decoder = JSONDecoder()

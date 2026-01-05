@@ -354,23 +354,25 @@ class ScreenCaptureManager {
                 print("❌ Failed to perform Vision requests: \(error.localizedDescription)")
             }
             
-            // Combine results: prioritize barcode if found
+            // Combine results: append barcode to text if found
             var finalResult: String?
             
-            if let barcode = barcodePayload, let type = barcodeType {
-                // Barcode found - prioritize it
-                let prefix = type == "QR" ? "[QR] " : "[Barcode] "
-                var result = prefix + barcode
-                
-                // Append text if it exists
-                if let text = recognizedText, !text.isEmpty {
-                    result += "\n\n" + text
+            // Start with recognized text (if any)
+            var result = recognizedText ?? ""
+            
+            // Append barcode/QR code payload if detected
+            if let barcode = barcodePayload {
+                let prefix = barcodeType == "QR" ? "[QR]: " : "[Barcode]: "
+                if result.isEmpty {
+                    result = prefix + barcode
+                } else {
+                    result += "\n" + prefix + barcode
                 }
-                
+            }
+            
+            // Only return result if we have content
+            if !result.isEmpty {
                 finalResult = result
-            } else if let text = recognizedText, !text.isEmpty {
-                // Only text found
-                finalResult = text
             }
             
             // Return result on main thread

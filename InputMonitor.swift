@@ -269,11 +269,12 @@ class InputMonitor {
         // FIX: Thread-safe - check monitoring state and buffer
         guard _isMonitoring else { return }
         
-        // Get triggers sorted by length (descending) to prioritize longer matches
+        // Get triggers sorted by length (descending) to prioritize longer/specific matches
+        // Example: "!mail-work" should match before "!mail" to avoid false positives
         let triggers = snippetManager.getAllTriggers()
             .sorted { $0.count > $1.count }
         
-        // Check for whole-word matches (longest first)
+        // Check for whole-word matches (longest first to prioritize specific triggers)
         for trigger in triggers {
             if isWholeWordMatch(trigger: trigger, in: keyBuffer) {
                 // Found a match!
@@ -288,27 +289,33 @@ class InputMonitor {
         }
     }
     
-    /// Checks if trigger matches as a whole word (preceded by separator or start of buffer)
+    /// Checks if trigger matches as a whole word with proper word boundary validation
+    /// Word Boundary Rule: Trigger must be preceded by a separator OR be at the start of buffer
+    /// This prevents false positives like "gmail" triggering "!mail"
     private func isWholeWordMatch(trigger: String, in buffer: String) -> Bool {
+        // First check: buffer must end with the trigger
         guard buffer.hasSuffix(trigger) else { return false }
         
-        // If buffer equals trigger exactly, it's a match (at start of buffer)
-        if buffer == trigger {
+        // Edge case: If buffer equals trigger exactly, it's a match (at start of buffer)
+        if buffer.count == trigger.count {
             return true
         }
         
-        // Check character before trigger - must be separator or start of buffer
-        let prefixIndex = buffer.index(buffer.endIndex, offsetBy: -trigger.count)
-        guard prefixIndex > buffer.startIndex else {
-            // Trigger is at the start of buffer
+        // Calculate the index where the trigger starts in the buffer
+        let triggerStartIndex = buffer.index(buffer.endIndex, offsetBy: -trigger.count)
+        
+        // Word Boundary Check: Character before trigger must be a separator OR trigger must be at start
+        if triggerStartIndex == buffer.startIndex {
+            // Trigger is at the start of buffer - valid match
             return true
         }
         
         // Get the character immediately before the trigger
-        let charBeforeIndex = buffer.index(before: prefixIndex)
+        let charBeforeIndex = buffer.index(before: triggerStartIndex)
         let charBefore = buffer[charBeforeIndex]
         
-        // Verify it's a separator (space, newline, punctuation) or start of buffer
+        // Verify it's a word delimiter (separator) - this prevents false positives
+        // Example: "gmail" should NOT match "!mail" because 'g' is not a delimiter
         return isWordDelimiter(charBefore)
     }
     
