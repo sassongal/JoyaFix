@@ -117,7 +117,11 @@ class GeminiService {
         // Check rate limiting
         guard OCRRateLimiter.shared.canMakeRequest() else {
             let waitTime = OCRRateLimiter.shared.timeUntilNextRequest()
+            let requestCount = OCRRateLimiter.shared.currentRequestCount
             print("⚠️ Cloud OCR rate limit reached. Please wait \(Int(waitTime)) seconds.")
+            
+            // Show user-friendly alert
+            showRateLimitAlert(waitTime: Int(waitTime), requestCount: requestCount)
             completion(nil)
             return
         }
@@ -220,6 +224,11 @@ class GeminiService {
                 // Handle rate limit (429)
                 if httpResponse.statusCode == 429 {
                     print("⚠️ Cloud OCR rate limit exceeded (HTTP 429)")
+                    let waitTime = OCRRateLimiter.shared.timeUntilNextRequest()
+                    let requestCount = OCRRateLimiter.shared.currentRequestCount
+                    Task { @MainActor in
+                        self.showRateLimitAlert(waitTime: Int(waitTime), requestCount: requestCount)
+                    }
                     completion(nil)
                     return
                 }
@@ -269,6 +278,26 @@ class GeminiService {
         }
         
         task.resume()
+    }
+    
+    /// Shows a user-friendly alert when rate limit is reached
+    private func showRateLimitAlert(waitTime: Int, requestCount: Int) {
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("alert.rate.limit.title", comment: "Cloud OCR Rate Limit")
+        alert.informativeText = String(format: NSLocalizedString("alert.rate.limit.message", comment: "Rate limit message"),
+                                       JoyaFixConstants.maxCloudOCRRequestsPerMinute,
+                                       waitTime)
+        alert.alertStyle = .warning
+        
+        // Add "Open Settings" button to switch to Local OCR
+        alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open Settings"))
+        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // Open Settings window
+            SettingsWindowController.shared.show()
+        }
     }
 }
 

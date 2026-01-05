@@ -31,6 +31,8 @@ class OCRService {
                             print("✓ Cloud OCR Success!")
                             completion(text)
                         } else {
+                            // Check if failure was due to rate limit (already shown alert in GeminiService)
+                            // If not rate limit, silently fallback to local OCR
                             print("⚠️ Cloud OCR failed, falling back to local OCR...")
                             // Fallback to local OCR
                             self?.extractTextWithVision(from: image, completion: completion)
