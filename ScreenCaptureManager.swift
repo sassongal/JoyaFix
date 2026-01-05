@@ -2,11 +2,18 @@ import Cocoa
 @preconcurrency import Vision
 import CoreGraphics
 import Foundation
+import CoreImage
 
 @MainActor
 class ScreenCaptureManager {
-    static let shared = ScreenCaptureManager()
+    static let shared = ScreenCaptureManager(
+        ocrService: OCRService(
+            settingsManager: SettingsManager.shared,
+            geminiService: GeminiService.shared
+        )
+    )
 
+    private let ocrService: OCRService
     private var overlayWindow: SelectionOverlayWindow?
     // FIX: Support multiple monitors - array of overlay windows (one per screen)
     private var overlayWindows: [SelectionOverlayWindow] = []
@@ -21,7 +28,9 @@ class ScreenCaptureManager {
     // CRASH PREVENTION: Track cursor state to prevent unbalanced push/pop
     private var cursorPushed = false
 
-    private init() {}
+    private init(ocrService: OCRService) {
+        self.ocrService = ocrService
+    }
 
     // MARK: - Public Interface
 
@@ -290,134 +299,6 @@ class ScreenCaptureManager {
         alert.runModal()
     }
 
-    // MARK: - OCR Processing
-
-    /// Extracts text from an image using Cloud OCR (Gemini) or Vision framework
-    private func extractText(from image: CGImage, completion: @escaping (String?) -> Void) {
-        let settings = SettingsManager.shared
-        
-        // Check if Cloud OCR is enabled and API key is available
-        if settings.useCloudOCR {
-            print("☁️ Using Cloud OCR (Gemini 1.5 Flash)...")
-            Task { @MainActor in
-                GeminiService.shared.performOCR(image: image) { [weak self] text in
-                    if let text = text, !text.isEmpty {
-                        print("✓ Cloud OCR Success!")
-                        completion(text)
-                    } else {
-                        print("⚠️ Cloud OCR failed, falling back to local OCR...")
-                        // Fallback to local OCR
-                        self?.extractTextWithVision(from: image, completion: completion)
-                    }
-                }
-            }
-        } else {
-            // Use local Vision OCR
-            extractTextWithVision(from: image, completion: completion)
-        }
-    }
-
-    /// Extracts text from an image using Vision framework
-    /// Performs both text recognition and barcode/QR code detection in parallel
-    /// VNImageRequestHandler is created inside the background queue to avoid Sendable warnings
-    private func extractTextWithVision(from image: CGImage, completion: @escaping (String?) -> Void) {
-        // Create text recognition request
-        let textRequest = VNRecognizeTextRequest { request, error in
-            if let error = error {
-                print("❌ OCR Error: \(error.localizedDescription)")
-            }
-        }
-        textRequest.recognitionLevel = .accurate
-        textRequest.usesLanguageCorrection = true
-        textRequest.recognitionLanguages = ["en-US", "he-IL"]
-        
-        // Create barcode detection request
-        let barcodeRequest = VNDetectBarcodesRequest { request, error in
-            if let error = error {
-                print("❌ Barcode Detection Error: \(error.localizedDescription)")
-            }
-        }
-        // Configure barcode request to detect all supported symbologies
-        barcodeRequest.symbologies = [
-            .QR, .Aztec, .Code128, .Code39, .Code93,
-            .DataMatrix, .EAN13, .EAN8, .I2of5, .ITF14, .PDF417,
-            .UPCE
-        ]
-        
-        // Process both requests in parallel on background thread
-        // Vision framework processes multiple requests efficiently in a single pass
-        DispatchQueue.global(qos: .userInitiated).async {
-            let requestHandler = VNImageRequestHandler(cgImage: image, options: [:])
-            
-            var recognizedText: String?
-            var barcodePayload: String?
-            var barcodeType: String?
-            
-            // Perform both requests in a single call (Vision processes them efficiently)
-            do {
-                try requestHandler.perform([textRequest, barcodeRequest])
-                
-                // Process text recognition results
-                if let observations = textRequest.results as? [VNRecognizedTextObservation] {
-                    let recognizedStrings = observations.compactMap { observation in
-                        observation.topCandidates(1).first?.string
-                    }
-                    recognizedText = recognizedStrings.joined(separator: "\n")
-                    
-                    if !recognizedText!.isEmpty {
-                        print("✓ OCR Success! Recognized \(recognizedStrings.count) lines")
-                    }
-                }
-                
-                // Process barcode detection results
-                if let observations = barcodeRequest.results as? [VNBarcodeObservation] {
-                    // Get the first detected barcode (prioritize QR codes)
-                    let qrCodes = observations.filter { $0.symbology == .QR }
-                    let otherBarcodes = observations.filter { $0.symbology != .QR }
-                    
-                    let priorityBarcode = (qrCodes.first ?? otherBarcodes.first)
-                    
-                    if let barcode = priorityBarcode, let payload = barcode.payloadStringValue {
-                        barcodePayload = payload
-                        barcodeType = barcode.symbology == .QR ? "QR" : "Barcode"
-                        print("✓ \(barcodeType!) detected: \(payload.prefix(50))...")
-                    }
-                }
-            } catch {
-                print("❌ Failed to perform Vision requests: \(error.localizedDescription)")
-            }
-            
-            // Combine results: append barcode to text if found
-            var finalResult: String?
-            
-            // Start with recognized text (if any)
-            var result = recognizedText ?? ""
-            
-            // Append barcode/QR code payload if detected
-            if let barcode = barcodePayload {
-                let prefix = barcodeType == "QR" ? "[QR]: " : "[Barcode]: "
-                if result.isEmpty {
-                    result = prefix + barcode
-                } else {
-                    result += "\n" + prefix + barcode
-                }
-            }
-            
-            // Only return result if we have content
-            if !result.isEmpty {
-                finalResult = result
-            }
-            
-            // Return result on main thread
-            DispatchQueue.main.async {
-                if finalResult == nil {
-                    print("📝 No text or barcode recognized")
-                }
-                completion(finalResult)
-            }
-        }
-    }
-
     // MARK: - CLI Screen Capture (Fallback for macOS 15.0+)
     
     /// Captures screen region using screencapture CLI (fallback for macOS 15.0+)
@@ -459,7 +340,11 @@ class ScreenCaptureManager {
                     completion?(nil)
                 }
                 // Clean up temp file
-                try? FileManager.default.removeItem(atPath: tempFile)
+                do {
+                    try FileManager.default.removeItem(atPath: tempFile)
+                } catch {
+                    print("🔥 Failed to remove temporary capture file at \(tempFile): \(error.localizedDescription)")
+                }
                 return
             }
             
@@ -469,7 +354,7 @@ class ScreenCaptureManager {
             let completionHandler = self.completion
             
             // Perform OCR (this already handles threading internally)
-            self.extractText(from: cgImage) { text in
+            self.ocrService.extractText(from: cgImage) { text in
                 Task { @MainActor in
                     self.isCapturing = false
                     
@@ -494,24 +379,16 @@ class ScreenCaptureManager {
                     }
                     
                     // Clean up temp file after OCR processing
-                    try? FileManager.default.removeItem(atPath: tempFile)
+                    do {
+                        try FileManager.default.removeItem(atPath: tempFile)
+                    } catch {
+                        print("🔥 Failed to remove temporary capture file after OCR at \(tempFile): \(error.localizedDescription)")
+                    }
                     
                     completionHandler?(text)
                 }
             }
         }
-    }
-    
-    // MARK: - Rate Limit Error
-    
-    /// Shows a user-friendly rate limit error
-    private func showRateLimitError(waitTime: TimeInterval) {
-        let alert = NSAlert()
-        alert.messageText = NSLocalizedString("alert.rate.limit.title", comment: "Rate limit alert title")
-        alert.informativeText = String(format: NSLocalizedString("alert.rate.limit.message", comment: "Rate limit alert message"), JoyaFixConstants.maxCloudOCRRequestsPerMinute, Int(waitTime))
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
-        alert.runModal()
     }
 }
 

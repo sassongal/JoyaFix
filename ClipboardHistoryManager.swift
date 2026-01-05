@@ -2,6 +2,7 @@ import Cocoa
 import Foundation
 import Carbon
 
+@MainActor
 class ClipboardHistoryManager: ObservableObject {
     static let shared = ClipboardHistoryManager()
 
@@ -12,6 +13,7 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - Private Properties
 
     private var pollTimer: Timer?
+    private var cleanupTimer: Timer?
     private var lastChangeCount: Int = 0
     private var lastCopiedText: String?
     private var isInternalWrite: Bool = false // Flag to prevent internal writes from being recorded
@@ -22,9 +24,13 @@ class ClipboardHistoryManager: ObservableObject {
     private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.clipboardHistory
     private let dataDirectory: URL
     
-    // Migration flag
+    // Migration flags
     private let migrationKey = "ClipboardHistoryMigrationCompleted"
-
+    private let databaseMigrationKey = "ClipboardHistoryDatabaseMigrationCompleted"
+    
+    // Database manager for persistent storage (replaces UserDefaults)
+    private let databaseManager = HistoryDatabaseManager.shared
+    
     private var maxHistoryCount: Int {
         return settings.maxHistoryCount
     }
@@ -43,8 +49,14 @@ class ClipboardHistoryManager: ObservableObject {
         // Use DispatchQueue.main.sync to ensure synchronous loading during init
         if Thread.isMainThread {
             MainActor.assumeIsolated {
+                // CRITICAL FIX: Migrate to database first (one-time migration)
+                if !UserDefaults.standard.bool(forKey: databaseMigrationKey) {
+                    migrateToDatabase()
+                    UserDefaults.standard.set(true, forKey: databaseMigrationKey)
+                }
+                
                 loadHistory()
-                // Migrate old data if needed
+                // Migrate old data if needed (file-based migration)
                 if !UserDefaults.standard.bool(forKey: migrationKey) {
                     migrateOldHistory()
                     UserDefaults.standard.set(true, forKey: migrationKey)
@@ -53,8 +65,14 @@ class ClipboardHistoryManager: ObservableObject {
         } else {
             DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
+                    // CRITICAL FIX: Migrate to database first (one-time migration)
+                    if !UserDefaults.standard.bool(forKey: databaseMigrationKey) {
+                        migrateToDatabase()
+                        UserDefaults.standard.set(true, forKey: databaseMigrationKey)
+                    }
+                    
                     loadHistory()
-                    // Migrate old data if needed
+                    // Migrate old data if needed (file-based migration)
                     if !UserDefaults.standard.bool(forKey: migrationKey) {
                         migrateOldHistory()
                         UserDefaults.standard.set(true, forKey: migrationKey)
@@ -74,12 +92,17 @@ class ClipboardHistoryManager: ObservableObject {
             self?.checkForClipboardChanges()
         }
         print("✓ Clipboard monitoring started")
+        
+        // Start scheduled disk cleanup (runs every 24 hours)
+        startScheduledCleanup()
     }
 
     /// Stops monitoring the clipboard
     func stopMonitoring() {
         pollTimer?.invalidate()
         pollTimer = nil
+        cleanupTimer?.invalidate()
+        cleanupTimer = nil
         print("✓ Clipboard monitoring stopped")
     }
 
@@ -91,7 +114,6 @@ class ClipboardHistoryManager: ObservableObject {
 
         // Check if clipboard has changed
         guard currentChangeCount != lastChangeCount else { return }
-
         lastChangeCount = currentChangeCount
 
         // If this was an internal write (from our app), skip recording
@@ -100,38 +122,37 @@ class ClipboardHistoryManager: ObservableObject {
             return
         }
 
-        // Capture clipboard content synchronously on main thread (required for NSPasteboard)
-        guard let tempItem = captureClipboardContent() else { return }
+        // All subsequent code runs on the MainActor because the class is isolated.
         
-        // Check if this is an image item (imagePath will be nil initially, and no RTF/HTML data)
-        // Images are handled separately by captureImageContent -> processAndSaveImageItem
-        let isImageItem = tempItem.rtfData == nil && tempItem.htmlData == nil && tempItem.imagePath == nil && 
-                          tempItem.plainTextPreview == "Image"
+        guard let item = captureClipboardContent() else { return }
         
-        // For images, captureImageContent already handles async processing
-        // The deduplication will be handled in processAndSaveImageItem
+        // Check if this is an image item.
+        // `captureImageContent` which is called inside `captureClipboardContent` already
+        // triggers the async saving process for images.
+        let isImageItem = item.rtfData == nil && item.htmlData == nil && item.imagePath == nil &&
+                          item.plainTextPreview == "Image"
         if isImageItem {
             return
         }
         
         // Ignore empty strings
-        guard !tempItem.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        // Get full text for comparison (handles both preview and full text)
-        let itemFullText = tempItem.textForPasting
+        // Get full text for comparison.
+        let itemFullText = item.textForPasting
 
-        // Strict deduplication: Check against all items in history
+        // Strict deduplication: Check against all items in history.
         let isDuplicate = history.contains { historyItem in
             historyItem.textForPasting == itemFullText
         }
 
         if isDuplicate {
-            print("📝 Skipping duplicate: \(tempItem.plainTextPreview.prefix(30))...")
+            print("📝 Skipping duplicate: \(item.plainTextPreview.prefix(30))...")
             return
         }
 
-        // Process and save heavy data asynchronously, then add to history
-        processAndSaveItem(tempItem)
+        // Process and save heavy data asynchronously, then add to history.
+        processAndSaveItem(item)
         lastCopiedText = itemFullText
     }
 
@@ -401,7 +422,7 @@ class ClipboardHistoryManager: ObservableObject {
     /// Adds a new item to the clipboard history
     /// MUST be called on MainActor to ensure thread safety for @Published history
     @MainActor
-    private func addToHistory(_ item: ClipboardItem) {
+    func addToHistory(_ item: ClipboardItem) {
         // Remove duplicate if it exists elsewhere in the list (preserve pin status if it was pinned)
         var wasPinned = false
         if let existingIndex = history.firstIndex(where: { $0.textForPasting == item.textForPasting }) {
@@ -629,38 +650,173 @@ class ClipboardHistoryManager: ObservableObject {
 
     // MARK: - Persistence
 
-    /// Saves clipboard history to UserDefaults
+    /// Saves clipboard history to database (replaces UserDefaults)
     /// MUST be called on MainActor to ensure thread safety for @Published history
+    /// Includes robust error handling with fallback to UserDefaults
     @MainActor
     private func saveHistory() {
-        let encoder = JSONEncoder()
-        if let encoded = try? encoder.encode(history) {
-            UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
+        // CRITICAL FIX: Save to database instead of UserDefaults
+        do {
+            try databaseManager.saveClipboardHistory(history)
+            print("✓ Saved \(history.count) items to database")
+            
+            // Clear fallback data if database save succeeded
+            if UserDefaults.standard.data(forKey: userDefaultsKey) != nil {
+                UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+            }
+        } catch {
+            // Detailed error logging
+            let errorDescription = error.localizedDescription
+            let isLocked = DatabaseError.isDatabaseLocked(error)
+            let isIOError = DatabaseError.isIOError(error)
+            
+            if isLocked {
+                print("🔒 Database is locked - using fallback to UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else if isIOError {
+                print("💾 Database I/O error - using fallback to UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else {
+                print("❌ Failed to save clipboard history to database: \(errorDescription)")
+            }
+            
+            // Fallback to UserDefaults if database fails (Insurance Policy)
+            let encoder = JSONEncoder()
+            do {
+                let encoded = try encoder.encode(history)
+                UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
+                print("⚠️ Fallback: Saved \(history.count) items to UserDefaults (\(encoded.count) bytes)")
+                
+                // Log fallback status for monitoring
+                UserDefaults.standard.set(true, forKey: "ClipboardHistoryFallbackActive")
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ClipboardHistoryFallbackTimestamp")
+            } catch {
+                print("🔥 CRITICAL: Failed to save to both database and UserDefaults!")
+                print("   Encoding error: \(error.localizedDescription)")
+            }
         }
     }
 
-    /// Loads clipboard history from UserDefaults
+    /// Loads clipboard history from database (replaces UserDefaults)
     /// MUST be called on MainActor to ensure thread safety for @Published history
+    /// Includes robust error handling with fallback to UserDefaults
     @MainActor
     private func loadHistory() {
-        if let data = UserDefaults.standard.data(forKey: userDefaultsKey) {
-            let decoder = JSONDecoder()
-            if let decoded = try? decoder.decode([ClipboardItem].self, from: data) {
-                history = decoded
-                print("✓ Loaded \(history.count) items from clipboard history")
+        // CRITICAL FIX: Load from database instead of UserDefaults
+        do {
+            let items = try databaseManager.loadClipboardHistory()
+            history = items
+            print("✓ Loaded \(history.count) items from database")
+            
+            // Check if we have fallback data that needs to be migrated back
+            if UserDefaults.standard.bool(forKey: "ClipboardHistoryFallbackActive") {
+                print("🔄 Detected fallback data - attempting to migrate back to database...")
+                // Try to save current database state, then merge with fallback if needed
+                if let fallbackData = UserDefaults.standard.data(forKey: userDefaultsKey) {
+                    let decoder = JSONDecoder()
+                    if let fallbackItems = try? decoder.decode([ClipboardItem].self, from: fallbackData) {
+                        // Merge fallback items with database items (avoid duplicates)
+                        var mergedItems = items
+                        for fallbackItem in fallbackItems {
+                            if !mergedItems.contains(where: { $0.id == fallbackItem.id }) {
+                                mergedItems.append(fallbackItem)
+                            }
+                        }
+                        // Sort by timestamp
+                        mergedItems.sort { $0.timestamp > $1.timestamp }
+                        history = mergedItems
+                        
+                        // Try to save merged data back to database
+                        do {
+                            try databaseManager.saveClipboardHistory(mergedItems)
+                            // Clear fallback data after successful migration
+                            UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+                            UserDefaults.standard.removeObject(forKey: "ClipboardHistoryFallbackActive")
+                            UserDefaults.standard.removeObject(forKey: "ClipboardHistoryFallbackTimestamp")
+                            print("✓ Successfully migrated fallback data back to database")
+                        } catch {
+                            print("⚠️ Could not migrate fallback data back to database: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Detailed error logging
+            let errorDescription = error.localizedDescription
+            let isLocked = DatabaseError.isDatabaseLocked(error)
+            let isIOError = DatabaseError.isIOError(error)
+            
+            if isLocked {
+                print("🔒 Database is locked - using fallback from UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else if isIOError {
+                print("💾 Database I/O error - using fallback from UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else {
+                print("❌ Failed to load clipboard history from database: \(errorDescription)")
+            }
+            
+            // Fallback to UserDefaults if database fails
+            if let data = UserDefaults.standard.data(forKey: userDefaultsKey) {
+                let decoder = JSONDecoder()
+                do {
+                    let decoded = try decoder.decode([ClipboardItem].self, from: data)
+                    history = decoded
+                    print("⚠️ Fallback: Loaded \(history.count) items from UserDefaults (\(data.count) bytes)")
+                    
+                    // Mark fallback as active
+                    UserDefaults.standard.set(true, forKey: "ClipboardHistoryFallbackActive")
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ClipboardHistoryFallbackTimestamp")
+                } catch {
+                    print("🔥 CRITICAL: Failed to decode fallback data: \(error.localizedDescription)")
+                    history = []
+                }
+            } else {
+                print("ℹ️ No clipboard history found (first run)")
+                history = []
             }
         }
+    }
+    
+    /// Migrates clipboard history from UserDefaults to database (one-time migration)
+    @MainActor
+    private func migrateToDatabase() {
+        print("🔄 Migrating clipboard history from UserDefaults to database...")
+        let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
+        if success {
+            // Reload from database after migration
+            loadHistory()
+        }
+    }
+    
+    // MARK: - Scheduled Cleanup
+    
+    /// Starts scheduled disk cleanup (runs every 24 hours)
+    private func startScheduledCleanup() {
+        // Run cleanup immediately on first start (after a short delay to ensure history is loaded)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds delay
+            cleanupOrphanedFiles()
+        }
+        
+        // Schedule periodic cleanup (every 24 hours)
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.cleanupOrphanedFiles()
+            }
+        }
+        print("✓ Scheduled disk cleanup started (runs every 24 hours)")
     }
     
     // MARK: - Cleanup
     
     /// Cleans up orphaned files in the data directory that are not referenced in history
     /// This should be called after history is loaded to remove files that are no longer needed
+    /// Runs on background thread to avoid blocking Main Thread
     @MainActor
     func cleanupOrphanedFiles() {
-        // Collect all valid file paths from history
+        // Collect all valid file paths from history (on MainActor)
         var validPaths = Set<String>()
-        
         for item in history {
             if let rtfPath = item.rtfDataPath {
                 validPaths.insert(rtfPath)
@@ -673,46 +829,50 @@ class ClipboardHistoryManager: ObservableObject {
             }
         }
         
-        // Get all files in the data directory
-        let fileManager = FileManager.default
-        guard let directoryContents = try? fileManager.contentsOfDirectory(at: dataDirectory, includingPropertiesForKeys: nil, options: []) else {
-            print("⚠️ Could not read data directory for cleanup")
-            return
-        }
-        
-        var deletedCount = 0
-        var totalSizeDeleted: Int64 = 0
-        
-        // Check each file and delete if not in valid paths
-        for fileURL in directoryContents {
-            let filePath = fileURL.path
-            
-            // Skip if this file is referenced in history
-            if validPaths.contains(filePath) {
-                continue
+        // Run cleanup on background thread to avoid blocking Main Thread
+        let dataDir = dataDirectory
+        Task.detached(priority: .utility) {
+            // Get all files in the data directory (on background thread)
+            let fileManager = FileManager.default
+            guard let directoryContents = try? fileManager.contentsOfDirectory(at: dataDir, includingPropertiesForKeys: nil, options: []) else {
+                print("⚠️ Could not read data directory for cleanup")
+                return
             }
             
-            // Get file size before deletion for reporting
-            if let attributes = try? fileManager.attributesOfItem(atPath: filePath),
-               let fileSize = attributes[.size] as? Int64 {
-                totalSizeDeleted += fileSize
+            var deletedCount = 0
+            var totalSizeDeleted: Int64 = 0
+            
+            // Check each file and delete if not in valid paths
+            for fileURL in directoryContents {
+                let filePath = fileURL.path
+                
+                // Skip if this file is referenced in history
+                if validPaths.contains(filePath) {
+                    continue
+                }
+                
+                // Get file size before deletion for reporting
+                if let attributes = try? fileManager.attributesOfItem(atPath: filePath),
+                   let fileSize = attributes[.size] as? Int64 {
+                    totalSizeDeleted += fileSize
+                }
+                
+                // Delete orphaned file
+                do {
+                    try fileManager.removeItem(at: fileURL)
+                    deletedCount += 1
+                    print("🗑️ Deleted orphaned file: \(fileURL.lastPathComponent)")
+                } catch {
+                    print("❌ Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                }
             }
             
-            // Delete orphaned file
-            do {
-                try fileManager.removeItem(at: fileURL)
-                deletedCount += 1
-                print("🗑️ Deleted orphaned file: \(fileURL.lastPathComponent)")
-            } catch {
-                print("❌ Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+            if deletedCount > 0 {
+                let sizeInMB = Double(totalSizeDeleted) / (1024 * 1024)
+                print("✓ Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB")
+            } else {
+                print("✓ Cleanup completed: No orphaned files found")
             }
-        }
-        
-        if deletedCount > 0 {
-            let sizeInMB = Double(totalSizeDeleted) / (1024 * 1024)
-            print("✓ Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB")
-        } else {
-            print("✓ Cleanup completed: No orphaned files found")
         }
     }
     
@@ -735,10 +895,10 @@ class ClipboardHistoryManager: ObservableObject {
             var needsHTMLMigration = false
             
             // Check what needs migration
-            if let rtfData = item.rtfData, item.rtfDataPath == nil {
+            if let _ = item.rtfData, item.rtfDataPath == nil {
                 needsRTFMigration = true
             }
-            if let htmlData = item.htmlData, item.htmlDataPath == nil {
+            if let _ = item.htmlData, item.htmlDataPath == nil {
                 needsHTMLMigration = true
             }
             
@@ -858,6 +1018,22 @@ struct ClipboardItem: Codable, Identifiable {
         self.timestamp = timestamp
         self.isPinned = isPinned
         self.isSensitive = isSensitive
+    }
+    
+    /// Initializer for database loading (preserves existing ID)
+    /// Used when loading from database to maintain item identity
+    init(id: UUID, plainTextPreview: String, fullText: String?, rtfDataPath: String?, htmlDataPath: String?, imagePath: String?, timestamp: Date, isPinned: Bool, isSensitive: Bool) {
+        self.id = id
+        self.plainTextPreview = plainTextPreview
+        self.fullText = fullText
+        self.rtfDataPath = rtfDataPath
+        self.htmlDataPath = htmlDataPath
+        self.imagePath = imagePath
+        self.timestamp = timestamp
+        self.isPinned = isPinned
+        self.isSensitive = isSensitive
+        self.rtfData = nil
+        self.htmlData = nil
     }
 
     // MARK: - Legacy Support (for backward compatibility)

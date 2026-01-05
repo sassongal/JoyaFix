@@ -239,8 +239,7 @@ struct ClipboardHistoryTabView: View {
                         }
                         .padding(8)
                     }
-                    .frame(height: min(CGFloat(filteredHistory.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { newValue in
+                    .onChange(of: selectedIndex) { _, newValue in
                         withAnimation {
                             proxy.scrollTo(newValue, anchor: .center)
                         }
@@ -370,7 +369,7 @@ struct OCRScansTabView: View {
                         .padding(8)
                     }
                     .frame(height: min(CGFloat(filteredScans.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { newValue in
+                    .onChange(of: selectedIndex) { _, newValue in
                         withAnimation {
                             proxy.scrollTo(newValue, anchor: .center)
                         }
@@ -932,7 +931,7 @@ struct PromptLibraryTabView: View {
                         .padding(8)
                     }
                     .frame(height: min(CGFloat(filteredPrompts.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { newValue in
+                    .onChange(of: selectedIndex) { _, newValue in
                         withAnimation {
                             proxy.scrollTo(newValue, anchor: .center)
                         }

@@ -19,14 +19,19 @@ let package = Package(
         // Sparkle for app updates
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.0"),
         // Pulse for network logging
-        .package(url: "https://github.com/kean/Pulse", from: "4.0.0")
+        .package(url: "https://github.com/kean/Pulse", from: "4.0.0"),
+        // SwiftLint for code style
+        .package(url: "https://github.com/realm/SwiftLint", from: "0.55.1"),
+        // GRDB for SQLite database (replaces UserDefaults for history storage)
+        .package(url: "https://github.com/groue/GRDB.swift", from: "6.0.0")
     ],
     targets: [
         .executableTarget(
             name: "JoyaFix",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
-                .product(name: "Pulse", package: "Pulse")
+                .product(name: "Pulse", package: "Pulse"),
+                .product(name: "GRDB", package: "GRDB.swift")
             ],
             path: ".",
             exclude: [
@@ -49,7 +54,8 @@ let package = Package(
                 "UI_UPGRADE.md",
                 "version.json",
                 "Package.swift",
-                "Package.resolved"
+                "Package.resolved",
+                ".swiftlint.yml"
             ],
             resources: [
                 .process("en.lproj"),
@@ -61,6 +67,9 @@ let package = Package(
                 .linkedFramework("Cocoa"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("ApplicationServices")
+            ],
+            plugins: [
+                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLint")
             ]
         ),
         .testTarget(

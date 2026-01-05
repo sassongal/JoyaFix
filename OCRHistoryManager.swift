@@ -1,6 +1,7 @@
 import Cocoa
 import Foundation
 
+@MainActor
 class OCRHistoryManager: ObservableObject {
     static let shared = OCRHistoryManager()
     
@@ -14,6 +15,12 @@ class OCRHistoryManager: ObservableObject {
     private let maxHistoryCount = JoyaFixConstants.maxOCRHistoryCount
     private let previewImageDirectory: URL
     
+    // Migration flag
+    private let databaseMigrationKey = "OCRHistoryDatabaseMigrationCompleted"
+    
+    // Database manager for persistent storage (replaces UserDefaults)
+    private let databaseManager = HistoryDatabaseManager.shared
+    
     // MARK: - Initialization
     
     private init() {
@@ -22,20 +29,33 @@ class OCRHistoryManager: ObservableObject {
         previewImageDirectory = appSupport.appendingPathComponent(JoyaFixConstants.FilePaths.ocrPreviewsDirectory, isDirectory: true)
         
         // Create directory if it doesn't exist
-        try? FileManager.default.createDirectory(at: previewImageDirectory, withIntermediateDirectories: true, attributes: nil)
+        do {
+            try FileManager.default.createDirectory(at: previewImageDirectory, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            // This is a critical error, as the app cannot function without this directory.
+            print("🔥🔥🔥 CRITICAL: Failed to create OCR previews directory at \(previewImageDirectory.path): \(error.localizedDescription)")
+        }
+        
+        // CRITICAL FIX: Migrate to database first (one-time migration)
+        if !UserDefaults.standard.bool(forKey: databaseMigrationKey) {
+            migrateToDatabase()
+            UserDefaults.standard.set(true, forKey: databaseMigrationKey)
+        }
         
         loadHistory()
     }
     
     // MARK: - History Management
     
-    /// Adds a new OCR scan to history
+    /// Adds a new OCR scan to history, ensuring thread safety via @MainActor.
     func addScan(_ scan: OCRScan) {
-        // FIX: Enhanced error handling
+        // Guard against empty scans
         guard !scan.extractedText.isEmpty else {
             print("⚠️ Skipping empty OCR scan")
             return
         }
+        
+        // All mutations now happen safely on the MainActor
         
         // Remove duplicate if exists (based on text content)
         let removedCount = history.count
@@ -167,7 +187,11 @@ class OCRHistoryManager: ObservableObject {
     func deleteScan(_ scan: OCRScan) {
         // Remove preview image if exists
         if let imagePath = scan.previewImagePath {
-            try? FileManager.default.removeItem(atPath: imagePath)
+            do {
+                try FileManager.default.removeItem(atPath: imagePath)
+            } catch {
+                print("🔥 Failed to remove preview image for deleted scan at \(imagePath): \(error.localizedDescription)")
+            }
         }
         
         history.removeAll { $0.id == scan.id }
@@ -180,7 +204,11 @@ class OCRHistoryManager: ObservableObject {
         // Remove all preview images
         for scan in history {
             if let imagePath = scan.previewImagePath {
-                try? FileManager.default.removeItem(atPath: imagePath)
+                do {
+                    try FileManager.default.removeItem(atPath: imagePath)
+                } catch {
+                    print("🔥 Failed to remove preview image while clearing history at \(imagePath): \(error.localizedDescription)")
+                }
             }
         }
         
@@ -199,40 +227,147 @@ class OCRHistoryManager: ObservableObject {
     
     // MARK: - Persistence
     
-    /// Saves OCR history to UserDefaults
+    /// Saves OCR history to database (replaces UserDefaults)
     /// Returns true if save was successful, false otherwise
+    /// Includes robust error handling with fallback to UserDefaults
     @discardableResult
     private func saveHistory() -> Bool {
-        let encoder = JSONEncoder()
+        // CRITICAL FIX: Save to database instead of UserDefaults
         do {
-            let encoded = try encoder.encode(history)
-            UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
-            print("✓ OCR history saved (\(history.count) scans, \(encoded.count) bytes)")
+            try databaseManager.saveOCRHistory(history)
+            print("✓ OCR history saved to database (\(history.count) scans)")
+            
+            // Clear fallback data if database save succeeded
+            if UserDefaults.standard.data(forKey: userDefaultsKey) != nil {
+                UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+            }
+            UserDefaults.standard.removeObject(forKey: "OCRHistoryFallbackActive")
+            UserDefaults.standard.removeObject(forKey: "OCRHistoryFallbackTimestamp")
+            
             return true
         } catch {
-            print("❌ Failed to encode OCR history: \(error.localizedDescription)")
-            print("   History count: \(history.count)")
-            return false
+            // Detailed error logging
+            let errorDescription = error.localizedDescription
+            let isLocked = DatabaseError.isDatabaseLocked(error)
+            let isIOError = DatabaseError.isIOError(error)
+            
+            if isLocked {
+                print("🔒 Database is locked - using fallback to UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else if isIOError {
+                print("💾 Database I/O error - using fallback to UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else {
+                print("❌ Failed to save OCR history to database: \(errorDescription)")
+            }
+            
+            // Fallback to UserDefaults if database fails (Insurance Policy)
+            let encoder = JSONEncoder()
+            do {
+                let encoded = try encoder.encode(history)
+                UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
+                print("⚠️ Fallback: Saved \(history.count) OCR scans to UserDefaults (\(encoded.count) bytes)")
+                
+                // Log fallback status for monitoring
+                UserDefaults.standard.set(true, forKey: "OCRHistoryFallbackActive")
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "OCRHistoryFallbackTimestamp")
+                
+                return true
+            } catch {
+                print("🔥 CRITICAL: Failed to save to both database and UserDefaults!")
+                print("   Encoding error: \(error.localizedDescription)")
+                return false
+            }
         }
     }
     
-    /// Loads OCR history from UserDefaults
+    /// Loads OCR history from database (replaces UserDefaults)
+    /// Includes robust error handling with fallback to UserDefaults
     private func loadHistory() {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
-            print("ℹ️ No OCR history found in UserDefaults (first run)")
-            return
-        }
-        
-        let decoder = JSONDecoder()
+        // CRITICAL FIX: Load from database instead of UserDefaults
         do {
-            let decoded = try decoder.decode([OCRScan].self, from: data)
-            history = decoded
-            print("✓ Loaded \(history.count) OCR scans from history (\(data.count) bytes)")
+            let items = try databaseManager.loadOCRHistory()
+            history = items
+            print("✓ Loaded \(history.count) OCR scans from database")
+            
+            // Check if we have fallback data that needs to be migrated back
+            if UserDefaults.standard.bool(forKey: "OCRHistoryFallbackActive") {
+                print("🔄 Detected fallback data - attempting to migrate back to database...")
+                // Try to save current database state, then merge with fallback if needed
+                if let fallbackData = UserDefaults.standard.data(forKey: userDefaultsKey) {
+                    let decoder = JSONDecoder()
+                    if let fallbackItems = try? decoder.decode([OCRScan].self, from: fallbackData) {
+                        // Merge fallback items with database items (avoid duplicates)
+                        var mergedItems = items
+                        for fallbackItem in fallbackItems {
+                            if !mergedItems.contains(where: { $0.id == fallbackItem.id }) {
+                                mergedItems.append(fallbackItem)
+                            }
+                        }
+                        // Sort by date
+                        mergedItems.sort { $0.date > $1.date }
+                        history = mergedItems
+                        
+                        // Try to save merged data back to database
+                        do {
+                            try databaseManager.saveOCRHistory(mergedItems)
+                            // Clear fallback data after successful migration
+                            UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+                            UserDefaults.standard.removeObject(forKey: "OCRHistoryFallbackActive")
+                            UserDefaults.standard.removeObject(forKey: "OCRHistoryFallbackTimestamp")
+                            print("✓ Successfully migrated fallback data back to database")
+                        } catch {
+                            print("⚠️ Could not migrate fallback data back to database: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
         } catch {
-            print("❌ Failed to decode OCR history: \(error.localizedDescription)")
-            print("   Data size: \(data.count) bytes")
-            // Reset to empty history on decode failure
-            history = []
+            // Detailed error logging
+            let errorDescription = error.localizedDescription
+            let isLocked = DatabaseError.isDatabaseLocked(error)
+            let isIOError = DatabaseError.isIOError(error)
+            
+            if isLocked {
+                print("🔒 Database is locked - using fallback from UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else if isIOError {
+                print("💾 Database I/O error - using fallback from UserDefaults")
+                print("   Error details: \(errorDescription)")
+            } else {
+                print("❌ Failed to load OCR history from database: \(errorDescription)")
+            }
+            
+            // Fallback to UserDefaults if database fails
+            guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
+                print("ℹ️ No OCR history found (first run)")
+                history = []
+                return
+            }
+            
+            let decoder = JSONDecoder()
+            do {
+                let decoded = try decoder.decode([OCRScan].self, from: data)
+                history = decoded
+                print("⚠️ Fallback: Loaded \(history.count) OCR scans from UserDefaults (\(data.count) bytes)")
+                
+                // Mark fallback as active
+                UserDefaults.standard.set(true, forKey: "OCRHistoryFallbackActive")
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "OCRHistoryFallbackTimestamp")
+            } catch {
+                print("🔥 CRITICAL: Failed to decode fallback data: \(error.localizedDescription)")
+                history = []
+            }
+        }
+    }
+    
+    /// Migrates OCR history from UserDefaults to database (one-time migration)
+    private func migrateToDatabase() {
+        print("🔄 Migrating OCR history from UserDefaults to database...")
+        let success = databaseManager.migrateOCRHistoryFromUserDefaults()
+        if success {
+            // Reload from database after migration
+            loadHistory()
         }
     }
 }
