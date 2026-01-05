@@ -266,26 +266,32 @@ class InputMonitor {
     }
     
     private func checkForSnippetMatch() {
-        // FIX: Thread-safe - check monitoring state and buffer
         guard _isMonitoring else { return }
         
-        // Get triggers sorted by length (descending) to prioritize longer/specific matches
-        // Example: "!mail-work" should match before "!mail" to avoid false positives
-        let triggers = snippetManager.getAllTriggers()
-            .sorted { $0.count > $1.count }
+        // מיין טריגרים מהארוך לקצר כדי למנוע התנגשויות (למשל !mail1 יזוהה לפני !mail)
+        let triggers = snippetManager.getAllTriggers().sorted { $0.count > $1.count }
         
-        // Check for whole-word matches (longest first to prioritize specific triggers)
         for trigger in triggers {
-            if isWholeWordMatch(trigger: trigger, in: keyBuffer) {
-                // Found a match!
-                expandSnippet(trigger: trigger)
-                return
+            if keyBuffer.hasSuffix(trigger) {
+                // בדיקת גבול מילה: וודא שהתו שלפני הטריגר הוא רווח/סימן פיסוק (או תחילת השורה)
+                let triggerLength = trigger.count
+                let bufferLength = keyBuffer.count
+                
+                var isWholeWord = true
+                if bufferLength > triggerLength {
+                    let indexBeforeTrigger = keyBuffer.index(keyBuffer.endIndex, offsetBy: -(triggerLength + 1))
+                    let charBefore = keyBuffer[indexBeforeTrigger]
+                    // אם התו שלפני הוא אות או מספר, זה לא סניפט (למשל hotmail לא יפעיל את mail)
+                    if charBefore.isLetter || charBefore.isNumber {
+                        isWholeWord = false
+                    }
+                }
+                
+                if isWholeWord {
+                    expandSnippet(trigger: trigger)
+                    return
+                }
             }
-        }
-        
-        // Clear buffer on word boundaries if no match found
-        if let lastChar = keyBuffer.last, isWordDelimiter(lastChar) {
-            clearBufferOnDelimiter()
         }
     }
     

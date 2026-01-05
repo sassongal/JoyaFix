@@ -6,10 +6,13 @@ import Carbon
 struct HistoryView: View {
     @ObservedObject var clipboardManager = ClipboardHistoryManager.shared
     @ObservedObject var ocrManager = OCRHistoryManager.shared
+    @ObservedObject var promptManager = PromptLibraryManager.shared
     @State private var searchText = ""
     @State private var selectedIndex = 0
-    @State private var selectedTab = 0 // 0 = Clipboard, 1 = OCR Scans
+    @State private var selectedTab = 0 // 0 = Clipboard, 1 = OCR Scans, 2 = Library
     @FocusState private var isSearchFocused: Bool
+    @State private var editingPrompt: PromptTemplate?
+    @State private var showingEditor = false
 
     var onPasteItem: (ClipboardItem, Bool) -> Void  // Bool indicates plainTextOnly
     var onClose: () -> Void
@@ -47,6 +50,35 @@ struct HistoryView: View {
             return score1 > score2
         }
     }
+    
+    var filteredPrompts: [PromptTemplate] {
+        if searchText.isEmpty {
+            // Sort by lastUsed (most recent first), then by title
+            return promptManager.prompts.sorted { prompt1, prompt2 in
+                if let date1 = prompt1.lastUsed, let date2 = prompt2.lastUsed {
+                    return date1 > date2
+                } else if prompt1.lastUsed != nil {
+                    return true
+                } else if prompt2.lastUsed != nil {
+                    return false
+                } else {
+                    return prompt1.title < prompt2.title
+                }
+            }
+        }
+        // Use fuzzy search with threshold
+        let threshold = 0.3
+        return promptManager.prompts.filter { prompt in
+            let titleScore = prompt.title.fuzzyScore(word: searchText)
+            let contentScore = prompt.content.fuzzyScore(word: searchText)
+            return max(titleScore, contentScore) >= threshold
+        }.sorted { prompt1, prompt2 in
+            // Sort by score (highest first)
+            let score1 = max(prompt1.title.fuzzyScore(word: searchText), prompt1.content.fuzzyScore(word: searchText))
+            let score2 = max(prompt2.title.fuzzyScore(word: searchText), prompt2.content.fuzzyScore(word: searchText))
+            return score1 > score2
+        }
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -76,8 +108,56 @@ struct HistoryView: View {
                 Label("OCR Scans", systemImage: "viewfinder")
             }
             .tag(1)
+            
+            // Library Tab
+            PromptLibraryTabView(
+                filteredPrompts: filteredPrompts,
+                searchText: $searchText,
+                selectedIndex: $selectedIndex,
+                isSearchFocused: $isSearchFocused,
+                editingPrompt: $editingPrompt,
+                showingEditor: $showingEditor,
+                onClose: onClose
+            )
+            .tabItem {
+                Label(NSLocalizedString("library.tab.title", comment: "Library"), systemImage: "book")
+            }
+            .tag(2)
         }
         .frame(width: 400)
+        .sheet(isPresented: $showingEditor) {
+            if let prompt = editingPrompt {
+                PromptEditorView(
+                    prompt: prompt,
+                    onSave: { updatedPrompt in
+                        if promptManager.prompts.contains(where: { $0.id == updatedPrompt.id }) {
+                            promptManager.updatePrompt(updatedPrompt)
+                        } else {
+                            promptManager.addPrompt(updatedPrompt)
+                        }
+                        editingPrompt = nil
+                        showingEditor = false
+                    },
+                    onCancel: {
+                        editingPrompt = nil
+                        showingEditor = false
+                    }
+                )
+            } else {
+                PromptEditorView(
+                    prompt: nil,
+                    onSave: { newPrompt in
+                        promptManager.addPrompt(newPrompt)
+                        editingPrompt = nil
+                        showingEditor = false
+                    },
+                    onCancel: {
+                        editingPrompt = nil
+                        showingEditor = false
+                    }
+                )
+            }
+        }
         .onAppear {
             isSearchFocused = true
             selectedIndex = 0
@@ -160,7 +240,7 @@ struct ClipboardHistoryTabView: View {
                         .padding(8)
                     }
                     .frame(height: min(CGFloat(filteredHistory.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { _, newValue in
+                    .onChange(of: selectedIndex) { newValue in
                         withAnimation {
                             proxy.scrollTo(newValue, anchor: .center)
                         }
@@ -290,7 +370,7 @@ struct OCRScansTabView: View {
                         .padding(8)
                     }
                     .frame(height: min(CGFloat(filteredScans.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { _, newValue in
+                    .onChange(of: selectedIndex) { newValue in
                         withAnimation {
                             proxy.scrollTo(newValue, anchor: .center)
                         }
@@ -743,6 +823,345 @@ struct QuickActionsSection: View {
         keyDownEvent.post(tap: location)
         usleep(10000) // 10ms delay
         keyUpEvent.post(tap: location)
+    }
+}
+
+// MARK: - Prompt Library Tab
+
+struct PromptLibraryTabView: View {
+    let filteredPrompts: [PromptTemplate]
+    @Binding var searchText: String
+    @Binding var selectedIndex: Int
+    @FocusState.Binding var isSearchFocused: Bool
+    @Binding var editingPrompt: PromptTemplate?
+    @Binding var showingEditor: Bool
+    var onClose: () -> Void
+    @ObservedObject var promptManager = PromptLibraryManager.shared
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Search Bar
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 14))
+
+                TextField(NSLocalizedString("library.search.placeholder", comment: "Search prompts..."), text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
+                    .font(.system(size: 13))
+
+                if !searchText.isEmpty {
+                    Button(action: {
+                        searchText = ""
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(10)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+
+            Divider()
+            
+            // Add Prompt Button
+            HStack {
+                Button(action: {
+                    editingPrompt = nil
+                    showingEditor = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 14))
+                        Text(NSLocalizedString("library.add.new", comment: "Add Prompt"))
+                            .font(.system(size: 13))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+
+            Divider()
+
+            // Prompts List
+            if filteredPrompts.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "book")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+
+                    Text(NSLocalizedString("library.empty.state", comment: "No prompts found. Create your own!"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                .frame(height: 200)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(Array(filteredPrompts.enumerated()), id: \.element.id) { index, prompt in
+                                PromptRowView(
+                                    prompt: prompt,
+                                    isSelected: index == selectedIndex,
+                                    onCopy: {
+                                        promptManager.copyPromptToClipboard(prompt)
+                                        onClose()
+                                    },
+                                    onEdit: {
+                                        editingPrompt = prompt
+                                        showingEditor = true
+                                    },
+                                    onDelete: {
+                                        promptManager.deletePrompt(prompt)
+                                        if selectedIndex >= filteredPrompts.count - 1 {
+                                            selectedIndex = max(0, filteredPrompts.count - 2)
+                                        }
+                                    }
+                                )
+                                .id(index)
+                            }
+                        }
+                        .padding(8)
+                    }
+                    .frame(height: min(CGFloat(filteredPrompts.count * 70 + 16), 400))
+                    .onChange(of: selectedIndex) { newValue in
+                        withAnimation {
+                            proxy.scrollTo(newValue, anchor: .center)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            // Footer
+            HStack(spacing: 16) {
+                FooterHintView(icon: "return", text: NSLocalizedString("library.action.copy", comment: "Copy"))
+                FooterHintView(icon: "arrow.up.arrow.down", text: "Navigate")
+                FooterHintView(icon: "plus", text: NSLocalizedString("library.add.new", comment: "Add Prompt"))
+
+                Spacer()
+
+                Text("\(filteredPrompts.count) prompts")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        }
+        .frame(width: 400)
+        .background(Color.clear)
+        .onKeyPress(.upArrow) {
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+            }
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            if selectedIndex < filteredPrompts.count - 1 {
+                selectedIndex += 1
+            }
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if !filteredPrompts.isEmpty {
+                promptManager.copyPromptToClipboard(filteredPrompts[selectedIndex])
+                onClose()
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            onClose()
+            return .handled
+        }
+        .onKeyPress("n") {
+            if NSEvent.modifierFlags.contains(.command) {
+                editingPrompt = nil
+                showingEditor = true
+                return .handled
+            }
+            return .ignored
+        }
+    }
+}
+
+// MARK: - Prompt Row View
+
+struct PromptRowView: View {
+    let prompt: PromptTemplate
+    let isSelected: Bool
+    let onCopy: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            // Icon
+            Image(systemName: prompt.isSystem ? "star.fill" : "doc.text")
+                .font(.system(size: 16))
+                .foregroundColor(isSelected ? .accentColor : (prompt.isSystem ? .orange : .secondary))
+                .frame(width: 24)
+            
+            // Content
+            VStack(alignment: .leading, spacing: 2) {
+                Text(prompt.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundColor(.primary)
+                
+                Text(truncatedContent)
+                    .font(.system(size: 11))
+                    .lineLimit(2)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            // Action buttons (show on hover)
+            if isHovered || isSelected {
+                HStack(spacing: 4) {
+                    if !prompt.isSystem {
+                        Button(action: onEdit) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button(action: onDelete) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onTapGesture {
+            onCopy()
+        }
+    }
+    
+    private var truncatedContent: String {
+        let maxLength = 60
+        if prompt.content.count > maxLength {
+            return String(prompt.content.prefix(maxLength)) + "..."
+        }
+        return prompt.content
+    }
+}
+
+// MARK: - Prompt Editor View
+
+struct PromptEditorView: View {
+    let prompt: PromptTemplate?
+    let onSave: (PromptTemplate) -> Void
+    let onCancel: () -> Void
+    
+    @State private var title: String
+    @State private var content: String
+    @FocusState private var isTitleFocused: Bool
+    
+    init(prompt: PromptTemplate?, onSave: @escaping (PromptTemplate) -> Void, onCancel: @escaping () -> Void) {
+        self.prompt = prompt
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _title = State(initialValue: prompt?.title ?? "")
+        _content = State(initialValue: prompt?.content ?? "")
+    }
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Title
+            Text(prompt == nil ? NSLocalizedString("library.editor.title.add", comment: "New Prompt") : NSLocalizedString("library.editor.title.edit", comment: "Edit Prompt"))
+                .font(.system(size: 18, weight: .semibold))
+                .padding(.top, 20)
+            
+            // Form
+            VStack(alignment: .leading, spacing: 12) {
+                // Title field
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(NSLocalizedString("library.editor.title.label", comment: "Title"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    
+                    TextField("", text: $title)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isTitleFocused)
+                }
+                
+                // Content field
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(NSLocalizedString("library.editor.content.label", comment: "Prompt Content"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    
+                    TextEditor(text: $content)
+                        .frame(height: 200)
+                        .padding(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color(NSColor.separatorColor), lineWidth: 1)
+                        )
+                }
+            }
+            .padding(.horizontal, 20)
+            
+            // Buttons
+            HStack(spacing: 12) {
+                Button(action: onCancel) {
+                    Text(NSLocalizedString("library.editor.cancel", comment: "Cancel"))
+                        .frame(width: 80)
+                }
+                .keyboardShortcut(.cancelAction)
+                
+                Spacer()
+                
+                Button(action: {
+                    let newPrompt = PromptTemplate(
+                        id: prompt?.id ?? UUID(),
+                        title: title,
+                        content: content,
+                        isSystem: prompt?.isSystem ?? false,
+                        lastUsed: prompt?.lastUsed
+                    )
+                    onSave(newPrompt)
+                }) {
+                    Text(NSLocalizedString("library.editor.save", comment: "Save"))
+                        .frame(width: 80)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 500, height: 400)
+        .onAppear {
+            isTitleFocused = true
+        }
     }
 }
 

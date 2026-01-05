@@ -105,6 +105,7 @@ enum JoyaFixConstants {
         static let ocrHistory = "OCRHistory"
         static let snippets = "JoyaFixSnippets"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let promptLibrary = "PromptLibrary"
     }
     
     // MARK: - Keychain

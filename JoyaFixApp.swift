@@ -67,7 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem?.button {
             // Fail-safe logo loading for menubar icon
             if let logoImage = loadMenubarLogo() {
-                // Resize logo to menubar size (typically 18-22px)
+                // Resize logo to menubar size (22px)
                 let resizedLogo = NSImage(size: NSSize(width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize))
                 resizedLogo.lockFocus()
                 logoImage.draw(in: NSRect(x: 0, y: 0, width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize),
@@ -288,7 +288,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Clears all clipboard history
     @objc func clearHistory() {
-        clipboardManager.clearHistory(keepPinned: false)
+        Task { @MainActor in
+            clipboardManager.clearHistory(keepPinned: false)
+        }
     }
 
     /// Converts selected text layout from context menu

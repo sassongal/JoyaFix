@@ -306,7 +306,7 @@ class ScreenCaptureManager {
         }
         // Configure barcode request to detect all supported symbologies
         barcodeRequest.symbologies = [
-            .QR, .Aztec, .Code128, .Code39, .Code39Mod43, .Code93,
+            .QR, .Aztec, .Code128, .Code39, .Code93,
             .DataMatrix, .EAN13, .EAN8, .I2of5, .ITF14, .PDF417,
             .UPCE
         ]

@@ -134,3 +134,23 @@
 "prompt.enhancer.error.api.key.title" = "Gemini API Key Required";
 "prompt.enhancer.error.api.key.message" = "To use AI features, please enter your Google Gemini API Key in Settings.";
 
+/* Prompt Library */
+"library.tab.title" = "Library";
+"library.search.placeholder" = "Search prompts...";
+"library.empty.state" = "No prompts found. Create your own!";
+"library.action.copy" = "Copy";
+"library.action.edit" = "Edit";
+"library.action.delete" = "Delete";
+"library.add.new" = "Add Prompt";
+"library.editor.title.add" = "New Prompt";
+"library.editor.title.edit" = "Edit Prompt";
+"library.editor.title.label" = "Title";
+"library.editor.content.label" = "Prompt Content";
+"library.editor.save" = "Save";
+"library.editor.cancel" = "Cancel";
+"library.default.polish" = "Professional Polish";
+"library.default.code" = "Code Review";
+"library.default.summarize" = "Summarize";
+"library.default.translate" = "Translate to Hebrew";
+"library.default.explain" = "Explain Simply";
+

@@ -134,3 +134,23 @@
 "prompt.enhancer.error.api.key.title" = "נדרש מפתח Gemini API";
 "prompt.enhancer.error.api.key.message" = "כדי להשתמש בתכונות AI, יש להזין מפתח Google Gemini API בהגדרות.";
 
+/* Prompt Library */
+"library.tab.title" = "ספרייה";
+"library.search.placeholder" = "חפש הנחיות...";
+"library.empty.state" = "לא נמצאו הנחיות. צור משלך!";
+"library.action.copy" = "העתק";
+"library.action.edit" = "ערוך";
+"library.action.delete" = "מחק";
+"library.add.new" = "הוסף הנחיה";
+"library.editor.title.add" = "הנחיה חדשה";
+"library.editor.title.edit" = "ערוך הנחיה";
+"library.editor.title.label" = "כותרת";
+"library.editor.content.label" = "תוכן ההנחיה";
+"library.editor.save" = "שמור";
+"library.editor.cancel" = "בטל";
+"library.default.polish" = "ליטוש מקצועי";
+"library.default.code" = "ביקורת קוד";
+"library.default.summarize" = "סיכום";
+"library.default.translate" = "תרגום לעברית";
+"library.default.explain" = "הסבר פשוט";
+

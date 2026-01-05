@@ -5,8 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "JoyaFix",
+    defaultLocalization: "en",
     platforms: [
-        .macOS(.v11)
+        .macOS(.v14)
     ],
     products: [
         .executable(
@@ -27,9 +28,33 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Pulse", package: "Pulse")
             ],
-            path: "Sources/JoyaFix",
+            path: ".",
+            exclude: [
+                "build.sh",
+                "run.sh",
+                "test.sh",
+                "migrate_to_spm.sh",
+                "Tests",
+                "JoyaFix.app",
+                ".build",
+                "DEBUG.md",
+                "EXECUTION_PLAN.md",
+                "GAP_ANALYSIS.md",
+                "HOTKEY_SYSTEM.md",
+                "OPTIMIZATION.md",
+                "README.md",
+                "SOUND_SETUP.md",
+                "SPM_MIGRATION.md",
+                "UI_UPGRADE.md",
+                "version.json",
+                "Package.swift",
+                "Package.resolved"
+            ],
             resources: [
-                .process("Resources")
+                .process("en.lproj"),
+                .process("he.lproj"),
+                .process("FLATLOGO.png"),
+                .process("success.wav")
             ],
             linkerSettings: [
                 .linkedFramework("Cocoa"),

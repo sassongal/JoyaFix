@@ -39,13 +39,28 @@ class ClipboardHistoryManager: ObservableObject {
         // Create directory if it doesn't exist
         try? FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: nil)
         
-        // Load history (before migration)
-        loadHistory()
-        
-        // Migrate old data if needed
-        if !UserDefaults.standard.bool(forKey: migrationKey) {
-            migrateOldHistory()
-            UserDefaults.standard.set(true, forKey: migrationKey)
+        // Load history (before migration) - must be on main thread
+        // Use DispatchQueue.main.sync to ensure synchronous loading during init
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                loadHistory()
+                // Migrate old data if needed
+                if !UserDefaults.standard.bool(forKey: migrationKey) {
+                    migrateOldHistory()
+                    UserDefaults.standard.set(true, forKey: migrationKey)
+                }
+            }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    loadHistory()
+                    // Migrate old data if needed
+                    if !UserDefaults.standard.bool(forKey: migrationKey) {
+                        migrateOldHistory()
+                        UserDefaults.standard.set(true, forKey: migrationKey)
+                    }
+                }
+            }
         }
         
         lastChangeCount = NSPasteboard.general.changeCount
@@ -85,170 +100,192 @@ class ClipboardHistoryManager: ObservableObject {
             return
         }
 
-        // Capture clipboard content asynchronously (RTF + plain text)
-        captureClipboardContent { [weak self] item in
-            guard let self = self, let item = item else { return }
-            
-            // Ignore empty strings
-            guard !item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-            // Get full text for comparison (handles both preview and full text)
-            let itemFullText = item.textForPasting
-
-            // Strict deduplication: Check against all items in history
-            let isDuplicate = self.history.contains { historyItem in
-                historyItem.textForPasting == itemFullText
-            }
-
-            if isDuplicate {
-                print("📝 Skipping duplicate: \(item.plainTextPreview.prefix(30))...")
-                return
-            }
-
-            // Add to history
-            self.addToHistory(item)
-            self.lastCopiedText = itemFullText
+        // Capture clipboard content synchronously on main thread (required for NSPasteboard)
+        guard let tempItem = captureClipboardContent() else { return }
+        
+        // Check if this is an image item (imagePath will be nil initially, and no RTF/HTML data)
+        // Images are handled separately by captureImageContent -> processAndSaveImageItem
+        let isImageItem = tempItem.rtfData == nil && tempItem.htmlData == nil && tempItem.imagePath == nil && 
+                          tempItem.plainTextPreview == "Image"
+        
+        // For images, captureImageContent already handles async processing
+        // The deduplication will be handled in processAndSaveImageItem
+        if isImageItem {
+            return
         }
+        
+        // Ignore empty strings
+        guard !tempItem.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Get full text for comparison (handles both preview and full text)
+        let itemFullText = tempItem.textForPasting
+
+        // Strict deduplication: Check against all items in history
+        let isDuplicate = history.contains { historyItem in
+            historyItem.textForPasting == itemFullText
+        }
+
+        if isDuplicate {
+            print("📝 Skipping duplicate: \(tempItem.plainTextPreview.prefix(30))...")
+            return
+        }
+
+        // Process and save heavy data asynchronously, then add to history
+        processAndSaveItem(tempItem)
+        lastCopiedText = itemFullText
     }
 
-    /// Captures the current clipboard content including RTF data and images (async)
-    private func captureClipboardContent(completion: @escaping (ClipboardItem?) -> Void) {
-        // STEP 1: Grab data from Pasteboard on Main Thread (required for NSPasteboard access)
+    // גרסה משופרת ל-captureClipboardContent (רצה ברקע)
+    /// Captures the current clipboard content including RTF data and images (synchronous, must be called on main thread)
+    private func captureClipboardContent() -> ClipboardItem? {
+        // קריאה מהלוח חייבת להיות ב-Main Thread
         let pasteboard = NSPasteboard.general
         
-        // Check for images first (TIFF or PNG)
+        // Check for images first (TIFF or PNG) - handle separately with async save
         if let imageData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png) {
-            captureImageContent(imageData: imageData, pasteboard: pasteboard, completion: completion)
-            return
+            return captureImageContent(imageData: imageData, pasteboard: pasteboard)
         }
-
+        
         // Try to get plain text (required for text items)
         guard let plainText = pasteboard.string(forType: .string) else {
-            completion(nil)
-            return
+            return nil
         }
-
-        // Try to get RTF data (optional, preserves formatting)
-        var rtfData: Data?
-        var htmlData: Data?
-
-        // Priority 1: Check for RTFD (Rich Text with attachments)
-        if let rtfdData = pasteboard.data(forType: .rtfd) {
-            rtfData = rtfdData
-            print("📝 Captured RTFD data (\(rtfdData.count) bytes)")
+        
+        // שליפת הנתונים הכבדים (Data) ב-Main Thread, אך השמירה תהיה אחר כך
+        let rtfData = pasteboard.data(forType: .rtfd) ?? pasteboard.data(forType: .rtf)
+        let htmlData = pasteboard.data(forType: .html)
+        
+        if let rtf = rtfData {
+            print("📝 Captured RTF data (\(rtf.count) bytes)")
         }
-        // Priority 2: Check for RTF
-        else if let rtfDataFound = pasteboard.data(forType: .rtf) {
-            rtfData = rtfDataFound
-            print("📝 Captured RTF data (\(rtfDataFound.count) bytes)")
-        }
-
-        // Also capture HTML if available (for web content)
-        if let htmlDataFound = pasteboard.data(forType: .html) {
-            htmlData = htmlDataFound
-            print("🌐 Captured HTML data (\(htmlDataFound.count) bytes)")
+        if let html = htmlData {
+            print("🌐 Captured HTML data (\(html.count) bytes)")
         }
         
         // Check for password/sensitive data indicators
-        let pasteboardTypes = pasteboard.types
+        let pasteboardTypes = pasteboard.types ?? []
         let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
                          pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
-
-        // STEP 2: Switch to background queue for file I/O (userInitiated priority for responsive UI)
-        DispatchQueue.global(qos: .userInitiated).async {
-            // Save RTF/HTML to disk on background thread
-            let group = DispatchGroup()
-            var rtfDataPath: String? = nil
-            var htmlDataPath: String? = nil
+        
+        // יצירת פריט זמני (ללא נתיבים עדיין)
+        return ClipboardItem(
+            plainTextPreview: plainText,
+            rtfData: rtfData, // נשתמש בזה זמנית להעברה
+            htmlData: htmlData, // נשתמש בזה זמנית להעברה
+            timestamp: Date(),
+            isPinned: false,
+            rtfDataPath: nil,
+            htmlDataPath: nil,
+            imagePath: nil,
+            isSensitive: isSensitive
+        )
+    }
+    
+    // פונקציה חדשה לטיפול אסינכרוני
+    /// Processes and saves heavy data (RTF/HTML) to disk asynchronously, then adds item to history
+    private func processAndSaveItem(_ tempItem: ClipboardItem) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
             
-            if let rtf = rtfData {
-                group.enter()
-                self.saveRichData(rtf, type: .rtf) { path in
-                    rtfDataPath = path
-                    group.leave()
-                }
+            var rtfPath: String?
+            var htmlPath: String?
+            
+            // שמירה כבדה לדיסק - רצה ברקע!
+            if let rtf = tempItem.rtfData {
+                rtfPath = self.saveRichData(rtf, type: .rtf)
+            }
+            if let html = tempItem.htmlData {
+                htmlPath = self.saveRichData(html, type: .html)
             }
             
-            if let html = htmlData {
-                group.enter()
-                self.saveRichData(html, type: .html) { path in
-                    htmlDataPath = path
-                    group.leave()
-                }
-            }
-            
-            // Wait for all file saves to complete
-            group.wait()
-            
-            // Construct ClipboardItem on background thread
-            let item = ClipboardItem(
-                plainTextPreview: plainText,
-                rtfData: nil,  // Don't store in struct, only on disk
-                htmlData: nil,  // Don't store in struct, only on disk
-                timestamp: Date(),
+            let finalItem = ClipboardItem(
+                plainTextPreview: tempItem.plainTextPreview,
+                rtfData: nil, htmlData: nil, // מנקים את המידע מהזיכרון
+                timestamp: tempItem.timestamp,
                 isPinned: false,
-                rtfDataPath: rtfDataPath,
-                htmlDataPath: htmlDataPath,
-                imagePath: nil,
-                isSensitive: isSensitive
+                rtfDataPath: rtfPath,
+                htmlDataPath: htmlPath,
+                imagePath: tempItem.imagePath,
+                isSensitive: tempItem.isSensitive
             )
             
-            // STEP 3: Switch to MainActor ONLY when updating @Published history
+            // חזרה ל-Main Thread לעדכון ה-UI
             DispatchQueue.main.async {
-                completion(item)
+                self.addToHistory(finalItem)
             }
         }
     }
     
-    /// Captures image content from clipboard (async)
-    private func captureImageContent(imageData: Data, pasteboard: NSPasteboard, completion: @escaping (ClipboardItem?) -> Void) {
+    /// Captures image content from clipboard (synchronous, must be called on main thread)
+    private func captureImageContent(imageData: Data, pasteboard: NSPasteboard) -> ClipboardItem? {
         // Check for password/sensitive data indicators (on main thread)
-        let pasteboardTypes = pasteboard.types
+        let pasteboardTypes = pasteboard.types ?? []
         let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
                          pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
         
         // Get text representation if available (for image descriptions) - on main thread
         let textPreview = pasteboard.string(forType: .string) ?? "Image"
         
-        // Switch to background queue for file I/O (userInitiated priority for responsive UI)
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Create temporary item - image will be saved asynchronously
+        // We'll use processAndSaveImageItem for images since they need special handling
+        let tempItem = ClipboardItem(
+            plainTextPreview: textPreview,
+            rtfData: nil,
+            htmlData: nil,
+            timestamp: Date(),
+            isPinned: false,
+            rtfDataPath: nil,
+            htmlDataPath: nil,
+            imagePath: nil, // Will be set after async save
+            isSensitive: isSensitive
+        )
+        
+        // Process image separately
+        processAndSaveImageItem(tempItem, imageData: imageData)
+        return tempItem
+    }
+    
+    /// Processes and saves image data to disk asynchronously, then adds item to history
+    private func processAndSaveImageItem(_ tempItem: ClipboardItem, imageData: Data) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
             // Save image to disk on background thread
-            let group = DispatchGroup()
-            var imagePath: String? = nil
-            
-            group.enter()
-            self.saveImageData(imageData) { path in
-                imagePath = path
-                group.leave()
-            }
-            
-            // Wait for file save to complete
-            group.wait()
+            let imagePath = self.saveImageData(imageData)
             
             guard let savedImagePath = imagePath else {
                 print("❌ Failed to save image to disk")
-                DispatchQueue.main.async {
-                    completion(nil)
-                }
                 return
             }
             
-            // Construct ClipboardItem on background thread
-            let item = ClipboardItem(
-                plainTextPreview: textPreview,
+            let finalItem = ClipboardItem(
+                plainTextPreview: tempItem.plainTextPreview,
                 rtfData: nil,
                 htmlData: nil,
-                timestamp: Date(),
+                timestamp: tempItem.timestamp,
                 isPinned: false,
                 rtfDataPath: nil,
                 htmlDataPath: nil,
                 imagePath: savedImagePath,
-                isSensitive: isSensitive
+                isSensitive: tempItem.isSensitive
             )
             
-            // Switch to MainActor ONLY when updating @Published history
+            // חזרה ל-Main Thread לעדכון ה-UI ולבדיקת כפילויות
             DispatchQueue.main.async {
-                completion(item)
+                // Check for duplicates (compare by image path for images)
+                let isDuplicate = self.history.contains { historyItem in
+                    historyItem.imagePath == savedImagePath
+                }
+                
+                if isDuplicate {
+                    print("📝 Skipping duplicate image: \(tempItem.plainTextPreview.prefix(30))...")
+                    // Delete the saved image file since it's a duplicate
+                    try? FileManager.default.removeItem(atPath: savedImagePath)
+                    return
+                }
+                
+                self.addToHistory(finalItem)
+                self.lastCopiedText = finalItem.textForPasting
             }
         }
     }
@@ -289,6 +326,23 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
+    /// Saves RTF/HTML data to disk synchronously (for use in background thread)
+    /// Returns the file path or nil on failure
+    private func saveRichData(_ data: Data, type: RichDataType) -> String? {
+        let fileName = "\(UUID().uuidString).\(type.fileExtension)"
+        let fileURL = self.dataDirectory.appendingPathComponent(fileName)
+        
+        do {
+            try data.write(to: fileURL)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+            print("✓ Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)")
+            return fileURL.path
+        } catch {
+            print("❌ Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
     /// Loads RTF/HTML data from disk
     private func loadRichData(from path: String) -> Data? {
         guard FileManager.default.fileExists(atPath: path) else {
@@ -324,6 +378,23 @@ class ClipboardHistoryManager: ObservableObject {
             }
         }
     }
+    
+    /// Saves image data to disk synchronously (for use in background thread)
+    /// Returns the file path or nil on failure
+    private func saveImageData(_ data: Data) -> String? {
+        let fileName = "\(UUID().uuidString).png"
+        let fileURL = self.dataDirectory.appendingPathComponent(fileName)
+        
+        do {
+            try data.write(to: fileURL)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+            print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
+            return fileURL.path
+        } catch {
+            print("❌ Failed to save image data to disk: \(error.localizedDescription)")
+            return nil
+        }
+    }
 
     // MARK: - History Management
 
@@ -352,18 +423,18 @@ class ClipboardHistoryManager: ObservableObject {
         // Limit unpinned items (pinned items don't count toward the limit)
         if newUnpinnedItems.count > maxHistoryCount {
             // Get items that will be dropped (from index maxHistoryCount to the end)
-            let itemsToDrop = Array(newUnpinnedItems.dropFirst(maxHistoryCount))
+            let itemsToRemove = Array(newUnpinnedItems.suffix(newUnpinnedItems.count - maxHistoryCount))
             
-            // Delete files for dropped items
-            for item in itemsToDrop {
-                if let rtfPath = item.rtfDataPath {
-                    try? FileManager.default.removeItem(atPath: rtfPath)
+            // מחיקת קבצים של פריטים שנזרקים מהרשימה!
+            for oldItem in itemsToRemove {
+                if let path = oldItem.rtfDataPath {
+                    try? FileManager.default.removeItem(atPath: path)
                 }
-                if let htmlPath = item.htmlDataPath {
-                    try? FileManager.default.removeItem(atPath: htmlPath)
+                if let path = oldItem.htmlDataPath {
+                    try? FileManager.default.removeItem(atPath: path)
                 }
-                if let imagePath = item.imagePath {
-                    try? FileManager.default.removeItem(atPath: imagePath)
+                if let path = oldItem.imagePath {
+                    try? FileManager.default.removeItem(atPath: path)
                 }
             }
             
@@ -584,6 +655,8 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - Migration
     
     /// Migrates old clipboard history from UserDefaults (with embedded Data) to disk-based storage
+    /// MUST be called on MainActor to ensure thread safety for @Published history
+    @MainActor
     private func migrateOldHistory() {
         print("🔄 Starting clipboard history migration...")
         
