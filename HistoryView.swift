@@ -487,10 +487,19 @@ struct HistoryItemRow: View {
                     )
             } else {
                 // Show icon for text items
-                Image(systemName: contentIcon)
-                    .font(.system(size: 16))
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-                    .frame(width: 24)
+                HStack(spacing: 4) {
+                    Image(systemName: contentIcon)
+                        .font(.system(size: 16))
+                        .foregroundColor(isSelected ? .accentColor : .secondary)
+                    
+                    // Show red lock icon if item is sensitive (password)
+                    if item.isSensitive {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                    }
+                }
+                .frame(width: 24)
             }
 
             // Content

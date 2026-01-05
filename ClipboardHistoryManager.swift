@@ -113,8 +113,9 @@ class ClipboardHistoryManager: ObservableObject {
 
     /// Captures the current clipboard content including RTF data and images (async)
     private func captureClipboardContent(completion: @escaping (ClipboardItem?) -> Void) {
+        // STEP 1: Grab data from Pasteboard on Main Thread (required for NSPasteboard access)
         let pasteboard = NSPasteboard.general
-
+        
         // Check for images first (TIFF or PNG)
         if let imageData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png) {
             captureImageContent(imageData: imageData, pasteboard: pasteboard, completion: completion)
@@ -147,30 +148,39 @@ class ClipboardHistoryManager: ObservableObject {
             htmlData = htmlDataFound
             print("🌐 Captured HTML data (\(htmlDataFound.count) bytes)")
         }
+        
+        // Check for password/sensitive data indicators
+        let pasteboardTypes = pasteboard.types
+        let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
+                         pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
 
-        // Save RTF/HTML to disk asynchronously and chain completions
-        let group = DispatchGroup()
-        var rtfDataPath: String? = nil
-        var htmlDataPath: String? = nil
-        
-        if let rtf = rtfData {
-            group.enter()
-            saveRichData(rtf, type: .rtf) { path in
-                rtfDataPath = path
-                group.leave()
+        // STEP 2: Switch to background task for file I/O and item construction
+        Task.detached(priority: .utility) {
+            // Save RTF/HTML to disk on background thread
+            let group = DispatchGroup()
+            var rtfDataPath: String? = nil
+            var htmlDataPath: String? = nil
+            
+            if let rtf = rtfData {
+                group.enter()
+                self.saveRichData(rtf, type: .rtf) { path in
+                    rtfDataPath = path
+                    group.leave()
+                }
             }
-        }
-        
-        if let html = htmlData {
-            group.enter()
-            saveRichData(html, type: .html) { path in
-                htmlDataPath = path
-                group.leave()
+            
+            if let html = htmlData {
+                group.enter()
+                self.saveRichData(html, type: .html) { path in
+                    htmlDataPath = path
+                    group.leave()
+                }
             }
-        }
-        
-        // Wait for all file saves to complete, then create item
-        group.notify(queue: .main) {
+            
+            // Wait for all file saves to complete
+            group.wait()
+            
+            // Construct ClipboardItem on background thread
             let item = ClipboardItem(
                 plainTextPreview: plainText,
                 rtfData: nil,  // Don't store in struct, only on disk
@@ -179,25 +189,51 @@ class ClipboardHistoryManager: ObservableObject {
                 isPinned: false,
                 rtfDataPath: rtfDataPath,
                 htmlDataPath: htmlDataPath,
-                imagePath: nil
+                imagePath: nil,
+                isSensitive: isSensitive
             )
-            completion(item)
+            
+            // STEP 3: Switch back to MainActor to call completion
+            await MainActor.run {
+                completion(item)
+            }
         }
     }
     
     /// Captures image content from clipboard (async)
     private func captureImageContent(imageData: Data, pasteboard: NSPasteboard, completion: @escaping (ClipboardItem?) -> Void) {
-        // Save image to disk asynchronously
-        saveImageData(imageData) { imagePath in
-            guard let imagePath = imagePath else {
+        // Check for password/sensitive data indicators (on main thread)
+        let pasteboardTypes = pasteboard.types
+        let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
+                         pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
+        
+        // Get text representation if available (for image descriptions) - on main thread
+        let textPreview = pasteboard.string(forType: .string) ?? "Image"
+        
+        // Switch to background task for file I/O
+        Task.detached(priority: .utility) {
+            // Save image to disk on background thread
+            let group = DispatchGroup()
+            var imagePath: String? = nil
+            
+            group.enter()
+            self.saveImageData(imageData) { path in
+                imagePath = path
+                group.leave()
+            }
+            
+            // Wait for file save to complete
+            group.wait()
+            
+            guard let savedImagePath = imagePath else {
                 print("❌ Failed to save image to disk")
-                completion(nil)
+                await MainActor.run {
+                    completion(nil)
+                }
                 return
             }
             
-            // Try to get text representation if available (for image descriptions)
-            let textPreview = pasteboard.string(forType: .string) ?? "Image"
-            
+            // Construct ClipboardItem on background thread
             let item = ClipboardItem(
                 plainTextPreview: textPreview,
                 rtfData: nil,
@@ -206,9 +242,14 @@ class ClipboardHistoryManager: ObservableObject {
                 isPinned: false,
                 rtfDataPath: nil,
                 htmlDataPath: nil,
-                imagePath: imagePath
+                imagePath: savedImagePath,
+                isSensitive: isSensitive
             )
-            completion(item)
+            
+            // Switch back to MainActor to call completion
+            await MainActor.run {
+                completion(item)
+            }
         }
     }
     
@@ -577,7 +618,8 @@ class ClipboardHistoryManager: ObservableObject {
                             isPinned: item.isPinned,
                             rtfDataPath: rtfPath,
                             htmlDataPath: item.htmlDataPath,
-                            imagePath: item.imagePath
+                            imagePath: item.imagePath,
+                            isSensitive: item.isSensitive
                         )
                         migratedCount += 1
                     }
@@ -598,7 +640,8 @@ class ClipboardHistoryManager: ObservableObject {
                             isPinned: updatedItem.isPinned,
                             rtfDataPath: updatedItem.rtfDataPath,
                             htmlDataPath: htmlPath,
-                            imagePath: updatedItem.imagePath
+                            imagePath: updatedItem.imagePath,
+                            isSensitive: updatedItem.isSensitive
                         )
                         if updatedItem.rtfDataPath == nil {
                             migratedCount += 1
@@ -634,6 +677,7 @@ struct ClipboardItem: Codable, Identifiable {
     let imagePath: String?        // Path to image file on disk (for image clipboard items)
     let timestamp: Date
     var isPinned: Bool
+    let isSensitive: Bool         // Indicates if item contains password/sensitive data
     
     // Legacy support: For migration from old format
     let rtfData: Data?    // Only used during migration, not stored (internal for migration)
@@ -643,7 +687,7 @@ struct ClipboardItem: Codable, Identifiable {
     private static let maxPreviewLength = 200
     private static let largeTextThreshold = 500 // Characters
 
-    init(plainTextPreview: String, rtfData: Data? = nil, htmlData: Data? = nil, timestamp: Date, isPinned: Bool = false, rtfDataPath: String? = nil, htmlDataPath: String? = nil, imagePath: String? = nil) {
+    init(plainTextPreview: String, rtfData: Data? = nil, htmlData: Data? = nil, timestamp: Date, isPinned: Bool = false, rtfDataPath: String? = nil, htmlDataPath: String? = nil, imagePath: String? = nil, isSensitive: Bool = false) {
         self.id = UUID()
 
         // Memory optimization: Truncate preview if text is large
@@ -670,6 +714,7 @@ struct ClipboardItem: Codable, Identifiable {
         self.htmlData = htmlData  // Legacy - only for migration
         self.timestamp = timestamp
         self.isPinned = isPinned
+        self.isSensitive = isSensitive
     }
 
     // MARK: - Legacy Support (for backward compatibility)
@@ -698,12 +743,13 @@ struct ClipboardItem: Codable, Identifiable {
         self.htmlData = nil
         self.timestamp = timestamp
         self.isPinned = isPinned
+        self.isSensitive = false  // Legacy items default to non-sensitive
     }
 
     // MARK: - Codable Support (Custom Encoding/Decoding)
     
     enum CodingKeys: String, CodingKey {
-        case id, plainTextPreview, fullText, rtfDataPath, htmlDataPath, imagePath, timestamp, isPinned
+        case id, plainTextPreview, fullText, rtfDataPath, htmlDataPath, imagePath, timestamp, isPinned, isSensitive
         // Legacy keys for migration
         case rtfData, htmlData
     }
@@ -718,6 +764,7 @@ struct ClipboardItem: Codable, Identifiable {
         imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        isSensitive = try container.decodeIfPresent(Bool.self, forKey: .isSensitive) ?? false  // Default to false for legacy items
         
         // Legacy support: Decode old rtfData/htmlData if present (for migration)
         rtfData = try container.decodeIfPresent(Data.self, forKey: .rtfData)
@@ -734,6 +781,7 @@ struct ClipboardItem: Codable, Identifiable {
         try container.encodeIfPresent(imagePath, forKey: .imagePath)
         try container.encode(timestamp, forKey: .timestamp)
         try container.encode(isPinned, forKey: .isPinned)
+        try container.encode(isSensitive, forKey: .isSensitive)
         // Don't encode legacy rtfData/htmlData - they should be migrated to paths
     }
 

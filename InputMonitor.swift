@@ -269,11 +269,11 @@ class InputMonitor {
         // FIX: Thread-safe - check monitoring state and buffer
         guard _isMonitoring else { return }
         
-        // Get triggers sorted by length (longest first) for priority matching
+        // Get triggers sorted by length (descending) to prioritize longer matches
         let triggers = snippetManager.getAllTriggers()
             .sorted { $0.count > $1.count }
         
-        // Check for whole-word matches
+        // Check for whole-word matches (longest first)
         for trigger in triggers {
             if isWholeWordMatch(trigger: trigger, in: keyBuffer) {
                 // Found a match!
@@ -288,21 +288,28 @@ class InputMonitor {
         }
     }
     
-    /// Checks if trigger matches as a whole word (preceded by delimiter or start of buffer)
+    /// Checks if trigger matches as a whole word (preceded by separator or start of buffer)
     private func isWholeWordMatch(trigger: String, in buffer: String) -> Bool {
         guard buffer.hasSuffix(trigger) else { return false }
         
-        // If buffer equals trigger exactly, it's a match
+        // If buffer equals trigger exactly, it's a match (at start of buffer)
         if buffer == trigger {
             return true
         }
         
-        // Check character before trigger
+        // Check character before trigger - must be separator or start of buffer
         let prefixIndex = buffer.index(buffer.endIndex, offsetBy: -trigger.count)
-        let prefix = buffer[..<prefixIndex]
+        guard prefixIndex > buffer.startIndex else {
+            // Trigger is at the start of buffer
+            return true
+        }
         
-        // Must be at start or preceded by word delimiter
-        return prefix.isEmpty || (prefix.last.map { isWordDelimiter($0) } ?? false)
+        // Get the character immediately before the trigger
+        let charBeforeIndex = buffer.index(before: prefixIndex)
+        let charBefore = buffer[charBeforeIndex]
+        
+        // Verify it's a separator (space, newline, punctuation) or start of buffer
+        return isWordDelimiter(charBefore)
     }
     
     /// Determines if a character is a word delimiter

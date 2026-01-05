@@ -285,48 +285,100 @@ class ScreenCaptureManager {
     }
 
     /// Extracts text from an image using Vision framework
+    /// Performs both text recognition and barcode/QR code detection in parallel
     /// VNImageRequestHandler is created inside the background queue to avoid Sendable warnings
     private func extractTextWithVision(from image: CGImage, completion: @escaping (String?) -> Void) {
-        let request = VNRecognizeTextRequest { request, error in
+        // Create text recognition request
+        let textRequest = VNRecognizeTextRequest { request, error in
             if let error = error {
                 print("❌ OCR Error: \(error.localizedDescription)")
-                completion(nil)
-                return
-            }
-
-            guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                completion(nil)
-                return
-            }
-
-            let recognizedStrings = observations.compactMap { observation in
-                observation.topCandidates(1).first?.string
-            }
-
-            let fullText = recognizedStrings.joined(separator: "\n")
-
-            if fullText.isEmpty {
-                print("📝 No text recognized")
-                completion(nil)
-            } else {
-                print("✓ OCR Success! Recognized \(recognizedStrings.count) lines")
-                completion(fullText)
             }
         }
-
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["en-US", "he-IL"]
-
-        // Create requestHandler inside the async block to avoid Sendable warnings
+        textRequest.recognitionLevel = .accurate
+        textRequest.usesLanguageCorrection = true
+        textRequest.recognitionLanguages = ["en-US", "he-IL"]
+        
+        // Create barcode detection request
+        let barcodeRequest = VNDetectBarcodesRequest { request, error in
+            if let error = error {
+                print("❌ Barcode Detection Error: \(error.localizedDescription)")
+            }
+        }
+        // Configure barcode request to detect all supported symbologies
+        barcodeRequest.symbologies = [
+            .QR, .Aztec, .Code128, .Code39, .Code39Mod43, .Code93,
+            .DataMatrix, .EAN13, .EAN8, .I2of5, .ITF14, .PDF417,
+            .UPCE
+        ]
+        
+        // Process both requests in parallel on background thread
+        // Vision framework processes multiple requests efficiently in a single pass
         DispatchQueue.global(qos: .userInitiated).async {
             let requestHandler = VNImageRequestHandler(cgImage: image, options: [:])
             
+            var recognizedText: String?
+            var barcodePayload: String?
+            var barcodeType: String?
+            
+            // Perform both requests in a single call (Vision processes them efficiently)
             do {
-                try requestHandler.perform([request])
+                try requestHandler.perform([textRequest, barcodeRequest])
+                
+                // Process text recognition results
+                if let observations = textRequest.results as? [VNRecognizedTextObservation] {
+                    let recognizedStrings = observations.compactMap { observation in
+                        observation.topCandidates(1).first?.string
+                    }
+                    recognizedText = recognizedStrings.joined(separator: "\n")
+                    
+                    if !recognizedText!.isEmpty {
+                        print("✓ OCR Success! Recognized \(recognizedStrings.count) lines")
+                    }
+                }
+                
+                // Process barcode detection results
+                if let observations = barcodeRequest.results as? [VNBarcodeObservation] {
+                    // Get the first detected barcode (prioritize QR codes)
+                    let qrCodes = observations.filter { $0.symbology == .QR }
+                    let otherBarcodes = observations.filter { $0.symbology != .QR }
+                    
+                    let priorityBarcode = (qrCodes.first ?? otherBarcodes.first)
+                    
+                    if let barcode = priorityBarcode, let payload = barcode.payloadStringValue {
+                        barcodePayload = payload
+                        barcodeType = barcode.symbology == .QR ? "QR" : "Barcode"
+                        print("✓ \(barcodeType!) detected: \(payload.prefix(50))...")
+                    }
+                }
             } catch {
-                print("❌ Failed to perform OCR: \(error.localizedDescription)")
-                completion(nil)
+                print("❌ Failed to perform Vision requests: \(error.localizedDescription)")
+            }
+            
+            // Combine results: prioritize barcode if found
+            var finalResult: String?
+            
+            if let barcode = barcodePayload, let type = barcodeType {
+                // Barcode found - prioritize it
+                let prefix = type == "QR" ? "[QR] " : "[Barcode] "
+                var result = prefix + barcode
+                
+                // Append text if it exists
+                if let text = recognizedText, !text.isEmpty {
+                    result += "\n\n" + text
+                }
+                
+                finalResult = result
+            } else if let text = recognizedText, !text.isEmpty {
+                // Only text found
+                finalResult = text
+            }
+            
+            // Return result on main thread
+            DispatchQueue.main.async {
+                if finalResult == nil {
+                    print("📝 No text or barcode recognized")
+                }
+                completion(finalResult)
             }
         }
     }
