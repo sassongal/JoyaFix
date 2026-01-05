@@ -9,6 +9,7 @@ class ScreenCaptureManager {
     private var overlayWindow: SelectionOverlayWindow?
     private var completion: ((String?) -> Void)?
     private var escapeKeyMonitor: Any?
+    private var capturedImagePath: String? // Store captured image path for preview
 
     private init() {}
 
@@ -120,21 +121,86 @@ class ScreenCaptureManager {
             return
         }
 
-        print("✓ Screen captured (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
+        print("✓ Screen captured (\(Int(rect.width))×\(Int(rect.height)))")
+        
+        // Store image path for potential preview
+        capturedImagePath = tempFile
 
-        // Clean up temp file
-        try? FileManager.default.removeItem(atPath: tempFile)
-
-        // Perform OCR (Cloud or local)
-        extractText(from: cgImage) { [weak self] text in
-            self?.completion?(text)
+        // Show confirmation alert before processing
+        showOCRConfirmation(image: image, cgImage: cgImage)
+    }
+    
+    // MARK: - OCR Confirmation
+    
+    private func showOCRConfirmation(image: NSImage, cgImage: CGImage) {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Process this image to text?"
+            alert.informativeText = "Extract text from the captured image using OCR."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Yes")
+            alert.addButton(withTitle: "Cancel")
+            
+            let response = alert.runModal()
+            
+            if response == .alertFirstButtonReturn {
+                // User confirmed - proceed with OCR
+                print("✓ User confirmed OCR processing")
+                self.extractText(from: cgImage, previewImage: image) { [weak self] text in
+                    guard let self = self else { return }
+                    
+                    if let text = text, !text.isEmpty {
+                        // Save to OCR history
+                        var scan = OCRScan(extractedText: text)
+                        let ocrManager = OCRHistoryManager.shared
+                        
+                        // Save preview image if available
+                        if let savedPath = ocrManager.savePreviewImage(image, for: scan) {
+                            scan = scan.withPreviewImagePath(savedPath)
+                        }
+                        
+                        ocrManager.addScan(scan)
+                        
+                        // Copy to clipboard as well
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(text, forType: .string)
+                        
+                        // Play success sound
+                        SoundManager.shared.playSuccess()
+                        
+                        print("✓ OCR completed and saved to history: \(text.count) characters")
+                    } else {
+                        print("⚠️ No text extracted from image")
+                    }
+                    
+                    // Clean up temp file
+                    if let imagePath = self.capturedImagePath {
+                        try? FileManager.default.removeItem(atPath: imagePath)
+                        self.capturedImagePath = nil
+                    }
+                    
+                    self.completion?(text)
+                }
+            } else {
+                // User cancelled
+                print("⚠️ User cancelled OCR processing")
+                
+                // Clean up temp file
+                if let imagePath = self.capturedImagePath {
+                    try? FileManager.default.removeItem(atPath: imagePath)
+                    self.capturedImagePath = nil
+                }
+                
+                self.completion?(nil)
+            }
         }
     }
 
     // MARK: - OCR Processing
 
     /// Extracts text from an image using Cloud OCR (OpenAI) or Vision framework
-    private func extractText(from image: CGImage, completion: @escaping (String?) -> Void) {
+    private func extractText(from image: CGImage, previewImage: NSImage? = nil, completion: @escaping (String?) -> Void) {
         let settings = SettingsManager.shared
         
         // Check if Cloud OCR is enabled and API key is available

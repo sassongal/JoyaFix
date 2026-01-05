@@ -7,11 +7,13 @@ class HotkeyManager {
 
     private var eventHotKeyRef: EventHotKeyRef?
     private var ocrHotKeyRef: EventHotKeyRef?
+    private var keyboardLockHotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
 
     // Hotkey signatures
     private let hotkeyID = EventHotKeyID(signature: OSType(0x4A4F5941), id: 1) // 'JOYA'
     private let ocrHotkeyID = EventHotKeyID(signature: OSType(0x4F435231), id: 2) // 'OCR1'
+    private let keyboardLockHotkeyID = EventHotKeyID(signature: OSType(0x4B424C4B), id: 3) // 'KBLK'
 
     private let settings = SettingsManager.shared
 
@@ -22,7 +24,7 @@ class HotkeyManager {
     /// Rebinds all hotkeys with current settings from UserDefaults
     /// Call this after saving new hotkey settings to apply changes immediately
     @discardableResult
-    func rebindHotkeys() -> (convertSuccess: Bool, ocrSuccess: Bool) {
+    func rebindHotkeys() -> (convertSuccess: Bool, ocrSuccess: Bool, keyboardLockSuccess: Bool) {
         print("🔄 Rebinding hotkeys...")
 
         // Step 1: Unregister all existing hotkeys
@@ -34,9 +36,10 @@ class HotkeyManager {
         // Step 3: Register hotkeys with new settings from UserDefaults
         let convertSuccess = registerHotkey()
         let ocrSuccess = registerOCRHotkey()
+        let keyboardLockSuccess = registerKeyboardLockHotkey()
 
         // Step 4: Report results
-        if convertSuccess && ocrSuccess {
+        if convertSuccess && ocrSuccess && keyboardLockSuccess {
             print("✓ All hotkeys rebound successfully")
             SoundManager.shared.playSuccess()
         } else {
@@ -47,9 +50,12 @@ class HotkeyManager {
             if !ocrSuccess {
                 print("  - OCR hotkey failed")
             }
+            if !keyboardLockSuccess {
+                print("  - Keyboard lock hotkey failed")
+            }
         }
 
-        return (convertSuccess, ocrSuccess)
+        return (convertSuccess, ocrSuccess, keyboardLockSuccess)
     }
 
     // MARK: - Registration
@@ -87,6 +93,8 @@ class HotkeyManager {
                         HotkeyManager.shared.hotkeyPressed()
                     } else if hotkeyID.id == 2 {
                         HotkeyManager.shared.ocrHotkeyPressed()
+                    } else if hotkeyID.id == 3 {
+                        HotkeyManager.shared.keyboardLockHotkeyPressed()
                     }
 
                     return noErr
@@ -158,6 +166,8 @@ class HotkeyManager {
                         HotkeyManager.shared.hotkeyPressed()
                     } else if hotkeyID.id == 2 {
                         HotkeyManager.shared.ocrHotkeyPressed()
+                    } else if hotkeyID.id == 3 {
+                        HotkeyManager.shared.keyboardLockHotkeyPressed()
                     }
 
                     return noErr
@@ -198,6 +208,76 @@ class HotkeyManager {
         return true
     }
 
+    /// Registers the keyboard lock hotkey (Cmd+Option+L)
+    func registerKeyboardLockHotkey() -> Bool {
+        let keyCode = UInt32(kVK_ANSI_L)
+        let modifiers = UInt32(cmdKey | optionKey)
+        
+        print("🔧 Registering keyboard lock hotkey: Cmd+Option+L")
+        
+        // Create event type spec for hotkey
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                       eventKind: UInt32(kEventHotKeyPressed))
+        
+        // Use existing event handler
+        if eventHandler == nil {
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                { (nextHandler, event, userData) -> OSStatus in
+                    var hotkeyID = EventHotKeyID()
+                    GetEventParameter(
+                        event,
+                        EventParamName(kEventParamDirectObject),
+                        EventParamType(typeEventHotKeyID),
+                        nil,
+                        MemoryLayout<EventHotKeyID>.size,
+                        nil,
+                        &hotkeyID
+                    )
+                    
+                    // Check which hotkey was pressed
+                    if hotkeyID.id == 1 {
+                        HotkeyManager.shared.hotkeyPressed()
+                    } else if hotkeyID.id == 2 {
+                        HotkeyManager.shared.ocrHotkeyPressed()
+                    } else if hotkeyID.id == 3 {
+                        HotkeyManager.shared.keyboardLockHotkeyPressed()
+                    }
+                    
+                    return noErr
+                },
+                1,
+                &eventType,
+                nil,
+                &eventHandler
+            )
+            
+            guard status == noErr else {
+                print("Failed to install event handler")
+                return false
+            }
+        }
+        
+        // Register the keyboard lock hotkey
+        let registerStatus = RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            keyboardLockHotkeyID,
+            GetApplicationEventTarget(),
+            0,
+            &keyboardLockHotKeyRef
+        )
+        
+        guard registerStatus == noErr else {
+            let errorMessage = getErrorMessage(for: registerStatus)
+            print("❌ Failed to register keyboard lock hotkey: \(errorMessage)")
+            return false
+        }
+        
+        print("✓ Keyboard lock hotkey registered: ⌘⌥L")
+        return true
+    }
+    
     /// Unregisters all global hotkeys
     func unregisterHotkey() {
         if let eventHotKeyRef = eventHotKeyRef {
@@ -208,6 +288,11 @@ class HotkeyManager {
         if let ocrHotKeyRef = ocrHotKeyRef {
             UnregisterEventHotKey(ocrHotKeyRef)
             self.ocrHotKeyRef = nil
+        }
+        
+        if let keyboardLockHotKeyRef = keyboardLockHotKeyRef {
+            UnregisterEventHotKey(keyboardLockHotKeyRef)
+            self.keyboardLockHotKeyRef = nil
         }
 
         if let eventHandler = eventHandler {
@@ -299,29 +384,20 @@ class HotkeyManager {
     private func ocrHotkeyPressed() {
         print("📸 OCR Hotkey pressed! Starting screen capture...")
 
+        // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
         ScreenCaptureManager.shared.startScreenCapture { [weak self] extractedText in
-            guard let text = extractedText, !text.isEmpty else {
-                print("⚠️ No text extracted")
-                return
+            if let text = extractedText, !text.isEmpty {
+                print("✓ OCR completed: \(text.count) characters extracted and saved to OCR history")
+            } else {
+                print("⚠️ OCR was cancelled or failed")
             }
-
-            print("✓ OCR completed: \(text.count) characters extracted")
-
-            // Notify clipboard manager to ignore this write
-            ClipboardHistoryManager.shared.notifyInternalWrite()
-
-            // Write to clipboard
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-
-            // Play success sound
-            if self?.settings.playSoundOnConvert == true {
-                SoundManager.shared.playSuccess()
-            }
-
-            print("📋 Text copied to clipboard and added to history")
         }
+    }
+    
+    /// Called when the keyboard lock hotkey is pressed
+    private func keyboardLockHotkeyPressed() {
+        print("🔒 Keyboard lock hotkey pressed!")
+        KeyboardBlocker.shared.toggleLock()
     }
 
     // MARK: - Clipboard Operations

@@ -6,8 +6,9 @@ struct JoyaFixApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
+        // Empty - we use LSUIElement and manage windows manually
         Settings {
-            SettingsView()
+            EmptyView()
         }
     }
 }
@@ -15,6 +16,7 @@ struct JoyaFixApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
+    private var settingsWindow: NSWindow?
     private var clipboardManager = ClipboardHistoryManager.shared
     private var cancellables = Set<AnyCancellable>()
 
@@ -45,17 +47,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if HotkeyManager.checkAccessibilityPermissions() {
             let convertSuccess = HotkeyManager.shared.registerHotkey()
             let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
+            let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
 
-            if convertSuccess && ocrSuccess {
+            if convertSuccess && ocrSuccess && keyboardLockSuccess {
                 print("✓ JoyaFix is ready!")
                 print("  - Text conversion hotkey registered")
                 print("  - OCR hotkey registered")
+                print("  - Keyboard lock hotkey registered")
             } else {
                 if !convertSuccess {
                     print("✗ Failed to register conversion hotkey")
                 }
                 if !ocrSuccess {
                     print("✗ Failed to register OCR hotkey")
+                }
+                if !keyboardLockSuccess {
+                    print("✗ Failed to register keyboard lock hotkey")
                 }
             }
         } else {
@@ -134,6 +141,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ocrItem.keyEquivalentModifierMask = [.command, .option]
         ocrItem.target = self
         menu.addItem(ocrItem)
+        
+        // Add Keyboard Cleaner menu item
+        let keyboardCleanerItem = NSMenuItem(
+            title: KeyboardBlocker.shared.isKeyboardLocked ? "Unlock Keyboard" : "Keyboard Cleaner Mode",
+            action: #selector(toggleKeyboardLock),
+            keyEquivalent: "l"
+        )
+        keyboardCleanerItem.keyEquivalentModifierMask = [.command, .option]
+        keyboardCleanerItem.target = self
+        menu.addItem(keyboardCleanerItem)
 
         let clearHistoryItem = NSMenuItem(
             title: "Clear History",
@@ -177,21 +194,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Extracts text from screen using OCR
     @objc func extractTextFromScreen() {
+        // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
         ScreenCaptureManager.shared.startScreenCapture { extractedText in
-            guard let text = extractedText, !text.isEmpty else {
-                print("⚠️ No text extracted from screen")
-                return
+            if let text = extractedText, !text.isEmpty {
+                print("✓ OCR completed: \(text.count) characters extracted and saved to history")
+            } else {
+                print("⚠️ OCR was cancelled or failed")
             }
-
-            // Write to clipboard (will be added to history automatically)
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-
-            // Play success sound
-            SoundManager.shared.playSuccess()
-
-            print("✓ OCR Success: \(text.count) characters extracted and copied")
         }
     }
 
@@ -205,42 +214,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             closePopover()
         }
         
-        // Dispatch to main queue to ensure UI is ready
+        // Check if settings window already exists
+        if let existingWindow = settingsWindow, existingWindow.isVisible {
+            existingWindow.makeKeyAndOrderFront(nil)
+            existingWindow.orderFrontRegardless()
+            return
+        }
+        
+        // Create new settings window
         DispatchQueue.main.async {
-            // Try the modern SwiftUI Settings selector first (macOS 13+)
-            let showSettingsSelector = Selector(("showSettingsWindow:"))
-            if NSApp.responds(to: showSettingsSelector) {
-                NSApp.sendAction(showSettingsSelector, to: nil, from: nil)
-                return
-            }
+            let settingsView = SettingsView()
+            let hostingController = NSHostingController(rootView: settingsView)
             
-            // Fallback to Preferences selector (older macOS)
-            let showPrefsSelector = Selector(("showPreferencesWindow:"))
-            if NSApp.responds(to: showPrefsSelector) {
-                NSApp.sendAction(showPrefsSelector, to: nil, from: nil)
-                return
-            }
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 600, height: 550),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
             
-            // Last resort: find and show settings window manually
-            for window in NSApp.windows {
-                if let identifier = window.identifier?.rawValue,
-                   identifier.contains("Settings") || identifier.contains("Preferences") {
-                    window.makeKeyAndOrderFront(nil)
-                    return
-                }
+            window.title = "JoyaFix Settings"
+            window.contentViewController = hostingController
+            window.center()
+            window.setFrameAutosaveName("JoyaFixSettings")
+            window.isReleasedWhenClosed = false
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            
+            self.settingsWindow = window
+            
+            // Handle window closing
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { _ in
+                // Don't set to nil, keep reference for reuse
             }
         }
     }
 
+    /// Toggles keyboard lock mode
+    @objc func toggleKeyboardLock() {
+        KeyboardBlocker.shared.toggleLock()
+    }
+    
     /// Quits the application
     @objc func quitApp() {
         clipboardManager.stopMonitoring()
         HotkeyManager.shared.unregisterHotkey()
+        KeyboardBlocker.shared.unlock()
         NSApplication.shared.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         clipboardManager.stopMonitoring()
         HotkeyManager.shared.unregisterHotkey()
+        KeyboardBlocker.shared.unlock()
     }
 }

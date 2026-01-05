@@ -243,6 +243,7 @@ struct SettingsView: View {
 
         // Rebind hotkeys immediately
         let result = HotkeyManager.shared.rebindHotkeys()
+        let _ = result.keyboardLockSuccess // Acknowledge the third return value
 
         // Show feedback
         hasUnsavedChanges = false
