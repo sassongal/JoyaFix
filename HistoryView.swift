@@ -1,4 +1,7 @@
 import SwiftUI
+import CoreGraphics
+import ApplicationServices
+import Carbon
 
 struct HistoryView: View {
     @ObservedObject var clipboardManager = ClipboardHistoryManager.shared
@@ -78,6 +81,11 @@ struct ClipboardHistoryTabView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Quick Actions Section (Pinned at top)
+            QuickActionsSection()
+            
+            Divider()
+            
             // Search Bar
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -560,6 +568,109 @@ struct EmptyStateView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+// MARK: - Quick Actions Section
+
+struct QuickActionsSection: View {
+    @ObservedObject private var settings = SettingsManager.shared
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: {
+            convertClipboardText()
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 16))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 24)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Convert Text Layout")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    Text(settings.hotkeyDisplayString)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isHovered ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isHovered ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+    
+    private func convertClipboardText() {
+        // Read from clipboard
+        let pasteboard = NSPasteboard.general
+        guard let copiedText = pasteboard.string(forType: .string), !copiedText.isEmpty else {
+            print("❌ No text in clipboard")
+            return
+        }
+        
+        print("📋 Original: '\(copiedText)'")
+        
+        // Convert the text
+        let convertedText = TextConverter.convert(copiedText)
+        print("✅ Converted: '\(convertedText)'")
+        
+        // Notify clipboard manager to ignore this write
+        ClipboardHistoryManager.shared.notifyInternalWrite()
+        
+        // Write back to clipboard
+        pasteboard.clearContents()
+        pasteboard.setString(convertedText, forType: .string)
+        print("📋 Converted text written to clipboard")
+        
+        // Optionally auto-paste if enabled
+        if settings.autoPasteAfterConvert {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                simulatePaste()
+                
+                // Play success sound if enabled
+                if settings.playSoundOnConvert {
+                    SoundManager.shared.playSuccess()
+                }
+            }
+        } else {
+            // Still play sound even if not pasting
+            if settings.playSoundOnConvert {
+                SoundManager.shared.playSuccess()
+            }
+        }
+    }
+    
+    private func simulatePaste() {
+        let keyCode = CGKeyCode(kVK_ANSI_V)
+        guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
+              let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+            return
+        }
+        
+        keyDownEvent.flags = CGEventFlags.maskCommand
+        keyUpEvent.flags = CGEventFlags.maskCommand
+        
+        let location = CGEventTapLocation.cghidEventTap
+        keyDownEvent.post(tap: location)
+        usleep(10000) // 10ms delay
+        keyUpEvent.post(tap: location)
     }
 }
 

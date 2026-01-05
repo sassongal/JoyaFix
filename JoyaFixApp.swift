@@ -16,7 +16,6 @@ struct JoyaFixApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private var settingsWindow: NSWindow?
     private var clipboardManager = ClipboardHistoryManager.shared
     private var cancellables = Set<AnyCancellable>()
 
@@ -43,31 +42,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start clipboard monitoring
         clipboardManager.startMonitoring()
 
-        // Check accessibility permissions and register global hotkeys
-        if HotkeyManager.checkAccessibilityPermissions() {
-            let convertSuccess = HotkeyManager.shared.registerHotkey()
-            let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
-            let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
+        // CRITICAL FIX: Always register hotkeys, regardless of permission status
+        // Permissions will be checked when hotkeys are actually pressed
+        let convertSuccess = HotkeyManager.shared.registerHotkey()
+        let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
+        let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
 
-            if convertSuccess && ocrSuccess && keyboardLockSuccess {
-                print("✓ JoyaFix is ready!")
-                print("  - Text conversion hotkey registered")
-                print("  - OCR hotkey registered")
-                print("  - Keyboard lock hotkey registered")
-            } else {
-                if !convertSuccess {
-                    print("✗ Failed to register conversion hotkey")
-                }
-                if !ocrSuccess {
-                    print("✗ Failed to register OCR hotkey")
-                }
-                if !keyboardLockSuccess {
-                    print("✗ Failed to register keyboard lock hotkey")
-                }
-            }
+        if convertSuccess && ocrSuccess && keyboardLockSuccess {
+            print("✓ Hotkeys registered successfully")
+            print("  - Text conversion hotkey registered")
+            print("  - OCR hotkey registered")
+            print("  - Keyboard lock hotkey registered")
         } else {
-            print("⚠️ Please grant Accessibility permissions to use global hotkeys")
+            if !convertSuccess {
+                print("✗ Failed to register conversion hotkey")
+            }
+            if !ocrSuccess {
+                print("✗ Failed to register OCR hotkey")
+            }
+            if !keyboardLockSuccess {
+                print("✗ Failed to register keyboard lock hotkey")
+            }
         }
+        
+        // Check permissions and show onboarding if needed
+        checkPermissionsAndShowOnboarding()
     }
 
     // MARK: - Popover Setup
@@ -206,52 +205,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Opens the settings window
     @objc func openSettings() {
-        // Activate the app first to bring it to front
-        NSApp.activate(ignoringOtherApps: true)
-        
         // Close popover if open
         if let popover = popover, popover.isShown {
             closePopover()
         }
         
-        // Check if settings window already exists
-        if let existingWindow = settingsWindow, existingWindow.isVisible {
-            existingWindow.makeKeyAndOrderFront(nil)
-            existingWindow.orderFrontRegardless()
-            return
-        }
-        
-        // Create new settings window
-        DispatchQueue.main.async {
-            let settingsView = SettingsView()
-            let hostingController = NSHostingController(rootView: settingsView)
-            
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 600, height: 550),
-                styleMask: [.titled, .closable, .miniaturizable],
-                backing: .buffered,
-                defer: false
-            )
-            
-            window.title = "JoyaFix Settings"
-            window.contentViewController = hostingController
-            window.center()
-            window.setFrameAutosaveName("JoyaFixSettings")
-            window.isReleasedWhenClosed = false
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-            
-            self.settingsWindow = window
-            
-            // Handle window closing
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: window,
-                queue: .main
-            ) { _ in
-                // Don't set to nil, keep reference for reuse
-            }
-        }
+        // Use SettingsWindowController to manage the window
+        SettingsWindowController.shared.show()
     }
 
     /// Toggles keyboard lock mode
@@ -271,5 +231,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager.stopMonitoring()
         HotkeyManager.shared.unregisterHotkey()
         KeyboardBlocker.shared.unlock()
+    }
+    
+    // MARK: - Permission Management
+    
+    /// Checks permissions and shows onboarding if permissions are missing
+    private func checkPermissionsAndShowOnboarding() {
+        // Check if this is first run (no permissions granted yet)
+        let hasShownOnboarding = UserDefaults.standard.bool(forKey: "hasShownPermissionOnboarding")
+        
+        // Check current permission status
+        let hasAccessibility = PermissionManager.shared.isAccessibilityTrusted()
+        let hasScreenRecording = PermissionManager.shared.isScreenRecordingTrusted()
+        
+        // If permissions are missing, show onboarding
+        if !hasAccessibility || !hasScreenRecording {
+            if !hasShownOnboarding {
+                // First time - show full onboarding
+                print("📋 First run detected - showing permission onboarding")
+                PermissionManager.shared.showPermissionAlert()
+                UserDefaults.standard.set(true, forKey: "hasShownPermissionOnboarding")
+            } else {
+                // Not first time, but permissions still missing - show reminder
+                print("⚠️ Permissions still missing - showing reminder")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.showPermissionReminder()
+                }
+            }
+        } else {
+            print("✓ All permissions granted")
+        }
+    }
+    
+    /// Shows a reminder alert if permissions are still missing
+    private func showPermissionReminder() {
+        let hasAccessibility = PermissionManager.shared.isAccessibilityTrusted()
+        let hasScreenRecording = PermissionManager.shared.isScreenRecordingTrusted()
+        
+        if !hasAccessibility || !hasScreenRecording {
+            let alert = NSAlert()
+            alert.messageText = "Permissions Still Required"
+            
+            var missingPermissions: [String] = []
+            if !hasAccessibility {
+                missingPermissions.append("Accessibility")
+            }
+            if !hasScreenRecording {
+                missingPermissions.append("Screen Recording")
+            }
+            
+            alert.informativeText = """
+            The following permissions are still required:
+            \(missingPermissions.joined(separator: "\n• "))
+            
+            Please grant these permissions in System Settings for JoyaFix to work properly.
+            """
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Later")
+            
+            let response = alert.runModal()
+            
+            if response == .alertFirstButtonReturn {
+                if !hasAccessibility {
+                    PermissionManager.shared.openAccessibilitySettings()
+                }
+                if !hasScreenRecording {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        PermissionManager.shared.openScreenRecordingSettings()
+                    }
+                }
+            }
+        }
     }
 }

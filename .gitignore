@@ -119,4 +119,20 @@ Temporary Items
 # JoyaFix specific
 JoyaFix.app/
 build/
+*.xcodeproj/
+*.xcworkspace/
+
+# API Keys and sensitive data (should never be committed)
+# Note: API keys are stored in Keychain, not in code
+**/secrets.plist
+**/config.plist
+**/*.key
+**/*.pem
+**/*.p12
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
 

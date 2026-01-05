@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import Carbon
 
 class KeyboardBlocker {
     static let shared = KeyboardBlocker()

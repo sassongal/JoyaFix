@@ -327,6 +327,13 @@ class HotkeyManager {
     /// Called when the global hotkey is pressed
     private func hotkeyPressed() {
         print("🔥 Hotkey pressed! Converting text...")
+        
+        // CRITICAL: Check permissions at the moment the key is pressed
+        guard PermissionManager.shared.isAccessibilityTrusted() else {
+            print("⚠️ Accessibility permission missing - showing alert")
+            showPermissionRequiredAlert(for: "Accessibility", reason: "simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete)")
+            return
+        }
 
         // Step 1: Simulate Cmd+C to copy selected text
         simulateCopy()
@@ -383,9 +390,12 @@ class HotkeyManager {
     /// Called when the OCR hotkey is pressed
     private func ocrHotkeyPressed() {
         print("📸 OCR Hotkey pressed! Starting screen capture...")
-
+        
+        // Note: Screen Recording permission is handled by ScreenCaptureManager
+        // when screencapture command is executed
+        
         // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
-        ScreenCaptureManager.shared.startScreenCapture { [weak self] extractedText in
+        ScreenCaptureManager.shared.startScreenCapture { extractedText in
             if let text = extractedText, !text.isEmpty {
                 print("✓ OCR completed: \(text.count) characters extracted and saved to OCR history")
             } else {
@@ -483,6 +493,34 @@ class HotkeyManager {
         case -9879: return "Invalid hotkey parameters"
         case -50: return "Parameter error"
         default: return "Error code \(status)"
+        }
+    }
+    
+    // MARK: - Permission Alerts
+    
+    /// Shows an alert when permissions are missing
+    private func showPermissionRequiredAlert(for permission: String, reason: String) {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "\(permission) Permission Required"
+            alert.informativeText = """
+            JoyaFix needs \(permission) permission to \(reason).
+            
+            Please grant this permission in System Settings, then try again.
+            """
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+            
+            let response = alert.runModal()
+            
+            if response == .alertFirstButtonReturn {
+                if permission == "Accessibility" {
+                    PermissionManager.shared.openAccessibilitySettings()
+                } else if permission == "Screen Recording" {
+                    PermissionManager.shared.openScreenRecordingSettings()
+                }
+            }
         }
     }
 }
