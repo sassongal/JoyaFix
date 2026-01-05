@@ -161,16 +161,23 @@ class InputMonitor {
             return Unmanaged.passUnretained(event)
         }
         
-        // Extract character as quickly as possible
+        // Extract character as quickly as possible using low-level CGEvent fields
+        // Avoid expensive NSEvent creation unless absolutely necessary
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let flags = event.flags
         var characterToAdd: String? = nil
         
-        // Try to get character from NSEvent (most common case)
-        if let nsEvent = NSEvent(cgEvent: event),
-           let characters = nsEvent.characters, !characters.isEmpty {
-            characterToAdd = characters
-        } else if keyCode == 49 { // Space key fallback
-            characterToAdd = " "
+        // Fast path: Use keyCode + flags mapping (no NSEvent creation)
+        // This handles 95%+ of cases without expensive object creation
+        characterToAdd = getCharacterFromKeyCode(keyCode: Int(keyCode), flags: flags)
+        
+        // Fallback: Only create NSEvent if keyCode mapping failed
+        // This handles special cases like non-ASCII characters, IME input, etc.
+        if characterToAdd == nil {
+            if let nsEvent = NSEvent(cgEvent: event),
+               let characters = nsEvent.characters, !characters.isEmpty {
+                characterToAdd = characters
+            }
         }
         
         // If we have a character, queue async processing (non-blocking)
@@ -214,83 +221,110 @@ class InputMonitor {
         checkForSnippetMatch(buffer: buffer)
     }
     
-    // Legacy method kept for reference but not used
-    private func getCharacter(from keyCode: Int64, flags: CGEventFlags) -> String? {
-        // Map key codes to characters
-        // This is a simplified version - you might want to use a more comprehensive mapping
+    /// Optimized character extraction from keyCode + flags (no NSEvent creation)
+    /// This handles 95%+ of cases without expensive object creation
+    /// Only falls back to NSEvent for complex cases (IME, non-ASCII, etc.)
+    private func getCharacterFromKeyCode(keyCode: Int, flags: CGEventFlags) -> String? {
+        let isShift = flags.contains(.maskShift)
+        let isOption = flags.contains(.maskAlternate)
+        let isCommand = flags.contains(.maskCommand)
+        let isControl = flags.contains(.maskControl)
+        
+        // Ignore modifier-only keys and command/control combinations (not text input)
+        if isCommand || isControl {
+            return nil
+        }
+        
+        // Option-modified keys require NSEvent for accurate character mapping
+        // (too many variations to map manually)
+        if isOption {
+            return nil // Fall back to NSEvent
+        }
+        
+        // Map keyCode to character, accounting for Shift modifier
         switch keyCode {
-        case 0x00: return "a"
-        case 0x01: return "s"
-        case 0x02: return "d"
-        case 0x03: return "f"
-        case 0x04: return "h"
-        case 0x05: return "g"
-        case 0x06: return "z"
-        case 0x07: return "x"
-        case 0x08: return "c"
-        case 0x09: return "v"
-        case 0x0B: return "b"
-        case 0x0C: return "q"
-        case 0x0D: return "w"
-        case 0x0E: return "e"
-        case 0x0F: return "r"
-        case 0x10: return "y"
-        case 0x11: return "t"
-        case 0x12: return "1"
-        case 0x13: return "2"
-        case 0x14: return "3"
-        case 0x15: return "4"
-        case 0x16: return "6"
-        case 0x17: return "5"
-        case 0x18: return "="
-        case 0x19: return "9"
-        case 0x1A: return "7"
-        case 0x1B: return "-"
-        case 0x1C: return "8"
-        case 0x1D: return "0"
-        case 0x1E: return "]"
-        case 0x1F: return "o"
-        case 0x20: return "u"
-        case 0x21: return "["
-        case 0x22: return "i"
-        case 0x23: return "p"
-        case 0x25: return "l"
-        case 0x26: return "j"
-        case 0x27: return "'"
-        case 0x28: return "k"
-        case 0x29: return ";"
-        case 0x2A: return "\\"
-        case 0x2B: return ","
-        case 0x2C: return "/"
-        case 0x2D: return "n"
-        case 0x2E: return "m"
-        case 0x2F: return "."
-        case 0x32: return "`"
-        case 0x41: return "."  // Numpad
-        case 0x43: return "*"  // Numpad
-        case 0x45: return "+"  // Numpad
-        case 0x47: return "⌧"  // Clear
-        case 0x4B: return "/"  // Numpad
-        case 0x4C: return "↩"  // Enter
-        case 0x4E: return "-"  // Numpad
-        case 0x51: return "="  // Numpad
-        case 0x52: return "0"  // Numpad
-        case 0x53: return "1"  // Numpad
-        case 0x54: return "2"  // Numpad
-        case 0x55: return "3"  // Numpad
-        case 0x56: return "4"  // Numpad
-        case 0x57: return "5"  // Numpad
-        case 0x58: return "6"  // Numpad
-        case 0x59: return "7"  // Numpad
-        case 0x5B: return "8"  // Numpad
-        case 0x5C: return "9"  // Numpad
-        case 0x24: return "↩"  // Return
-        case 0x30: return "⇥"  // Tab
+        // Letters (a-z)
+        case 0x00: return isShift ? "A" : "a"
+        case 0x01: return isShift ? "S" : "s"
+        case 0x02: return isShift ? "D" : "d"
+        case 0x03: return isShift ? "F" : "f"
+        case 0x04: return isShift ? "H" : "h"
+        case 0x05: return isShift ? "G" : "g"
+        case 0x06: return isShift ? "Z" : "z"
+        case 0x07: return isShift ? "X" : "x"
+        case 0x08: return isShift ? "C" : "c"
+        case 0x09: return isShift ? "V" : "v"
+        case 0x0B: return isShift ? "B" : "b"
+        case 0x0C: return isShift ? "Q" : "q"
+        case 0x0D: return isShift ? "W" : "w"
+        case 0x0E: return isShift ? "E" : "e"
+        case 0x0F: return isShift ? "R" : "r"
+        case 0x10: return isShift ? "Y" : "y"
+        case 0x11: return isShift ? "T" : "t"
+        case 0x1F: return isShift ? "O" : "o"
+        case 0x20: return isShift ? "U" : "u"
+        case 0x22: return isShift ? "I" : "i"
+        case 0x23: return isShift ? "P" : "p"
+        case 0x25: return isShift ? "L" : "l"
+        case 0x26: return isShift ? "J" : "j"
+        case 0x28: return isShift ? "K" : "k"
+        case 0x2D: return isShift ? "N" : "n"
+        case 0x2E: return isShift ? "M" : "m"
+        
+        // Numbers and symbols (with Shift)
+        case 0x12: return isShift ? "!" : "1"
+        case 0x13: return isShift ? "@" : "2"
+        case 0x14: return isShift ? "#" : "3"
+        case 0x15: return isShift ? "$" : "4"
+        case 0x17: return isShift ? "%" : "5"
+        case 0x16: return isShift ? "^" : "6"
+        case 0x1A: return isShift ? "&" : "7"
+        case 0x1C: return isShift ? "*" : "8"
+        case 0x19: return isShift ? "(" : "9"
+        case 0x1D: return isShift ? ")" : "0"
+        
+        // Punctuation
+        case 0x21: return isShift ? "{" : "["
+        case 0x1E: return isShift ? "}" : "]"
+        case 0x2A: return isShift ? "|" : "\\"
+        case 0x29: return isShift ? ":" : ";"
+        case 0x27: return isShift ? "\"" : "'"
+        case 0x2B: return isShift ? "<" : ","
+        case 0x2F: return isShift ? ">" : "."
+        case 0x2C: return isShift ? "?" : "/"
+        case 0x18: return isShift ? "+" : "="
+        case 0x1B: return isShift ? "_" : "-"
+        case 0x32: return isShift ? "~" : "`"
+        
+        // Special keys
         case 0x31: return " "  // Space
-        case 0x33: return "⌫"  // Delete
-        case 0x35: return "⎋"  // Escape
+        case 0x24: return "\n" // Return
+        case 0x30: return "\t" // Tab
+        case 0x33: return nil  // Delete (not a character)
+        case 0x35: return nil  // Escape (not a character)
+        
+        // Numpad (treat as regular numbers)
+        case 0x52: return "0"
+        case 0x53: return "1"
+        case 0x54: return "2"
+        case 0x55: return "3"
+        case 0x56: return "4"
+        case 0x57: return "5"
+        case 0x58: return "6"
+        case 0x59: return "7"
+        case 0x5B: return "8"
+        case 0x5C: return "9"
+        case 0x41: return "."
+        case 0x43: return "*"
+        case 0x45: return "+"
+        case 0x4E: return "-"
+        case 0x4B: return "/"
+        case 0x51: return "="
+        case 0x4C: return "\n" // Numpad Enter
+        
         default:
-            // For other keys, we'll rely on NSEvent conversion in handleEvent
+            // Unknown keyCode - will fall back to NSEvent
+            // This handles Option-modified keys, IME input, non-ASCII characters, etc.
             return nil
         }
     }
