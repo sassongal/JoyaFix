@@ -36,6 +36,12 @@ enum JoyaFixConstants {
     /// Threshold for large text optimization in TextConverter
     static let largeTextOptimizationThreshold = 10_000
     
+    /// Sample length for text detection (characters to analyze)
+    static let textDetectionSampleLength = 1000
+    
+    /// Hebrew/English ratio threshold for conversion decision (0.3 = 30%)
+    static let hebrewEnglishRatioThreshold: Double = 0.3
+    
     // MARK: - Timing & Delays
     
     /// Delay before capturing screen after selection (seconds)
@@ -118,6 +124,7 @@ enum JoyaFixConstants {
     
     enum FilePaths {
         static let ocrPreviewsDirectory = "JoyaFix/OCRPreviews"
+        static let clipboardDataDirectory = "JoyaFix/ClipboardData"
     }
 }
 

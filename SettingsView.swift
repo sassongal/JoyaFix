@@ -57,13 +57,13 @@ struct SettingsView: View {
                 displayString: displayString
             )
             .tabItem {
-                Label("General", systemImage: "gearshape")
+                Label(NSLocalizedString("settings.general.title", comment: "General"), systemImage: "gearshape")
             }
             
             // Snippets Tab
             SnippetsTab()
                 .tabItem {
-                    Label("Snippets", systemImage: "text.bubble")
+                    Label(NSLocalizedString("settings.snippets.title", comment: "Snippets"), systemImage: "text.bubble")
                 }
         }
         .frame(width: 600, height: 550)

@@ -46,7 +46,7 @@ struct OnboardingView: View {
                     }) {
                         HStack {
                             Image(systemName: "chevron.left")
-                            Text("Back")
+                            Text(NSLocalizedString("onboarding.back", comment: "Back button"))
                         }
                     }
                     .buttonStyle(.bordered)
@@ -73,7 +73,7 @@ struct OnboardingView: View {
                         }
                     }) {
                         HStack {
-                            Text("Next")
+                            Text(NSLocalizedString("onboarding.next", comment: "Next button"))
                             Image(systemName: "chevron.right")
                         }
                     }
@@ -148,14 +148,14 @@ struct WelcomeSlide: View {
                 }
             }
             
-            Text("Welcome to JoyaFix")
+            Text(NSLocalizedString("onboarding.welcome.title", comment: "Welcome title"))
                 .font(.system(size: 36, weight: .bold))
             
-            Text("Your Ultimate Mac Utility")
+            Text(NSLocalizedString("onboarding.welcome.subtitle", comment: "Welcome subtitle"))
                 .font(.system(size: 18))
                 .foregroundColor(.secondary)
             
-            Text("Transform your workflow with smart text conversion,\nOCR, snippets, and more.")
+            Text(NSLocalizedString("onboarding.welcome.description", comment: "Welcome description"))
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -170,28 +170,28 @@ struct WelcomeSlide: View {
 struct FeaturesSlide: View {
     var body: some View {
         VStack(spacing: 32) {
-            Text("Powerful Features")
+            Text(NSLocalizedString("onboarding.features.title", comment: "Features title"))
                 .font(.system(size: 32, weight: .bold))
                 .padding(.bottom, 8)
             
             VStack(spacing: 24) {
                 FeatureCard(
                     icon: "arrow.left.arrow.right",
-                    title: "Fix Hebrew/English",
-                    description: "Instantly convert between Hebrew and English keyboard layouts"
+                    title: NSLocalizedString("onboarding.feature.convert.title", comment: "Convert feature title"),
+                    description: NSLocalizedString("onboarding.feature.convert.description", comment: "Convert feature description")
                 )
                 
                 FeatureCard(
                     icon: "viewfinder",
-                    title: "Smart OCR",
-                    description: "Extract text from any screen region with cloud or local OCR"
+                    title: NSLocalizedString("onboarding.feature.ocr.title", comment: "OCR feature title"),
+                    description: NSLocalizedString("onboarding.feature.ocr.description", comment: "OCR feature description")
                 )
                 
                 FeatureCard(
                     icon: "text.bubble",
-                    title: "Text Snippets",
-                    description: "Create shortcuts that expand into full text automatically",
-                    example: "Example: Type '!mail' → expands to 'gal@joyatech.com'"
+                    title: NSLocalizedString("onboarding.feature.snippets.title", comment: "Snippets feature title"),
+                    description: NSLocalizedString("onboarding.feature.snippets.description", comment: "Snippets feature description"),
+                    example: NSLocalizedString("onboarding.feature.snippets.example", comment: "Snippets feature example")
                 )
             }
         }
@@ -252,18 +252,18 @@ struct PermissionsSlide: View {
     
     var body: some View {
         VStack(spacing: 32) {
-            Text("Required Permissions")
+            Text(NSLocalizedString("onboarding.permissions.title", comment: "Permissions title"))
                 .font(.system(size: 32, weight: .bold))
                 .padding(.bottom, 8)
             
-            Text("JoyaFix needs these permissions to work properly:")
+            Text(NSLocalizedString("onboarding.permissions.description", comment: "Permissions description"))
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
             
             VStack(spacing: 20) {
                 PermissionRow(
-                    title: "Accessibility",
-                    description: "Required to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete)",
+                    title: NSLocalizedString("onboarding.permissions.accessibility.title", comment: "Accessibility permission title"),
+                    description: NSLocalizedString("onboarding.permissions.accessibility.description", comment: "Accessibility permission description"),
                     isGranted: accessibilityGranted,
                     onGrant: {
                         PermissionManager.shared.openAccessibilitySettings()
@@ -272,8 +272,8 @@ struct PermissionsSlide: View {
                 )
                 
                 PermissionRow(
-                    title: "Screen Recording",
-                    description: "Required to capture screen regions for OCR",
+                    title: NSLocalizedString("onboarding.permissions.screen.recording.title", comment: "Screen recording permission title"),
+                    description: NSLocalizedString("onboarding.permissions.screen.recording.description", comment: "Screen recording permission description"),
                     isGranted: screenRecordingGranted,
                     onGrant: {
                         PermissionManager.shared.openScreenRecordingSettings()
@@ -310,8 +310,12 @@ struct PermissionRow: View {
             Spacer()
             
             if !isGranted {
-                Button("Grant Access", action: onGrant)
+                Button(NSLocalizedString("onboarding.permissions.grant.access", comment: "Grant access button"), action: onGrant)
                     .buttonStyle(.borderedProminent)
+            } else {
+                Text(NSLocalizedString("onboarding.permissions.granted", comment: "Granted status"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.green)
             }
         }
         .padding()
@@ -331,14 +335,14 @@ struct ReadySlide: View {
                 .font(.system(size: 80))
                 .foregroundColor(.green)
             
-            Text("You're All Set!")
+            Text(NSLocalizedString("onboarding.ready.title", comment: "Ready title"))
                 .font(.system(size: 36, weight: .bold))
             
-            Text("JoyaFix is ready to enhance your workflow.")
+            Text(NSLocalizedString("onboarding.ready.description", comment: "Ready description"))
                 .font(.system(size: 16))
                 .foregroundColor(.secondary)
             
-            Button("Let's Go", action: onComplete)
+            Button(NSLocalizedString("onboarding.ready.button", comment: "Get started button"), action: onComplete)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .padding(.top, 16)

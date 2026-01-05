@@ -1,0 +1,106 @@
+/* About View */
+"about.app.name" = "JoyaFix";
+"about.version" = "גרסה %@";
+"about.created.by" = "נוצר על ידי";
+"about.powered.by" = "מופעל על ידי";
+"about.features" = "תכונות";
+"about.close" = "סגור";
+"about.copyright" = "© 2026 JoyaTech. כל הזכויות שמורות.";
+"about.feature.text.conversion" = "המרת טקסט חכמה (עברית ↔ אנגלית)";
+"about.feature.ocr" = "OCR חכם עם תמיכה בענן ומקומי";
+"about.feature.keyboard.cleaner" = "מצב ניקוי מקלדת";
+"about.feature.snippets" = "קטעי טקסט והרחבה אוטומטית";
+"about.feature.clipboard" = "היסטוריית לוח מתקדמת";
+
+/* Onboarding */
+"onboarding.welcome.title" = "ברוכים הבאים ל-JoyaFix";
+"onboarding.welcome.subtitle" = "כלי המק שלך האולטימטיבי";
+"onboarding.welcome.description" = "שפר את זרימת העבודה שלך עם המרת טקסט חכמה,\nOCR, קטעי טקסט ועוד.";
+"onboarding.features.title" = "תכונות חזקות";
+"onboarding.feature.convert.title" = "תיקון עברית/אנגלית";
+"onboarding.feature.convert.description" = "המר מיידית בין פריסות מקלדת עברית ואנגלית";
+"onboarding.feature.ocr.title" = "OCR חכם";
+"onboarding.feature.ocr.description" = "חלץ טקסט מכל אזור במסך עם OCR בענן או מקומי";
+"onboarding.feature.snippets.title" = "קטעי טקסט";
+"onboarding.feature.snippets.description" = "צור קיצורי דרך שמתרחבים לטקסט מלא אוטומטית";
+"onboarding.feature.snippets.example" = "דוגמה: הקלד '!mail' → מתרחב ל-'gal@joyatech.com'";
+"onboarding.permissions.title" = "הרשאות נדרשות";
+"onboarding.permissions.description" = "JoyaFix צריך את ההרשאות הבאות כדי לעבוד כראוי:";
+"onboarding.permissions.accessibility.title" = "נגישות";
+"onboarding.permissions.accessibility.description" = "נדרש לקיצורי מקלדת והמרת טקסט";
+"onboarding.permissions.screen.recording.title" = "הקלטת מסך";
+"onboarding.permissions.screen.recording.description" = "נדרש לצילום מסך ל-OCR";
+"onboarding.permissions.grant.access" = "אשר גישה";
+"onboarding.permissions.granted" = "אושר";
+"onboarding.ready.title" = "הכל מוכן!";
+"onboarding.ready.description" = "JoyaFix מוכן לשימוש. לחץ למטה כדי להתחיל.";
+"onboarding.ready.button" = "בואו נתחיל";
+"onboarding.back" = "חזור";
+"onboarding.next" = "הבא";
+
+/* Settings */
+"settings.general.title" = "כללי";
+"settings.snippets.title" = "קטעי טקסט";
+"settings.text.conversion.hotkey" = "קיצור מקלדת להמרת טקסט";
+"settings.text.conversion.hotkey.description" = "לחץ על הכפתור והקלד את צירוף המקשים הרצוי:";
+"settings.ocr.hotkey" = "קיצור מקלדת לצילום מסך OCR";
+"settings.ocr.hotkey.description" = "לחץ על הכפתור והקלד את צירוף המקשים הרצוי:";
+"settings.clipboard.history" = "היסטוריית לוח";
+"settings.clipboard.history.max.items" = "מספר מקסימלי של פריטים לשמירה:";
+"settings.clipboard.history.current" = "כרגע שומרים את %d הפריטים האחרונים";
+"settings.behavior" = "התנהגות";
+"settings.behavior.play.sound" = "נגן צליל בהמרת טקסט";
+"settings.behavior.auto.paste" = "הדבק אוטומטית לאחר המרה";
+"settings.ocr.configuration" = "הגדרות OCR";
+"settings.ocr.use.cloud" = "השתמש ב-OCR בענן (Gemini API)";
+"settings.ocr.gemini.key" = "מפתח API של Gemini";
+"settings.ocr.gemini.key.placeholder" = "הכנס את מפתח ה-API של Gemini";
+"settings.ocr.gemini.key.description" = "קבל את מפתח ה-API מ-Google AI Studio";
+"settings.save.changes" = "שמור שינויים";
+"settings.reset" = "איפוס";
+"settings.saved" = "ההגדרות נשמרו בהצלחה!";
+"settings.snippets.add" = "הוסף קטע טקסט";
+"settings.snippets.trigger" = "טריגר";
+"settings.snippets.content" = "תוכן";
+"settings.snippets.actions" = "פעולות";
+"settings.snippets.empty" = "אין קטעי טקסט עדיין. לחץ על 'הוסף קטע טקסט' כדי ליצור אחד.";
+"settings.snippets.edit" = "ערוך";
+"settings.snippets.delete" = "מחק";
+"settings.snippets.save" = "שמור";
+"settings.snippets.cancel" = "בטל";
+"settings.snippets.trigger.placeholder" = "לדוגמה, !mail";
+"settings.snippets.content.placeholder" = "לדוגמה, gal@joyatech.com";
+
+/* Context Menu */
+"menu.convert.selection" = "המר פריסת בחירה";
+"menu.extract.text" = "חלץ טקסט מהמסך...";
+"menu.keyboard.cleaner" = "מצב ניקוי מקלדת";
+"menu.unlock.keyboard" = "פתח מקלדת";
+"menu.clear.history" = "נקה היסטוריה";
+"menu.settings" = "הגדרות...";
+"menu.keyboard.shortcuts" = "קיצורי מקלדת...";
+"menu.about" = "אודות JoyaFix";
+"menu.quit" = "צא";
+
+/* Alerts */
+"alert.accessibility.title" = "הרשאת נגישות נדרשת";
+"alert.accessibility.message" = "JoyaFix צריך הרשאת נגישות כדי לדמות קיצורי מקלדת (Cmd+C, Cmd+V, Delete).";
+"alert.screen.recording.title" = "הרשאת הקלטת מסך נדרשת";
+"alert.screen.recording.message" = "JoyaFix צריך הרשאת הקלטת מסך כדי לצלם אזורי מסך ל-OCR.\n\nאנא אשר הרשאה זו בהגדרות המערכת → פרטיות ואבטחה → הקלטת מסך, ואז נסה שוב.";
+"alert.error.title" = "שגיאת JoyaFix";
+"alert.button.open.settings" = "פתח הגדרות מערכת";
+"alert.button.cancel" = "בטל";
+"alert.button.ok" = "אישור";
+"alert.rate.limit.title" = "מגבלת קצב OCR בענן";
+"alert.rate.limit.message" = "הגעת למגבלת הקצב ל-OCR בענן (%d בקשות לדקה).\n\nאנא המתן %d שניות לפני שתנסה שוב, או השתמש ב-OCR מקומי במקום.\n\nתוכל לעבור ל-OCR מקומי בהגדרות → כללי → הגדרות OCR.";
+
+/* OCR Selection */
+"ocr.selection.help" = "גרור כדי לבחור אזור לסריקה";
+"ocr.selection.instructions" = "Enter לאישור • ESC לביטול";
+
+/* Keyboard Shortcuts */
+"shortcuts.global.title" = "קיצורים גלובליים";
+"shortcuts.clipboard.title" = "היסטוריית לוח";
+"shortcuts.ocr.title" = "קיצורי OCR";
+"shortcuts.tips.title" = "טיפים";
+

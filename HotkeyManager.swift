@@ -512,15 +512,11 @@ class HotkeyManager {
     private func showPermissionRequiredAlert(for permission: String, reason: String) {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "\(permission) Permission Required"
-            alert.informativeText = """
-            JoyaFix needs \(permission) permission to \(reason).
-            
-            Please grant this permission in System Settings, then try again.
-            """
+            alert.messageText = String(format: NSLocalizedString("alert.accessibility.title", comment: "Permission alert title"), permission)
+            alert.informativeText = String(format: NSLocalizedString("alert.accessibility.message", comment: "Permission alert message"), permission, reason)
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open settings"))
+            alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
             
             let response = alert.runModal()
             

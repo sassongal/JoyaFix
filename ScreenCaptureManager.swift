@@ -57,11 +57,9 @@ class ScreenCaptureManager {
             escapeKeyLocalMonitor = nil
         }
         
-        // Restore cursor if needed
-        if cursorPushed {
-            NSCursor.pop()
-            cursorPushed = false
-        }
+        // FIX: Restore cursor safely - use set() instead of pop() to prevent crashes
+        NSCursor.arrow.set() // Force cursor back to arrow (safe)
+        cursorPushed = false
         
         // Close window safely - validate it exists before closing
         if let window = overlayWindow {
@@ -101,8 +99,8 @@ class ScreenCaptureManager {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(window.contentView)
 
-        // Change cursor to crosshair and track state
-        NSCursor.crosshair.push()
+        // Change cursor to crosshair
+        NSCursor.crosshair.set()
         cursorPushed = true
         
         // Add global ESC key monitor as backup - use global monitor to catch ESC even when window loses focus
@@ -148,11 +146,10 @@ class ScreenCaptureManager {
         escapeKeyMonitor = nil
         escapeKeyLocalMonitor = nil
         
-        // Restore Cursor safely
-        if cursorPushed {
-            NSCursor.pop()
-            cursorPushed = false
-        }
+        // FIX: Restore cursor safely - use set() instead of pop() to prevent crashes
+        // NSCursor.pop() can crash if the cursor stack is empty or was reset by the system
+        NSCursor.arrow.set() // Force cursor back to arrow (safe)
+        cursorPushed = false
         
         // Remove Monitors safely
         if let monitor = monitor {
@@ -180,6 +177,17 @@ class ScreenCaptureManager {
         print("📸 Capturing screen region: \(rect)")
         print("📺 Available screens: \(NSScreen.screens.count)")
 
+        // FIX: Check Screen Recording permission before attempting capture
+        guard PermissionManager.shared.isScreenRecordingTrusted() else {
+            print("⚠️ Screen Recording permission required for OCR")
+            DispatchQueue.main.async {
+                self.showScreenRecordingPermissionAlert()
+            }
+            completion?(nil)
+            isCapturing = false
+            return
+        }
+
         // Validate rect before capturing
         guard rect.width > 0 && rect.height > 0 && 
               rect.width < 100000 && rect.height < 100000 else {
@@ -189,91 +197,142 @@ class ScreenCaptureManager {
             return
         }
 
-        // Convert to screen coordinates for screencapture
-        // screencapture uses coordinates relative to the primary screen's origin
-        // We need to find which screen contains the rect and convert accordingly
-        let primaryScreen = NSScreen.main ?? NSScreen.screens.first!
-        let primaryFrame = primaryScreen.frame
+        // FIX: Hide overlay window immediately and wait a moment for it to fully disappear
+        // This prevents screencapture from capturing the overlay window itself
+        self.overlayWindow?.alphaValue = 0.0
+        self.overlayWindow?.orderOut(nil)
         
-        // For multi-monitor setups, screencapture expects coordinates relative to the primary screen
-        // But our rect is already in global coordinates, so we use it directly
-        let captureRect = NSRect(
-            x: rect.origin.x,
-            y: primaryFrame.height - rect.origin.y - rect.height, // Flip Y coordinate (Cocoa vs CoreGraphics)
-            width: rect.width,
-            height: rect.height
-        )
-        
-        print("📐 Converted rect for screencapture: \(captureRect)")
-
-        // Use screencapture command-line tool to capture the region
-        let tempFile = NSTemporaryDirectory() + "joyafix_\(UUID().uuidString).png"
-
-        let task = Process()
-        task.launchPath = "/usr/sbin/screencapture"
-        task.arguments = [
-            "-R", "\(Int(captureRect.origin.x)),\(Int(captureRect.origin.y)),\(Int(captureRect.size.width)),\(Int(captureRect.size.height))",
-            "-x", "-t", "png", tempFile
-        ]
-
-        task.launch()
-        task.waitUntilExit()
-
-        // Store completion handler before any async operations
-        let completionHandler = completion
-        
-        // Check if capture was successful
-        guard task.terminationStatus == 0 else {
-            print("❌ screencapture command failed")
-            try? FileManager.default.removeItem(atPath: tempFile)
-            completionHandler?(nil)
-            isCapturing = false
-            return
-        }
-
-        // Load the captured image
-        guard let image = NSImage(contentsOfFile: tempFile),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            print("❌ Failed to load captured image")
-            try? FileManager.default.removeItem(atPath: tempFile)
-            completionHandler?(nil)
-            isCapturing = false
-            return
-        }
-
-        print("✓ Screen captured (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
-
-        // Clean up temp file after OCR
-        let tempFilePath = tempFile
-
-        // Perform OCR directly with the CGImage
-        extractText(from: cgImage) { text in
-            // Clean up temp file
-            try? FileManager.default.removeItem(atPath: tempFilePath)
+        // Small delay to ensure overlay is completely gone before capturing
+        // This is critical for screencapture CLI to work correctly
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
             
-            Task { @MainActor in
+            // Convert to screen coordinates for screencapture
+            // screencapture uses coordinates relative to the primary screen's origin
+            let primaryScreen = NSScreen.main ?? NSScreen.screens.first!
+            let primaryFrame = primaryScreen.frame
+            
+            // For multi-monitor setups, screencapture expects coordinates relative to the primary screen
+            // But our rect is already in global coordinates, so we use it directly
+            // Convert Y coordinate: Cocoa (0,0 at bottom-left) to screencapture (0,0 at top-left)
+            let captureRect = NSRect(
+                x: rect.origin.x,
+                y: primaryFrame.height - rect.origin.y - rect.height,
+                width: rect.width,
+                height: rect.height
+            )
+            
+            // Validate converted rect (screencapture can fail with negative or invalid coordinates)
+            guard captureRect.origin.x >= 0 && captureRect.origin.y >= 0 &&
+                  captureRect.width > 0 && captureRect.height > 0 else {
+                print("❌ Invalid capture rect after conversion: \(captureRect)")
+                print("   Original rect: \(rect)")
+                print("   Primary screen frame: \(primaryFrame)")
+                self.completion?(nil)
                 self.isCapturing = false
+                return
+            }
+            
+            print("📐 Converted rect for screencapture: \(captureRect)")
+            
+            // Use screencapture command-line tool to capture the region
+            let tempFile = NSTemporaryDirectory() + "joyafix_\(UUID().uuidString).png"
+            
+            let task = Process()
+            task.launchPath = "/usr/sbin/screencapture"
+            task.arguments = [
+                "-R", "\(Int(captureRect.origin.x)),\(Int(captureRect.origin.y)),\(Int(captureRect.size.width)),\(Int(captureRect.size.height))",
+                "-x", // No sound
+                "-t", "png",
+                tempFile
+            ]
+            
+            // Suppress output
+            task.standardOutput = Pipe()
+            task.standardError = Pipe()
+            
+            task.launch()
+            task.waitUntilExit()
+            
+            // Store completion handler before any async operations
+            let completionHandler = self.completion
+            
+            // Check if capture was successful
+            guard task.terminationStatus == 0 else {
+                print("❌ screencapture command failed with status: \(task.terminationStatus)")
+                try? FileManager.default.removeItem(atPath: tempFile)
+                completionHandler?(nil)
+                self.isCapturing = false
+                return
+            }
+            
+            // Verify file was created and has content
+            guard FileManager.default.fileExists(atPath: tempFile) else {
+                print("❌ screencapture file not created")
+                completionHandler?(nil)
+                self.isCapturing = false
+                return
+            }
+            
+            // Load the captured image
+            guard let image = NSImage(contentsOfFile: tempFile),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                print("❌ Failed to load captured image")
+                try? FileManager.default.removeItem(atPath: tempFile)
+                completionHandler?(nil)
+                self.isCapturing = false
+                return
+            }
+            
+            print("✓ Screen captured via screencapture CLI (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
+            
+            // Clean up temp file after OCR
+            let tempFilePath = tempFile
+            
+            // Perform OCR directly with the CGImage
+            self.extractText(from: cgImage) { text in
+                // Clean up temp file
+                try? FileManager.default.removeItem(atPath: tempFilePath)
                 
-                // Save to OCR history if text was extracted
-                if let extractedText = text, !extractedText.isEmpty {
-                    // Create scan first
-                    let scan = OCRScan(extractedText: extractedText)
+                Task { @MainActor in
+                    self.isCapturing = false
                     
-                    // Save preview image
-                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    var finalScan = scan
-                    if let previewPath = OCRHistoryManager.shared.savePreviewImage(nsImage, for: scan) {
-                        finalScan = scan.withPreviewImagePath(previewPath)
+                    // Save to OCR history if text was extracted
+                    if let extractedText = text, !extractedText.isEmpty {
+                        // Create scan first
+                        let scan = OCRScan(extractedText: extractedText)
+                        
+                        // Save preview image
+                        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                        var finalScan = scan
+                        if let previewPath = OCRHistoryManager.shared.savePreviewImage(nsImage, for: scan) {
+                            finalScan = scan.withPreviewImagePath(previewPath)
+                        }
+                        
+                        // Add to history
+                        OCRHistoryManager.shared.addScan(finalScan)
+                        
+                        print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
                     }
                     
-                    // Add to history
-                    OCRHistoryManager.shared.addScan(finalScan)
-                    
-                    print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
+                    completionHandler?(text)
                 }
-                
-                completionHandler?(text)
             }
+        }
+    }
+    
+    /// Shows a user-friendly screen recording permission alert
+    private func showScreenRecordingPermissionAlert() {
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("alert.screen.recording.title", comment: "Screen recording alert title")
+        alert.informativeText = NSLocalizedString("alert.screen.recording.message", comment: "Screen recording alert message")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open settings"))
+        alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            PermissionManager.shared.openScreenRecordingSettings()
         }
     }
     
@@ -281,10 +340,10 @@ class ScreenCaptureManager {
     
     private func showErrorAlert(message: String) {
         let alert = NSAlert()
-        alert.messageText = "JoyaFix Error"
+        alert.messageText = NSLocalizedString("alert.error.title", comment: "Error alert title")
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
         alert.runModal()
     }
 
@@ -520,16 +579,10 @@ class ScreenCaptureManager {
     /// Shows a user-friendly rate limit error
     private func showRateLimitError(waitTime: TimeInterval) {
         let alert = NSAlert()
-        alert.messageText = "Cloud OCR Rate Limit"
-        alert.informativeText = """
-        You've reached the rate limit for Cloud OCR (\(JoyaFixConstants.maxCloudOCRRequestsPerMinute) requests per minute).
-        
-        Please wait \(Int(waitTime)) seconds before trying again, or use Local OCR instead.
-        
-        You can switch to Local OCR in Settings → General → OCR Configuration.
-        """
+        alert.messageText = NSLocalizedString("alert.rate.limit.title", comment: "Rate limit alert title")
+        alert.informativeText = String(format: NSLocalizedString("alert.rate.limit.message", comment: "Rate limit alert message"), JoyaFixConstants.maxCloudOCRRequestsPerMinute, Int(waitTime))
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
         alert.runModal()
     }
 }
@@ -547,11 +600,9 @@ extension ScreenCaptureManager: SelectionOverlayDelegate {
         
         hideSelectionOverlay()
         
-        // Small delay to ensure overlay is completely gone before capturing
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(JoyaFixConstants.ocrCaptureDelay * 1_000_000_000))
-            captureScreen(rect: rect)
-        }
+        // FIX: No delay needed - CGWindowListCreateImage captures below the window, so overlay can stay
+        // Capture immediately (overlay is already hidden with alphaValue = 0)
+        captureScreen(rect: rect)
     }
 
     func didCancelSelection() {
@@ -821,26 +872,46 @@ class SelectionView: NSView {
         ])
         gradient?.draw(in: dirtyRect, angle: 0)
 
-        // Draw help text
-        if !isSelecting {
-            let helpText = "גרור לסריקה • Enter לאישור • ESC לביטול"
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            shadow.shadowBlurRadius = 3
+        // FIX: Draw prominent help text - always visible when no selection is active
+        if !isSelecting && confirmedSelection == nil {
+            let helpText = NSLocalizedString("ocr.selection.help", comment: "OCR selection help")
+            let instructionText = NSLocalizedString("ocr.selection.instructions", comment: "OCR selection instructions")
             
+            // Enhanced shadow for better visibility
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.8)
+            shadow.shadowOffset = NSSize(width: 0, height: -2)
+            shadow.shadowBlurRadius = 5
+            
+            // Main help text - larger and more prominent
             let helpAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 16, weight: .medium),
-                .foregroundColor: NSColor.white.withAlphaComponent(0.7),
+                .font: NSFont.systemFont(ofSize: 20, weight: .bold),
+                .foregroundColor: NSColor.white,
+                .shadow: shadow
+            ]
+            
+            // Instruction text - smaller
+            let instructionAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.9),
                 .shadow: shadow
             ]
             
             let helpSize = helpText.size(withAttributes: helpAttributes)
+            let instructionSize = instructionText.size(withAttributes: instructionAttributes)
+            
+            // Center both texts
             let helpPoint = NSPoint(
                 x: (dirtyRect.width - helpSize.width) / 2,
-                y: dirtyRect.height - 100
+                y: dirtyRect.height / 2 + 30
             )
+            let instructionPoint = NSPoint(
+                x: (dirtyRect.width - instructionSize.width) / 2,
+                y: dirtyRect.height / 2 - 10
+            )
+            
             helpText.draw(at: helpPoint, withAttributes: helpAttributes)
+            instructionText.draw(at: instructionPoint, withAttributes: instructionAttributes)
         }
 
         // Draw selection

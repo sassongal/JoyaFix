@@ -38,14 +38,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return logoImage
         }
         
-        // Method 4: Try loading from development path (for testing)
+        // Method 4: Development path (only in DEBUG builds)
+        #if DEBUG
         let devPath = "/Users/galsasson/Desktop/JoyaFix/FLATLOGO.png"
         if FileManager.default.fileExists(atPath: devPath),
            let logoImage = NSImage(contentsOfFile: devPath) {
             return logoImage
         }
+        #endif
         
         return nil
+    }
+    
+    // FIX: Prevent app from terminating when windows close (LSUIElement apps should stay running)
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -174,7 +181,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Add "Convert Selection Layout" menu item at the top
         let convertItem = NSMenuItem(
-            title: "Convert Selection Layout",
+            title: NSLocalizedString("menu.convert.selection", comment: "Convert selection"),
             action: #selector(convertSelectionFromMenu),
             keyEquivalent: ""
         )
@@ -185,7 +192,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add OCR menu item
         let ocrItem = NSMenuItem(
-            title: "Extract Text from Screen...",
+            title: NSLocalizedString("menu.extract.text", comment: "Extract text"),
             action: #selector(extractTextFromScreen),
             keyEquivalent: "x"
         )
@@ -195,7 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Keyboard Cleaner menu item
         let keyboardCleanerItem = NSMenuItem(
-            title: KeyboardBlocker.shared.isKeyboardLocked ? "Unlock Keyboard" : "Keyboard Cleaner Mode",
+            title: KeyboardBlocker.shared.isKeyboardLocked ? NSLocalizedString("menu.unlock.keyboard", comment: "Unlock keyboard") : NSLocalizedString("menu.keyboard.cleaner", comment: "Keyboard cleaner"),
             action: #selector(toggleKeyboardLock),
             keyEquivalent: "l"
         )
@@ -204,7 +211,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(keyboardCleanerItem)
 
         let clearHistoryItem = NSMenuItem(
-            title: "Clear History",
+            title: NSLocalizedString("menu.clear.history", comment: "Clear history"),
             action: #selector(clearHistory),
             keyEquivalent: ""
         )
@@ -213,7 +220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Add Settings menu item
         let settingsItem = NSMenuItem(
-            title: "Settings...",
+            title: NSLocalizedString("menu.settings", comment: "Settings"),
             action: #selector(openSettings),
             keyEquivalent: ","
         )
@@ -223,7 +230,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Keyboard Shortcuts menu item
         let shortcutsItem = NSMenuItem(
-            title: "Keyboard Shortcuts...",
+            title: NSLocalizedString("menu.keyboard.shortcuts", comment: "Keyboard shortcuts"),
             action: #selector(showKeyboardShortcuts),
             keyEquivalent: "?"
         )
@@ -235,7 +242,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add About menu item
         let aboutItem = NSMenuItem(
-            title: "About JoyaFix",
+            title: NSLocalizedString("menu.about", comment: "About"),
             action: #selector(showAbout),
             keyEquivalent: ""
         )
@@ -245,7 +252,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         let quitMenuItem = NSMenuItem(
-            title: "Quit",
+            title: NSLocalizedString("menu.quit", comment: "Quit"),
             action: #selector(quitApp),
             keyEquivalent: "q"
         )
@@ -269,11 +276,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check permissions first
         guard PermissionManager.shared.isAccessibilityTrusted() else {
             let alert = NSAlert()
-            alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = "JoyaFix needs Accessibility permission to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete)."
+            alert.messageText = NSLocalizedString("alert.accessibility.title", comment: "Accessibility alert title")
+            alert.informativeText = NSLocalizedString("alert.accessibility.message", comment: "Accessibility alert message")
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open settings"))
+            alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
             
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {

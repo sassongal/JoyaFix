@@ -82,12 +82,19 @@ struct TextConverter {
     /// Improved detection: Analyzes text to determine conversion direction
     /// Handles mixed Hebrew/English text intelligently
     /// Optimized for large text with early termination
+    /// Handles edge cases: very short text, mostly numbers, mixed text
     private static func shouldConvertToEnglish(_ text: String) -> Bool {
+        // FIX: Handle very short text (1-3 characters) - simple check
+        if text.count <= 3 {
+            // If contains Hebrew, convert to English
+            return text.contains { isHebrewCharacter($0) }
+        }
+        
         // FIX: Optimize for large text - sample first 1000 characters if text is very long
         let sampleText: String
         if text.count > JoyaFixConstants.largeTextOptimizationThreshold {
             // For very long text, analyze first portion to make decision faster
-            sampleText = String(text.prefix(1000))
+            sampleText = String(text.prefix(JoyaFixConstants.textDetectionSampleLength))
         } else {
             sampleText = text
         }
@@ -113,6 +120,18 @@ struct TextConverter {
             }
         }
         
+        let totalChars = hebrewCount + englishCount + numberCount + punctuationCount + spaceCount
+        
+        // FIX: Handle text with mostly numbers (>70% numbers with <3 letters)
+        if totalChars > 0 {
+            let numberRatio = Double(numberCount) / Double(totalChars)
+            let letterCount = hebrewCount + englishCount
+            if numberRatio > 0.7 && letterCount < 3 {
+                // Mostly numbers with few letters - don't convert
+                return false
+            }
+        }
+        
         // FIX: Improved decision logic for mixed text
         // If we have Hebrew characters, convert to English
         if hebrewCount > 0 {
@@ -120,7 +139,7 @@ struct TextConverter {
             let totalLetters = hebrewCount + englishCount
             if totalLetters > 0 {
                 let hebrewRatio = Double(hebrewCount) / Double(totalLetters)
-                if hebrewRatio > 0.3 {
+                if hebrewRatio > JoyaFixConstants.hebrewEnglishRatioThreshold {
                     return true
                 }
             } else {

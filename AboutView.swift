@@ -22,12 +22,14 @@ struct AboutView: View {
             return logoImage
         }
         
-        // Method 4: Try loading from development path (for testing)
+        // Method 4: Development path (only in DEBUG builds)
+        #if DEBUG
         let devPath = "/Users/galsasson/Desktop/JoyaFix/FLATLOGO.png"
         if FileManager.default.fileExists(atPath: devPath),
            let logoImage = NSImage(contentsOfFile: devPath) {
             return logoImage
         }
+        #endif
         
         return nil
     }
@@ -53,11 +55,11 @@ struct AboutView: View {
             }
             
             // App Name
-            Text("JoyaFix")
+            Text(NSLocalizedString("about.app.name", comment: "App name"))
                 .font(.system(size: 36, weight: .bold))
             
             // Version
-            Text("Version 1.0.0")
+            Text(String(format: NSLocalizedString("about.version", comment: "Version"), "1.0.0"))
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
             
@@ -66,13 +68,13 @@ struct AboutView: View {
             
             // Credits
             VStack(spacing: 8) {
-                Text("Created by")
+                Text(NSLocalizedString("about.created.by", comment: "Created by"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Text("Gal Sasson")
                     .font(.system(size: 16, weight: .semibold))
                 
-                Text("Powered by")
+                Text(NSLocalizedString("about.powered.by", comment: "Powered by"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .padding(.top, 8)
@@ -86,15 +88,15 @@ struct AboutView: View {
             // Features
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Features")
+                    Text(NSLocalizedString("about.features", comment: "Features"))
                         .font(.system(size: 14, weight: .semibold))
                         .padding(.bottom, 4)
                     
-                    FeatureRow(icon: "textformat", text: "Smart Text Conversion (Hebrew ↔ English)")
-                    FeatureRow(icon: "viewfinder", text: "Smart OCR with Cloud & Local Support")
-                    FeatureRow(icon: "keyboard", text: "Keyboard Cleaner Mode")
-                    FeatureRow(icon: "text.bubble", text: "Text Snippets & Auto-Expansion")
-                    FeatureRow(icon: "clipboard", text: "Advanced Clipboard History")
+                    FeatureRow(icon: "textformat", text: NSLocalizedString("about.feature.text.conversion", comment: "Text conversion feature"))
+                    FeatureRow(icon: "viewfinder", text: NSLocalizedString("about.feature.ocr", comment: "OCR feature"))
+                    FeatureRow(icon: "keyboard", text: NSLocalizedString("about.feature.keyboard.cleaner", comment: "Keyboard cleaner feature"))
+                    FeatureRow(icon: "text.bubble", text: NSLocalizedString("about.feature.snippets", comment: "Snippets feature"))
+                    FeatureRow(icon: "clipboard", text: NSLocalizedString("about.feature.clipboard", comment: "Clipboard feature"))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -104,12 +106,12 @@ struct AboutView: View {
                 .padding(.horizontal, 40)
             
             // Copyright
-            Text("© 2026 JoyaTech. All Rights Reserved.")
+            Text(NSLocalizedString("about.copyright", comment: "Copyright"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
             
             // Close Button
-            Button("Close", action: { dismiss() })
+            Button(NSLocalizedString("about.close", comment: "Close button"), action: { dismiss() })
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
         }
