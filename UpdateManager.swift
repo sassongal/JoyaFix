@@ -9,7 +9,7 @@ class UpdateManager {
     // MARK: - Configuration
     
     /// GitHub URL for version check (placeholder - replace with actual repo URL)
-    private let versionCheckURL = "https://raw.githubusercontent.com/sassongal/JoyaFix/main/version.json"
+    private let versionCheckURL = "https://raw.githubusercontent.com/sassongal/JoyaFix/master/version.json"
     
     private init() {}
     

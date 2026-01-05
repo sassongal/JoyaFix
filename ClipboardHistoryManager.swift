@@ -234,6 +234,20 @@ class ClipboardHistoryManager: ObservableObject {
 
         // Limit unpinned items (pinned items don't count toward the limit)
         if newUnpinnedItems.count > maxHistoryCount {
+            // Get items that will be dropped (from index maxHistoryCount to the end)
+            let itemsToDrop = Array(newUnpinnedItems.dropFirst(maxHistoryCount))
+            
+            // Delete files for dropped items
+            for item in itemsToDrop {
+                if let rtfPath = item.rtfDataPath {
+                    try? FileManager.default.removeItem(atPath: rtfPath)
+                }
+                if let htmlPath = item.htmlDataPath {
+                    try? FileManager.default.removeItem(atPath: htmlPath)
+                }
+            }
+            
+            // Truncate to maxHistoryCount
             newUnpinnedItems = Array(newUnpinnedItems.prefix(maxHistoryCount))
         }
 
