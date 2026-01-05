@@ -779,13 +779,28 @@ class ClipboardHistoryManager: ObservableObject {
     }
     
     /// Migrates clipboard history from UserDefaults to database (one-time migration)
+    /// Includes corruption detection and safe error handling
     @MainActor
     private func migrateToDatabase() {
         print("🔄 Migrating clipboard history from UserDefaults to database...")
-        let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
-        if success {
-            // Reload from database after migration
-            loadHistory()
+        
+        do {
+            let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
+            if success {
+                // Reload from database after migration
+                loadHistory()
+            } else {
+                print("⚠️ Migration returned false - keeping data in UserDefaults as fallback")
+            }
+        } catch {
+            // Handle corruption errors gracefully
+            if DatabaseError.isCorruptionError(error) {
+                print("⚠️ Database corruption detected during migration - keeping data in UserDefaults")
+                // Don't crash - keep using UserDefaults
+            } else {
+                print("❌ Migration failed: \(error.localizedDescription)")
+                // Keep using UserDefaults as fallback
+            }
         }
     }
     

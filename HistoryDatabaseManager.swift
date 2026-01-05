@@ -28,9 +28,38 @@ class HistoryDatabaseManager {
     }
     
     /// Initializes the database and creates tables if needed
+    /// Includes integrity check and corruption recovery
     private func initializeDatabase() {
+        // Check if database file exists and verify integrity before opening
+        let fileExists = FileManager.default.fileExists(atPath: databaseURL.path)
+        
+        if fileExists {
+            // Perform integrity check on existing database
+            if !checkDatabaseIntegrity() {
+                print("⚠️ Database integrity check failed - attempting recovery...")
+                if !recoverFromCorruption() {
+                    print("❌ Database recovery failed - resetting database")
+                    resetDatabase()
+                    // Re-initialize after reset
+                    initializeDatabase()
+                    return
+                }
+            }
+        }
+        
         do {
             dbQueue = try DatabaseQueue(path: databaseURL.path)
+            
+            // Perform integrity check after opening
+            try dbQueue?.read { db in
+                let integrityResult = try String.fetchOne(db, sql: "PRAGMA integrity_check")
+                if let result = integrityResult, result.lowercased() != "ok" {
+                    print("⚠️ Database integrity check returned: \(result)")
+                    // Close the queue before recovery
+                    dbQueue = nil
+                    throw DatabaseError.databaseCorrupted(result)
+                }
+            }
             
             try dbQueue?.write { db in
                 // Create clipboard_history table
@@ -76,8 +105,246 @@ class HistoryDatabaseManager {
             ensureIndexesExist()
         } catch {
             print("❌ Failed to initialize database: \(error.localizedDescription)")
+            
+            // If corruption detected, attempt recovery
+            if case DatabaseError.databaseCorrupted = error {
+                if recoverFromCorruption() {
+                    // Retry initialization after recovery
+                    initializeDatabase()
+                    return
+                } else {
+                    resetDatabase()
+                    initializeDatabase()
+                    return
+                }
+            }
+            
             // Fallback: continue with UserDefaults if database fails
+            dbQueue = nil
         }
+    }
+    
+    /// Checks database integrity using PRAGMA integrity_check
+    /// Returns true if database is healthy, false if corrupted
+    private func checkDatabaseIntegrity() -> Bool {
+        // Try to open database temporarily for integrity check
+        guard let tempQueue = try? DatabaseQueue(path: databaseURL.path) else {
+            return false
+        }
+        
+        do {
+            let result = try tempQueue.read { db -> String? in
+                return try String.fetchOne(db, sql: "PRAGMA integrity_check")
+            }
+            
+            if let integrityResult = result {
+                let isHealthy = integrityResult.lowercased() == "ok"
+                if !isHealthy {
+                    print("⚠️ Database integrity check failed: \(integrityResult)")
+                }
+                return isHealthy
+            }
+            
+            return false
+        } catch {
+            print("❌ Failed to check database integrity: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    /// Attempts to recover from database corruption
+    /// Returns true if recovery succeeded, false otherwise
+    private func recoverFromCorruption() -> Bool {
+        print("🔄 Attempting database recovery...")
+        
+        // Backup corrupted database
+        let backupURL = databaseURL.appendingPathExtension("corrupted.\(Int(Date().timeIntervalSince1970))")
+        
+        do {
+            // Try to backup the corrupted file
+            try FileManager.default.copyItem(at: databaseURL, to: backupURL)
+            print("✓ Created backup of corrupted database: \(backupURL.lastPathComponent)")
+        } catch {
+            print("⚠️ Could not backup corrupted database: \(error.localizedDescription)")
+        }
+        
+        // Try to recover data using SQLite's recovery mechanisms
+        do {
+            // Attempt to open corrupted database and read what we can
+            let tempQueue = try DatabaseQueue(path: databaseURL.path)
+            
+            // Try to read what we can from corrupted database
+            var recoveredClipboardItems: [ClipboardItem] = []
+            var recoveredOCRItems: [OCRScan] = []
+            
+            do {
+                recoveredClipboardItems = try tempQueue.read { db in
+                    let rows = try? Row.fetchAll(db, sql: """
+                        SELECT * FROM clipboard_history
+                        ORDER BY is_pinned DESC, timestamp DESC
+                    """)
+                    
+                    return rows?.compactMap { row -> ClipboardItem? in
+                        guard let idString = row["id"] as String?,
+                              let id = UUID(uuidString: idString),
+                              let plainText = row["plain_text_preview"] as String?,
+                              let timestamp = row["timestamp"] as Double? else {
+                            return nil
+                        }
+                        
+                        let date = Date(timeIntervalSince1970: timestamp)
+                        let fullText = row["full_text"] as String?
+                        let rtfPath = row["rtf_data_path"] as String?
+                        let htmlPath = row["html_data_path"] as String?
+                        let imagePath = row["image_path"] as String?
+                        let isPinned = (row["is_pinned"] as Int? ?? 0) == 1
+                        let isSensitive = (row["is_sensitive"] as Int? ?? 0) == 1
+                        
+                        return ClipboardItem(
+                            id: id,
+                            plainTextPreview: plainText,
+                            fullText: fullText,
+                            rtfDataPath: rtfPath,
+                            htmlDataPath: htmlPath,
+                            imagePath: imagePath,
+                            timestamp: date,
+                            isPinned: isPinned,
+                            isSensitive: isSensitive
+                        )
+                    } ?? []
+                }
+                print("✓ Recovered \(recoveredClipboardItems.count) clipboard items")
+            } catch {
+                print("⚠️ Could not recover clipboard history: \(error.localizedDescription)")
+            }
+            
+            do {
+                recoveredOCRItems = try tempQueue.read { db in
+                    let rows = try? Row.fetchAll(db, sql: """
+                        SELECT * FROM ocr_history
+                        ORDER BY date DESC
+                    """)
+                    
+                    return rows?.compactMap { row -> OCRScan? in
+                        guard let idString = row["id"] as String?,
+                              let id = UUID(uuidString: idString),
+                              let extractedText = row["extracted_text"] as String?,
+                              let date = row["date"] as Double? else {
+                            return nil
+                        }
+                        
+                        let scanDate = Date(timeIntervalSince1970: date)
+                        let previewPath = row["preview_image_path"] as String?
+                        
+                        return OCRScan(
+                            id: id,
+                            date: scanDate,
+                            extractedText: extractedText,
+                            previewImagePath: previewPath
+                        )
+                    } ?? []
+                }
+                print("✓ Recovered \(recoveredOCRItems.count) OCR scans")
+            } catch {
+                print("⚠️ Could not recover OCR history: \(error.localizedDescription)")
+            }
+            
+            // Close the corrupted database
+            tempQueue = nil
+            
+            // Reset database
+            resetDatabase()
+            
+            // Re-initialize database
+            do {
+                dbQueue = try DatabaseQueue(path: databaseURL.path)
+                
+                // Restore recovered data
+                if !recoveredClipboardItems.isEmpty {
+                    do {
+                        try dbQueue?.write { db in
+                            for item in recoveredClipboardItems {
+                                try? db.execute(sql: """
+                                    INSERT INTO clipboard_history (
+                                        id, plain_text_preview, full_text, rtf_data_path, html_data_path,
+                                        image_path, timestamp, is_pinned, is_sensitive, created_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """, arguments: [
+                                    item.id.uuidString,
+                                    item.plainTextPreview,
+                                    item.fullText,
+                                    item.rtfDataPath,
+                                    item.htmlDataPath,
+                                    item.imagePath,
+                                    item.timestamp.timeIntervalSince1970,
+                                    item.isPinned ? 1 : 0,
+                                    item.isSensitive ? 1 : 0,
+                                    Date().timeIntervalSince1970
+                                ])
+                            }
+                        }
+                        print("✓ Restored \(recoveredClipboardItems.count) clipboard items")
+                    } catch {
+                        print("⚠️ Could not restore recovered clipboard items: \(error.localizedDescription)")
+                    }
+                }
+                
+                if !recoveredOCRItems.isEmpty {
+                    do {
+                        try dbQueue?.write { db in
+                            for item in recoveredOCRItems {
+                                try? db.execute(sql: """
+                                    INSERT INTO ocr_history (id, extracted_text, preview_image_path, date, created_at)
+                                    VALUES (?, ?, ?, ?, ?)
+                                """, arguments: [
+                                    item.id.uuidString,
+                                    item.extractedText,
+                                    item.previewImagePath,
+                                    item.date.timeIntervalSince1970,
+                                    Date().timeIntervalSince1970
+                                ])
+                            }
+                        }
+                        print("✓ Restored \(recoveredOCRItems.count) OCR scans")
+                    } catch {
+                        print("⚠️ Could not restore recovered OCR scans: \(error.localizedDescription)")
+                    }
+                }
+            } catch {
+                print("❌ Failed to re-initialize database after recovery: \(error.localizedDescription)")
+                return false
+            }
+            
+            print("✓ Database recovery completed")
+            return true
+        } catch {
+            print("❌ Database recovery failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    /// Resets the database by deleting the corrupted file and creating a new one
+    private func resetDatabase() {
+        print("🔄 Resetting database...")
+        
+        // Close existing connection
+        dbQueue = nil
+        
+        // Backup corrupted database if it exists
+        if FileManager.default.fileExists(atPath: databaseURL.path) {
+            let backupURL = databaseURL.appendingPathExtension("reset.\(Int(Date().timeIntervalSince1970))")
+            do {
+                try FileManager.default.moveItem(at: databaseURL, to: backupURL)
+                print("✓ Moved corrupted database to backup: \(backupURL.lastPathComponent)")
+            } catch {
+                // If backup fails, try to delete
+                try? FileManager.default.removeItem(at: databaseURL)
+                print("⚠️ Could not backup corrupted database, deleted instead")
+            }
+        }
+        
+        // Database will be recreated on next initialization
+        print("✓ Database reset completed")
     }
     
     // MARK: - Clipboard History Operations
@@ -271,8 +538,7 @@ class HistoryDatabaseManager {
             return false
         }
     }
-}
-
+    
     // MARK: - Database Health Check
     
     /// Checks if database indexes exist and creates them if missing (migration support)
@@ -320,6 +586,7 @@ enum DatabaseError: Error {
     case migrationFailed
     case databaseLocked
     case ioError(String)
+    case databaseCorrupted(String)
     
     /// Checks if error is a database lock error
     static func isDatabaseLocked(_ error: Error) -> Bool {
@@ -336,6 +603,15 @@ enum DatabaseError: Error {
                errorString.contains("disk i/o error") ||
                errorString.contains("unable to open database") ||
                errorString.contains("no such file or directory")
+    }
+    
+    /// Checks if error indicates database corruption
+    static func isCorruptionError(_ error: Error) -> Bool {
+        let errorString = error.localizedDescription.lowercased()
+        return errorString.contains("database disk image is malformed") ||
+               errorString.contains("database corruption") ||
+               errorString.contains("file is encrypted or is not a database") ||
+               errorString.contains("not a database")
     }
 }
 
