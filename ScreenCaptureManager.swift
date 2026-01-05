@@ -197,15 +197,14 @@ class ScreenCaptureManager {
             return
         }
 
-        // FIX: Hide overlay window immediately and wait a moment for it to fully disappear
+        // FIX: Hide overlay window immediately
         // This prevents screencapture from capturing the overlay window itself
         self.overlayWindow?.alphaValue = 0.0
         self.overlayWindow?.orderOut(nil)
         
-        // Small delay to ensure overlay is completely gone before capturing
-        // This is critical for screencapture CLI to work correctly
+        // FIX: Removed unnecessary delay - overlay is already hidden with alphaValue = 0
+        // The screencapture CLI works correctly without additional delay
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
             
             // Convert to screen coordinates for screencapture
             // screencapture uses coordinates relative to the primary screen's origin

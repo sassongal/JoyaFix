@@ -37,6 +37,24 @@ if [ -f "success.wav" ]; then
     cp success.wav "$RESOURCES_DIR/"
 fi
 
+# Copy Logo
+if [ -f "FLATLOGO.png" ]; then
+    echo "🖼️ Copying logo..."
+    cp FLATLOGO.png "$RESOURCES_DIR/"
+fi
+
+# Copy Localization
+echo "🌍 Copying localization files..."
+if [ -d "he.lproj" ]; then
+    mkdir -p "$RESOURCES_DIR/he.lproj"
+    cp he.lproj/Localizable.strings "$RESOURCES_DIR/he.lproj/"
+fi
+
+if [ -d "en.lproj" ]; then
+    mkdir -p "$RESOURCES_DIR/en.lproj"
+    cp en.lproj/Localizable.strings "$RESOURCES_DIR/en.lproj/"
+fi
+
 # Create PkgInfo
 echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
