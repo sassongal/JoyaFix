@@ -297,13 +297,42 @@ class InputMonitor {
             simulateBackspace()
         }
         
+        // Process snippet content (Snippets 2.0: dynamic variables and cursor placement)
+        let processed = snippetManager.processSnippetContent(snippet.content)
+        let processedText = processed.text
+        let cursorPosition = processed.cursorPosition
+        
         // Small delay to ensure backspaces are processed
         DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.snippetBackspaceDelay) {
-            // Paste the snippet content
-            self.pasteText(snippet.content)
+            // Paste the processed snippet content
+            self.pasteText(processedText)
+            
+            // Snippets 2.0: Handle cursor placement if specified
+            if let cursorPos = cursorPosition, cursorPos > 0 {
+                // Wait a bit for paste to complete, then move cursor
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.moveCursorLeft(by: cursorPos)
+                }
+            }
             
             // Clear buffer
             self.keyBuffer = ""
+        }
+    }
+    
+    /// Moves cursor left by specified number of characters
+    private func moveCursorLeft(by count: Int) {
+        let keyCode = CGKeyCode(kVK_LeftArrow)
+        
+        for _ in 0..<count {
+            guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
+                  let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+                continue
+            }
+            
+            keyDownEvent.post(tap: CGEventTapLocation.cghidEventTap)
+            usleep(5000) // 5ms delay between key presses
+            keyUpEvent.post(tap: CGEventTapLocation.cghidEventTap)
         }
     }
     

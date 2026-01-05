@@ -104,3 +104,23 @@
 "shortcuts.ocr.title" = "OCR Shortcuts";
 "shortcuts.tips.title" = "Tips";
 
+/* System Integration */
+"settings.system.integration" = "System Integration";
+"settings.launch.at.login" = "Launch at Login";
+"settings.check.updates" = "Check for Updates";
+"settings.check.updates.button" = "Check Now";
+
+/* Update Alerts */
+"update.alert.title" = "Update Available";
+"update.alert.message" = "A new version of JoyaFix is available (v%@).\n\n%@";
+"update.alert.button" = "Download";
+"update.alert.cancel" = "Later";
+"update.alert.no.update.title" = "You're Up to Date";
+"update.alert.no.update.message" = "JoyaFix is already running the latest version.";
+
+/* Launch at Login */
+"settings.launch.at.login.error.title" = "Launch at Login Error";
+"settings.launch.at.login.error" = "Failed to %@ Launch at Login. Please check System Settings → General → Login Items.";
+"enable" = "enable";
+"disable" = "disable";
+

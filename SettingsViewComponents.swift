@@ -105,6 +105,34 @@ struct GeneralSettingsTab: View {
                         }
                         .padding(8)
                     }
+                    
+                    // System Integration Section
+                    GroupBox(label: Label(NSLocalizedString("settings.system.integration", comment: "System Integration"), systemImage: "gear")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Launch at Login
+                            LaunchAtLoginToggle()
+                            
+                            Divider()
+                            
+                            // Check for Updates
+                            HStack {
+                                Text(NSLocalizedString("settings.check.updates", comment: "Check for Updates"))
+                                    .font(.body)
+                                Spacer()
+                                Button(action: {
+                                    checkForUpdates()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.clockwise")
+                                        Text(NSLocalizedString("settings.check.updates.button", comment: "Check Now"))
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isCheckingForUpdates)
+                            }
+                        }
+                        .padding(8)
+                    }
 
                     // OCR Configuration Section
                     GroupBox(label: Label(NSLocalizedString("settings.ocr.configuration", comment: "OCR configuration"), systemImage: "cloud.fill")) {
@@ -276,6 +304,45 @@ struct GeneralSettingsTab: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(importErrorMessage)
+        }
+        .alert(NSLocalizedString("update.alert.title", comment: "Update Available"), isPresented: $showUpdateAlert) {
+            Button(NSLocalizedString("update.alert.button", comment: "Download")) {
+                if let info = updateInfo, let downloadURL = info.downloadURL, let url = URL(string: downloadURL) {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            Button(NSLocalizedString("update.alert.cancel", comment: "Later"), role: .cancel) { }
+        } message: {
+            if let info = updateInfo {
+                Text(String(format: NSLocalizedString("update.alert.message", comment: "Update message"), info.version, info.releaseNotes ?? "Bug fixes and improvements."))
+            }
+        }
+        .alert(NSLocalizedString("update.alert.no.update.title", comment: "You're Up to Date"), isPresented: $showNoUpdateAlert) {
+            Button(NSLocalizedString("alert.button.ok", comment: "OK"), role: .cancel) { }
+        } message: {
+            Text(NSLocalizedString("update.alert.no.update.message", comment: "No update message"))
+        }
+    }
+    
+    // MARK: - Update Check
+    
+    @State private var isCheckingForUpdates = false
+    @State private var showUpdateAlert = false
+    @State private var updateInfo: UpdateInfo?
+    @State private var showNoUpdateAlert = false
+    
+    private func checkForUpdates() {
+        isCheckingForUpdates = true
+        
+        UpdateManager.shared.checkForUpdates { [self] info in
+            isCheckingForUpdates = false
+            
+            if let info = info {
+                updateInfo = info
+                showUpdateAlert = true
+            } else {
+                showNoUpdateAlert = true
+            }
         }
     }
     

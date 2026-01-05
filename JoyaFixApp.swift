@@ -70,7 +70,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                               operation: .sourceOver,
                               fraction: 1.0)
                 resizedLogo.unlockFocus()
-                resizedLogo.isTemplate = false  // Keep original colors (not template)
+                resizedLogo.isTemplate = true  // Enable template mode for Dark Mode support
                 button.image = resizedLogo
             } else {
                 // Fallback to text icon if logo not found

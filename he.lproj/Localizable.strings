@@ -104,3 +104,23 @@
 "shortcuts.ocr.title" = "קיצורי OCR";
 "shortcuts.tips.title" = "טיפים";
 
+/* System Integration */
+"settings.system.integration" = "אינטגרציה למערכת";
+"settings.launch.at.login" = "הפעל בעת עליית המחשב";
+"settings.check.updates" = "בדוק עדכונים";
+"settings.check.updates.button" = "בדוק עכשיו";
+
+/* Update Alerts */
+"update.alert.title" = "עדכון זמין";
+"update.alert.message" = "גרסה חדשה של JoyaFix זמינה (v%@).\n\n%@";
+"update.alert.button" = "הורד";
+"update.alert.cancel" = "מאוחר יותר";
+"update.alert.no.update.title" = "אתה מעודכן";
+"update.alert.no.update.message" = "JoyaFix כבר רץ בגרסה העדכנית ביותר.";
+
+/* Launch at Login */
+"settings.launch.at.login.error.title" = "שגיאה בהפעלה בעת עלייה";
+"settings.launch.at.login.error" = "נכשל ב-%@ ההפעלה בעת עלייה. אנא בדוק בהגדרות המערכת → כללי → פריטי התחלה.";
+"enable" = "הפעלת";
+"disable" = "ביטול";
+

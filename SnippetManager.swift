@@ -187,5 +187,61 @@ class SnippetManager: ObservableObject {
     func getAllTriggers() -> [String] {
         return snippets.map { $0.trigger }
     }
+    
+    // MARK: - Snippets 2.0: Dynamic Content Processing
+    
+    /// Processes snippet content to replace dynamic variables and handle cursor placement
+    /// - Parameter content: The raw snippet content
+    /// - Returns: A tuple containing the processed text and the cursor position (if any)
+    func processSnippetContent(_ content: String) -> (text: String, cursorPosition: Int?) {
+        var processedText = content
+        
+        // Replace dynamic variables
+        processedText = replaceDynamicVariables(in: processedText)
+        
+        // Handle cursor placement (| syntax)
+        if let pipeIndex = processedText.firstIndex(of: "|") {
+            // Remove the pipe character
+            processedText.remove(at: pipeIndex)
+            
+            // Calculate cursor position from the end of the string
+            let distanceFromEnd = processedText.distance(from: pipeIndex, to: processedText.endIndex)
+            
+            return (processedText, distanceFromEnd)
+        }
+        
+        return (processedText, nil)
+    }
+    
+    /// Replaces dynamic variables in snippet content
+    /// Supported variables: {date}, {time}, {clipboard}
+    private func replaceDynamicVariables(in text: String) -> String {
+        var result = text
+        
+        // Replace {date} with current date (dd/MM/yyyy)
+        if result.contains("{date}") {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "dd/MM/yyyy"
+            let currentDate = dateFormatter.string(from: Date())
+            result = result.replacingOccurrences(of: "{date}", with: currentDate)
+        }
+        
+        // Replace {time} with current time (HH:mm)
+        if result.contains("{time}") {
+            let timeFormatter = DateFormatter()
+            timeFormatter.dateFormat = "HH:mm"
+            let currentTime = timeFormatter.string(from: Date())
+            result = result.replacingOccurrences(of: "{time}", with: currentTime)
+        }
+        
+        // Replace {clipboard} with current clipboard content
+        if result.contains("{clipboard}") {
+            let pasteboard = NSPasteboard.general
+            let clipboardContent = pasteboard.string(forType: .string) ?? ""
+            result = result.replacingOccurrences(of: "{clipboard}", with: clipboardContent)
+        }
+        
+        return result
+    }
 }
 
