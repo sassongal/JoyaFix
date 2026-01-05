@@ -97,6 +97,22 @@ enum JoyaFixConstants {
     /// Minimum selection size for OCR (pixels)
     static let minOCRSelectionSize: CGFloat = 10.0
     
+    /// Minimum dimension threshold for OCR upscaling (pixels)
+    /// Images smaller than this will be upscaled to improve OCR accuracy
+    static let ocrMinDimensionThreshold: CGFloat = 400.0
+    
+    /// Target minimum dimension after upscaling (pixels)
+    /// Small images will be scaled to reach at least this dimension
+    static let ocrTargetMinDimension: CGFloat = 800.0
+    
+    /// Maximum scale factor for OCR upscaling
+    /// Prevents over-processing of very small images
+    static let ocrMaxScaleFactor: CGFloat = 4.0
+    
+    /// Minimum scale factor for OCR upscaling
+    /// Ensures meaningful upscaling when applied
+    static let ocrMinScaleFactor: CGFloat = 1.2
+    
     // MARK: - UI Sizes
     
     /// Menubar icon size (pixels)

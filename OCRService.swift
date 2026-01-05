@@ -154,28 +154,48 @@ class OCRService {
     // MARK: - Image Preprocessing
     
     /// Preprocesses the image to improve OCR accuracy
-    /// Applies upscaling for small images, grayscale, increases contrast, and reduces noise.
+    /// Applies dynamic upscaling for small images based on source resolution,
+    /// grayscale conversion, contrast enhancement, and noise reduction.
     nonisolated private func preprocessImage(_ image: CGImage) -> CGImage? {
         let ciImage = CIImage(cgImage: image)
+        let imageWidth = ciImage.extent.width
+        let imageHeight = ciImage.extent.height
+        let minDimension = min(imageWidth, imageHeight)
+        let maxDimension = max(imageWidth, imageHeight)
         
-        // --- NEW: Upscaling Step ---
-        // If the image is very small, upscale it to improve OCR accuracy.
-        let minDimension: CGFloat = 400.0 // Pixels
-        let scaleFactor: CGFloat = 2.0
         var processedCIImage = ciImage
         
-        if ciImage.extent.width < minDimension || ciImage.extent.height < minDimension {
-            print("🚀 Preprocessing: Upscaling small image (from \(ciImage.extent.size))")
-            let scaleFilter = CIFilter(name: "CILanczosScaleTransform")!
-            scaleFilter.setValue(ciImage, forKey: kCIInputImageKey)
-            scaleFilter.setValue(scaleFactor, forKey: kCIInputScaleKey)
-            scaleFilter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+        // Dynamic upscaling: Only upscale if image is below threshold
+        // Calculate scale factor based on source resolution to avoid over-processing
+        if minDimension < JoyaFixConstants.ocrMinDimensionThreshold {
+            // Calculate dynamic scale factor to reach target minimum dimension
+            // Scale factor is based on how much we need to scale the smallest dimension
+            let targetScale = JoyaFixConstants.ocrTargetMinDimension / minDimension
             
-            if let scaledImage = scaleFilter.outputImage {
-                processedCIImage = scaledImage
+            // Clamp scale factor to reasonable bounds
+            let scaleFactor = min(max(targetScale, JoyaFixConstants.ocrMinScaleFactor), JoyaFixConstants.ocrMaxScaleFactor)
+            
+            // Only upscale if it makes sense (scale factor > 1.0)
+            if scaleFactor > 1.0 {
+                let originalSize = ciImage.extent.size
+                print("🚀 Preprocessing: Upscaling small image (from \(originalSize) with \(String(format: "%.2f", scaleFactor))x scale)")
+                
+                let scaleFilter = CIFilter(name: "CILanczosScaleTransform")!
+                scaleFilter.setValue(ciImage, forKey: kCIInputImageKey)
+                scaleFilter.setValue(scaleFactor, forKey: kCIInputScaleKey)
+                scaleFilter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+                
+                if let scaledImage = scaleFilter.outputImage {
+                    processedCIImage = scaledImage
+                    let newSize = scaledImage.extent.size
+                    print("   Upscaled to: \(newSize) (effective scale: \(String(format: "%.2f", newSize.width / originalSize.width))x)")
+                }
             }
+        } else {
+            // Image is already large enough - no upscaling needed
+            // This avoids over-processing large captures
+            print("ℹ️ Preprocessing: Image size (\(Int(imageWidth))×\(Int(imageHeight))) is sufficient, skipping upscaling")
         }
-        // --- END NEW ---
 
         // 1. Convert to Monochrome (Grayscale)
         // This removes color noise which can confuse OCR
