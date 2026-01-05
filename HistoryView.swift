@@ -11,7 +11,7 @@ struct HistoryView: View {
     @State private var selectedTab = 0 // 0 = Clipboard, 1 = OCR Scans
     @FocusState private var isSearchFocused: Bool
 
-    var onPasteItem: (ClipboardItem) -> Void
+    var onPasteItem: (ClipboardItem, Bool) -> Void  // Bool indicates plainTextOnly
     var onClose: () -> Void
 
     var filteredHistory: [ClipboardItem] {
@@ -76,7 +76,7 @@ struct ClipboardHistoryTabView: View {
     @Binding var searchText: String
     @Binding var selectedIndex: Int
     @FocusState.Binding var isSearchFocused: Bool
-    var onPasteItem: (ClipboardItem) -> Void
+    var onPasteItem: (ClipboardItem, Bool) -> Void  // Bool indicates plainTextOnly
     var onClose: () -> Void
     
     var body: some View {
@@ -125,8 +125,8 @@ struct ClipboardHistoryTabView: View {
                                 HistoryItemRow(
                                     item: item,
                                     isSelected: index == selectedIndex,
-                                    onPaste: {
-                                        onPasteItem(item)
+                                    onPaste: { plainTextOnly in
+                                        onPasteItem(item, plainTextOnly)
                                     },
                                     onTogglePin: {
                                         ClipboardHistoryManager.shared.togglePin(for: item)
@@ -157,6 +157,7 @@ struct ClipboardHistoryTabView: View {
             // Footer
             HStack(spacing: 16) {
                 FooterHintView(icon: "return", text: "Paste")
+                FooterHintView(icon: "shift", text: "⇧ Plain Text")
                 FooterHintView(icon: "arrow.up.arrow.down", text: "Navigate")
                 FooterHintView(icon: "command", text: "⌫ Clear")
 
@@ -190,7 +191,9 @@ struct ClipboardHistoryTabView: View {
         }
         .onKeyPress(.return) {
             if !filteredHistory.isEmpty {
-                onPasteItem(filteredHistory[selectedIndex])
+                // Check if Shift is held for plain text paste
+                let isShiftHeld = NSEvent.modifierFlags.contains(.shift)
+                onPasteItem(filteredHistory[selectedIndex], isShiftHeld)
             }
             return .handled
         }
@@ -419,7 +422,7 @@ struct OCRScanRow: View {
 struct HistoryItemRow: View {
     let item: ClipboardItem
     let isSelected: Bool
-    let onPaste: () -> Void
+    let onPaste: (Bool) -> Void  // Bool indicates plainTextOnly
     let onTogglePin: () -> Void
     let onDelete: () -> Void
 
@@ -521,7 +524,12 @@ struct HistoryItemRow: View {
             isHovered = hovering
         }
         .onTapGesture {
-            onPaste()
+            // Check modifier keys for plain text paste
+            let event = NSApp.currentEvent
+            let isShiftHeld = event?.modifierFlags.contains(.shift) ?? false
+            let isOptionHeld = event?.modifierFlags.contains(.option) ?? false
+            let plainTextOnly = isShiftHeld || isOptionHeld
+            onPaste(plainTextOnly)
         }
     }
 

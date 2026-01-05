@@ -335,6 +335,13 @@ class HotkeyManager {
             return
         }
 
+        // Call the public conversion method
+        performTextConversion()
+    }
+    
+    /// Public method to perform text conversion (can be called from UI)
+    /// This method handles the full conversion flow: copy, convert, paste
+    func performTextConversion() {
         // Step 1: Simulate Cmd+C to copy selected text
         simulateCopy()
 

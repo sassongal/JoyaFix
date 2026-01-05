@@ -35,22 +35,43 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Image(systemName: "gearshape.fill")
-                    .font(.title)
-                    .foregroundColor(.blue)
-                Text("JoyaFix Settings")
-                    .font(.title2)
-                    .fontWeight(.bold)
+        TabView {
+            // General Settings Tab
+            GeneralSettingsTab(
+                settings: settings,
+                localConvertKeyCode: $localConvertKeyCode,
+                localConvertModifiers: $localConvertModifiers,
+                localOCRKeyCode: $localOCRKeyCode,
+                localOCRModifiers: $localOCRModifiers,
+                localMaxHistoryCount: $localMaxHistoryCount,
+                localPlaySound: $localPlaySound,
+                localAutoPaste: $localAutoPaste,
+                localGeminiKey: $localGeminiKey,
+                localUseCloudOCR: $localUseCloudOCR,
+                isRecordingConvertHotkey: $isRecordingConvertHotkey,
+                isRecordingOCRHotkey: $isRecordingOCRHotkey,
+                hasUnsavedChanges: $hasUnsavedChanges,
+                showSavedMessage: $showSavedMessage,
+                onSave: saveChanges,
+                onReset: resetToDefaults,
+                displayString: displayString
+            )
+            .tabItem {
+                Label("General", systemImage: "gearshape")
             }
-            .padding()
+            
+            // Snippets Tab
+            SnippetsTab()
+                .tabItem {
+                    Label("Snippets", systemImage: "text.bubble")
+                }
+        }
+        .frame(width: 600, height: 550)
+    }
+    
+    // MARK: - Actions
 
-            Divider()
-
-            // Settings Form
-            ScrollView {
+    private func saveChanges() {
                 VStack(spacing: 20) {
                     // Text Conversion Hotkey Section
                     GroupBox(label: Label("Text Conversion Hotkey", systemImage: "keyboard")) {

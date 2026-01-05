@@ -24,11 +24,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            // Option 1: Use text icon (א/A)
-            button.title = "א/A"
-
-            // Option 2: Use system symbol (uncomment to use instead)
-            // button.image = NSImage(systemSymbolName: "character.textbox", accessibilityDescription: "JoyaFix")
+            // Try to load custom logo
+            var logoImage: NSImage?
+            
+            // Try with .png extension first
+            if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: "png") {
+                logoImage = NSImage(contentsOfFile: logoPath)
+            }
+            
+            // Try without extension
+            if logoImage == nil, let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: nil) {
+                logoImage = NSImage(contentsOfFile: logoPath)
+            }
+            
+            // Try loading from main bundle resources
+            if logoImage == nil {
+                logoImage = NSImage(named: "FLATLOGO")
+            }
+            
+            if let logo = logoImage {
+                // Resize logo to menubar size (typically 18-22px)
+                let resizedLogo = NSImage(size: NSSize(width: 18, height: 18))
+                resizedLogo.lockFocus()
+                logo.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18),
+                         from: NSRect(origin: .zero, size: logo.size),
+                         operation: .sourceOver,
+                         fraction: 1.0)
+                resizedLogo.unlockFocus()
+                resizedLogo.isTemplate = false  // Keep original colors
+                button.image = resizedLogo
+            } else {
+                // Fallback to text icon
+                button.title = "א/A"
+            }
 
             // Set up button action
             button.action = #selector(statusBarButtonClicked)
@@ -65,8 +93,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         
-        // Check permissions and show onboarding if needed
-        checkPermissionsAndShowOnboarding()
+        // Check if this is first run and show onboarding
+        checkAndShowOnboarding()
     }
 
     // MARK: - Popover Setup
@@ -78,8 +106,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
 
         let historyView = HistoryView(
-            onPasteItem: { [weak self] item in
-                self?.clipboardManager.pasteItem(item, simulatePaste: true)
+            onPasteItem: { [weak self] item, plainTextOnly in
+                self?.clipboardManager.pasteItem(item, simulatePaste: true, plainTextOnly: plainTextOnly)
                 self?.closePopover()
             },
             onClose: { [weak self] in
@@ -131,6 +159,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showContextMenu() {
         let menu = NSMenu()
 
+        // Add "Convert Selection Layout" menu item at the top
+        let convertItem = NSMenuItem(
+            title: "Convert Selection Layout",
+            action: #selector(convertSelectionFromMenu),
+            keyEquivalent: ""
+        )
+        convertItem.target = self
+        menu.addItem(convertItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // Add OCR menu item
         let ocrItem = NSMenuItem(
             title: "Extract Text from Screen...",
@@ -168,6 +207,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         settingsItem.isEnabled = true
         menu.addItem(settingsItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Add About menu item
+        let aboutItem = NSMenuItem(
+            title: "About JoyaFix",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -189,6 +239,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Clears all clipboard history
     @objc func clearHistory() {
         clipboardManager.clearHistory(keepPinned: false)
+    }
+
+    /// Converts selected text layout from context menu
+    @objc func convertSelectionFromMenu() {
+        // Check permissions first
+        guard PermissionManager.shared.isAccessibilityTrusted() else {
+            let alert = NSAlert()
+            alert.messageText = "Accessibility Permission Required"
+            alert.informativeText = "JoyaFix needs Accessibility permission to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete)."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                PermissionManager.shared.openAccessibilitySettings()
+            }
+            return
+        }
+        
+        // Call the conversion method
+        HotkeyManager.shared.performTextConversion()
     }
 
     /// Extracts text from screen using OCR
@@ -213,6 +285,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Use SettingsWindowController to manage the window
         SettingsWindowController.shared.show()
     }
+    
+    /// Shows the About window
+    @objc func showAbout() {
+        // Close popover if open
+        if let popover = popover, popover.isShown {
+            closePopover()
+        }
+        
+        AboutWindowController.shared.show()
+    }
 
     /// Toggles keyboard lock mode
     @objc func toggleKeyboardLock() {
@@ -233,74 +315,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         KeyboardBlocker.shared.unlock()
     }
     
-    // MARK: - Permission Management
+    // MARK: - Onboarding
     
-    /// Checks permissions and shows onboarding if permissions are missing
-    private func checkPermissionsAndShowOnboarding() {
-        // Check if this is first run (no permissions granted yet)
-        let hasShownOnboarding = UserDefaults.standard.bool(forKey: "hasShownPermissionOnboarding")
+    /// Checks if onboarding is needed and shows it
+    private func checkAndShowOnboarding() {
+        let hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         
-        // Check current permission status
-        let hasAccessibility = PermissionManager.shared.isAccessibilityTrusted()
-        let hasScreenRecording = PermissionManager.shared.isScreenRecordingTrusted()
-        
-        // If permissions are missing, show onboarding
-        if !hasAccessibility || !hasScreenRecording {
-            if !hasShownOnboarding {
-                // First time - show full onboarding
-                print("📋 First run detected - showing permission onboarding")
-                PermissionManager.shared.showPermissionAlert()
-                UserDefaults.standard.set(true, forKey: "hasShownPermissionOnboarding")
-            } else {
-                // Not first time, but permissions still missing - show reminder
-                print("⚠️ Permissions still missing - showing reminder")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.showPermissionReminder()
+        if !hasCompletedOnboarding {
+            print("📋 First run detected - showing onboarding")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                OnboardingWindowController.shared.show {
+                    // Onboarding completed
+                    print("✓ Onboarding completed")
+                    // Start InputMonitor if permissions are granted
+                    if PermissionManager.shared.isAccessibilityTrusted() {
+                        InputMonitor.shared.startMonitoring()
+                    }
                 }
             }
         } else {
-            print("✓ All permissions granted")
-        }
-    }
-    
-    /// Shows a reminder alert if permissions are still missing
-    private func showPermissionReminder() {
-        let hasAccessibility = PermissionManager.shared.isAccessibilityTrusted()
-        let hasScreenRecording = PermissionManager.shared.isScreenRecordingTrusted()
-        
-        if !hasAccessibility || !hasScreenRecording {
-            let alert = NSAlert()
-            alert.messageText = "Permissions Still Required"
-            
-            var missingPermissions: [String] = []
-            if !hasAccessibility {
-                missingPermissions.append("Accessibility")
-            }
-            if !hasScreenRecording {
-                missingPermissions.append("Screen Recording")
-            }
-            
-            alert.informativeText = """
-            The following permissions are still required:
-            \(missingPermissions.joined(separator: "\n• "))
-            
-            Please grant these permissions in System Settings for JoyaFix to work properly.
-            """
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Later")
-            
-            let response = alert.runModal()
-            
-            if response == .alertFirstButtonReturn {
-                if !hasAccessibility {
-                    PermissionManager.shared.openAccessibilitySettings()
-                }
-                if !hasScreenRecording {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        PermissionManager.shared.openScreenRecordingSettings()
-                    }
-                }
+            // Start InputMonitor if permissions are granted
+            if PermissionManager.shared.isAccessibilityTrusted() {
+                InputMonitor.shared.startMonitoring()
             }
         }
     }

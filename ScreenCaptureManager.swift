@@ -179,7 +179,7 @@ class ScreenCaptureManager {
     // MARK: - Screen Capture
 
     private func captureScreen(rect: NSRect) {
-        print("📸 Capturing screen region: \(rect)")
+        print("📸 Capturing screen region: \(rect) (Turbo Mode - In-Memory)")
 
         // CRASH PREVENTION: Validate rect before capturing
         guard rect.width > 0 && rect.height > 0 && 
@@ -191,55 +191,56 @@ class ScreenCaptureManager {
             return
         }
 
-        // Use screencapture command-line tool to capture the region
-        let tempFile = NSTemporaryDirectory() + "joyafix_\(UUID().uuidString).png"
+        // TURBO MODE: Use CoreGraphics for in-memory capture (zero disk I/O)
+        // Convert NSRect (Cocoa coordinates, top-left origin) to CGRect (CoreGraphics, bottom-left origin)
+        // Find which screen contains the rect
+        var targetScreen: NSScreen?
+        for screen in NSScreen.screens {
+            if screen.frame.contains(rect.origin) {
+                targetScreen = screen
+                break
+            }
+        }
+        
+        // Fallback to main screen if not found
+        let screen = targetScreen ?? NSScreen.main ?? NSScreen.screens.first!
+        
+        // Get the total screen height (all screens combined)
+        let allScreensFrame = NSScreen.screens.reduce(NSRect.zero) { result, screen in
+            return result.union(screen.frame)
+        }
+        let totalScreenHeight = allScreensFrame.height
+        
+        // CoreGraphics uses bottom-left origin, so we need to flip Y coordinate
+        // The rect from convertToScreen is already in global screen coordinates
+        let cgRect = CGRect(
+            x: rect.origin.x,
+            y: totalScreenHeight - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
 
-        let task = Process()
-        task.launchPath = "/usr/sbin/screencapture"
-        task.arguments = [
-            "-R", "\(Int(rect.origin.x)),\(Int(rect.origin.y)),\(Int(rect.size.width)),\(Int(rect.size.height))",
-            "-x", "-t", "png", tempFile
-        ]
+        // Capture directly to memory using CGWindowListCreateImage
+        guard let cgImage = CGWindowListCreateImage(
+            cgRect,
+            .optionOnScreenBelowWindow,
+            kCGNullWindowID,
+            .bestResolution
+        ) else {
+            print("❌ Failed to create screen capture image")
+            DispatchQueue.main.async { [weak self] in
+                self?.completion?(nil)
+            }
+            return
+        }
 
-        task.launch()
-        task.waitUntilExit()
+        print("✓ Screen captured in-memory (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
 
         // CRASH PREVENTION: Store completion handler before any async operations
         let completionHandler = completion
-        
-        // Check if capture was successful
-        guard task.terminationStatus == 0 else {
-            print("❌ screencapture command failed")
-            try? FileManager.default.removeItem(atPath: tempFile)
-            DispatchQueue.main.async {
-                completionHandler?(nil)
-            }
-            return
-        }
 
-        // Load the captured image
-        guard let image = NSImage(contentsOfFile: tempFile),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            print("❌ Failed to load captured image")
-            try? FileManager.default.removeItem(atPath: tempFile)
-            DispatchQueue.main.async {
-                completionHandler?(nil)
-            }
-            return
-        }
-
-        print("✓ Screen captured (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
-
-        // Store image path for potential preview
-        capturedImagePath = tempFile
-
-        // Perform OCR (Cloud or local)
-        extractText(from: cgImage) { [weak self] text in
-            // CRASH PREVENTION: Clean up temp file
-            if let imagePath = self?.capturedImagePath {
-                try? FileManager.default.removeItem(atPath: imagePath)
-                self?.capturedImagePath = nil
-            }
+        // Perform OCR directly with the CGImage (no file I/O!)
+        extractText(from: cgImage) { text in
             completionHandler?(text)
         }
     }

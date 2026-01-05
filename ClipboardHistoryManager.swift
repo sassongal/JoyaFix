@@ -217,7 +217,7 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - Paste from History
 
     /// Writes the selected history item back to the clipboard and optionally pastes it
-    func pasteItem(_ item: ClipboardItem, simulatePaste: Bool = true) {
+    func pasteItem(_ item: ClipboardItem, simulatePaste: Bool = true, plainTextOnly: Bool = false) {
         // Mark this as an internal write to prevent it from being re-recorded
         isInternalWrite = true
 
@@ -227,26 +227,33 @@ class ClipboardHistoryManager: ObservableObject {
 
         var writtenTypes: [NSPasteboard.PasteboardType] = []
 
-        // Write RTF data if available (preserves formatting)
-        if let rtfData = item.rtfData {
-            pasteboard.setData(rtfData, forType: .rtf)
-            writtenTypes.append(.rtf)
-            print("📝 Restored RTF data to clipboard (\(rtfData.count) bytes)")
+        if plainTextOnly {
+            // Plain text only - strip all formatting
+            pasteboard.setString(item.textForPasting, forType: .string)
+            writtenTypes.append(.string)
+            print("📋 Restored plain text only to clipboard: \(item.plainTextPreview.prefix(30))...")
+        } else {
+            // Write RTF data if available (preserves formatting)
+            if let rtfData = item.rtfData {
+                pasteboard.setData(rtfData, forType: .rtf)
+                writtenTypes.append(.rtf)
+                print("📝 Restored RTF data to clipboard (\(rtfData.count) bytes)")
+            }
+
+            // Write HTML data if available
+            if let htmlData = item.htmlData {
+                pasteboard.setData(htmlData, forType: .html)
+                writtenTypes.append(.html)
+                print("🌐 Restored HTML data to clipboard")
+            }
+
+            // Always write plain text as fallback (use full text if available)
+            pasteboard.setString(item.textForPasting, forType: .string)
+            writtenTypes.append(.string)
+
+            let typesInfo = writtenTypes.map { $0.rawValue }.joined(separator: ", ")
+            print("📋 Restored to clipboard: \(item.plainTextPreview.prefix(30))... [Types: \(typesInfo)]")
         }
-
-        // Write HTML data if available
-        if let htmlData = item.htmlData {
-            pasteboard.setData(htmlData, forType: .html)
-            writtenTypes.append(.html)
-            print("🌐 Restored HTML data to clipboard")
-        }
-
-        // Always write plain text as fallback (use full text if available)
-        pasteboard.setString(item.textForPasting, forType: .string)
-        writtenTypes.append(.string)
-
-        let typesInfo = writtenTypes.map { $0.rawValue }.joined(separator: ", ")
-        print("📋 Restored to clipboard: \(item.plainTextPreview.prefix(30))... [Types: \(typesInfo)]")
 
         // Optionally simulate Cmd+V to paste immediately
         if simulatePaste {
