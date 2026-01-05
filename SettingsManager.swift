@@ -107,8 +107,6 @@ class SettingsManager: ObservableObject {
         }
         
         self.useCloudOCR = UserDefaults.standard.object(forKey: Keys.useCloudOCR) as? Bool ?? false
-        
-        }
     }
 
     // MARK: - Hotkey Helpers
