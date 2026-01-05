@@ -16,8 +16,15 @@ class HotkeyManager {
     private let ocrHotkeyID = EventHotKeyID(signature: OSType(0x4F435231), id: 2) // 'OCR1'
     private let keyboardLockHotkeyID = EventHotKeyID(signature: OSType(0x4B424C4B), id: 3) // 'KBLK'
     private let promptHotkeyID = EventHotKeyID(signature: OSType(0x50524F4D), id: 4) // 'PROM'
+    
+    // Shortcut identifiers for centralized management
+    private let convertShortcutID = "hotkey.convert"
+    private let ocrShortcutID = "hotkey.ocr"
+    private let keyboardLockShortcutID = "hotkey.keyboardLock"
+    private let promptShortcutID = "hotkey.prompt"
 
     private let settings = SettingsManager.shared
+    private let shortcutService = KeyboardShortcutService.shared
 
     private init() {}
 
@@ -125,6 +132,13 @@ class HotkeyManager {
 
         print("🔧 Registering hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
 
+        // Check for conflicts using centralized service (synchronous check)
+        let validation = shortcutService.validateKeyCombination(keyCode: keyCode, modifiers: modifiers)
+        if !validation.isValid {
+            print("⚠️ Key combination validation failed: \(validation.error ?? "Unknown error")")
+            // Continue anyway - RegisterEventHotKey will catch actual conflicts
+        }
+
         // Install shared event handler if not already installed
         guard installSharedEventHandlerIfNeeded() else {
             return false
@@ -147,6 +161,9 @@ class HotkeyManager {
             print("   This key combination may be reserved by the system or another app")
             return false
         }
+        
+        // Register in centralized service
+        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: convertShortcutID)
 
         print("✓ Conversion hotkey registered: \(settings.hotkeyDisplayString)")
         return true
@@ -159,6 +176,9 @@ class HotkeyManager {
         let modifiers = settings.ocrHotkeyModifiers
 
         print("🔧 Registering OCR hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
+
+        // Note: Conflict detection is handled by RegisterEventHotKey
+        // The centralized service tracks registered shortcuts for reference
 
         // Install shared event handler if not already installed
         guard installSharedEventHandlerIfNeeded() else {
@@ -183,6 +203,9 @@ class HotkeyManager {
             print("   This key combination may be reserved by the system or another app")
             return false
         }
+        
+        // Register in centralized service
+        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: ocrShortcutID)
 
         let ocrHotkeyDisplay = hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
         print("✓ OCR hotkey registered: \(ocrHotkeyDisplay)")
@@ -195,6 +218,9 @@ class HotkeyManager {
         let modifiers = UInt32(cmdKey | optionKey)
         
         print("🔧 Registering keyboard lock hotkey: Cmd+Option+L")
+        
+        // Note: Conflict detection is handled by RegisterEventHotKey
+        // The centralized service tracks registered shortcuts for reference
         
         // Install shared event handler if not already installed
         guard installSharedEventHandlerIfNeeded() else {
@@ -217,6 +243,9 @@ class HotkeyManager {
             return false
         }
         
+        // Register in centralized service
+        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: keyboardLockShortcutID)
+        
         print("✓ Keyboard lock hotkey registered: ⌘⌥L")
         return true
     }
@@ -228,6 +257,9 @@ class HotkeyManager {
         let modifiers = settings.promptHotkeyModifiers
         
         print("🔧 Registering prompt enhancer hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
+        
+        // Note: Conflict detection is handled by RegisterEventHotKey
+        // The centralized service tracks registered shortcuts for reference
         
         // Install shared event handler if not already installed
         guard installSharedEventHandlerIfNeeded() else {
@@ -253,6 +285,9 @@ class HotkeyManager {
             return false
         }
         
+        // Register in centralized service
+        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: promptShortcutID)
+        
         let promptHotkeyDisplay = hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
         print("✓ Prompt enhancer hotkey registered: \(promptHotkeyDisplay)")
         return true
@@ -260,6 +295,12 @@ class HotkeyManager {
     
     /// Unregisters all global hotkeys
     func unregisterHotkey() {
+        // Unregister from centralized service
+        shortcutService.unregisterShortcut(identifier: convertShortcutID)
+        shortcutService.unregisterShortcut(identifier: ocrShortcutID)
+        shortcutService.unregisterShortcut(identifier: keyboardLockShortcutID)
+        shortcutService.unregisterShortcut(identifier: promptShortcutID)
+        
         if let eventHotKeyRef = eventHotKeyRef {
             UnregisterEventHotKey(eventHotKeyRef)
             self.eventHotKeyRef = nil
