@@ -45,8 +45,15 @@ class InputMonitor {
     
     private let snippetManager = SnippetManager.shared
     private let maxBufferSize = JoyaFixConstants.maxSnippetBufferSize
+    private let shortcutService = KeyboardShortcutService.shared
     
-    private init() {}
+    // Track registered snippet triggers for centralized management
+    private var registeredSnippetTriggers: Set<String> = []
+    
+    private init() {
+        // Register existing snippets when InputMonitor is initialized
+        registerAllSnippetTriggers()
+    }
     
     // MARK: - Start/Stop Monitoring
     
@@ -106,6 +113,9 @@ class InputMonitor {
         // Enable the event tap
         CGEvent.tapEnable(tap: eventTap, enable: true)
         
+        // Register all snippet triggers in centralized service
+        registerAllSnippetTriggers()
+        
         // Flag already set to true above
         print("✓ InputMonitor started - snippet expansion active")
     }
@@ -141,7 +151,55 @@ class InputMonitor {
             self._keyBuffer = ""
         }
         
+        // Unregister all snippet triggers from centralized service
+        unregisterAllSnippetTriggers()
+        
         print("✓ InputMonitor stopped")
+    }
+    
+    // MARK: - Snippet Trigger Registration
+    
+    /// Registers all snippet triggers in the centralized shortcut service
+    private func registerAllSnippetTriggers() {
+        let triggers = snippetManager.getAllTriggers()
+        
+        for trigger in triggers {
+            let identifier = "snippet.\(trigger)"
+            let success = shortcutService.registerSnippetTrigger(trigger: trigger, identifier: identifier)
+            if success {
+                registeredSnippetTriggers.insert(trigger)
+            }
+        }
+        
+        print("✓ Registered \(registeredSnippetTriggers.count) snippet triggers in centralized service")
+    }
+    
+    /// Unregisters all snippet triggers from the centralized shortcut service
+    private func unregisterAllSnippetTriggers() {
+        for trigger in registeredSnippetTriggers {
+            let identifier = "snippet.\(trigger)"
+            shortcutService.unregisterShortcut(identifier: identifier)
+        }
+        registeredSnippetTriggers.removeAll()
+        print("✓ Unregistered all snippet triggers from centralized service")
+    }
+    
+    /// Registers a new snippet trigger (called when snippet is added)
+    func registerSnippetTrigger(_ trigger: String) {
+        let identifier = "snippet.\(trigger)"
+        let success = shortcutService.registerSnippetTrigger(trigger: trigger, identifier: identifier)
+        if success {
+            registeredSnippetTriggers.insert(trigger)
+            print("✓ Registered new snippet trigger: \(trigger)")
+        }
+    }
+    
+    /// Unregisters a snippet trigger (called when snippet is removed)
+    func unregisterSnippetTrigger(_ trigger: String) {
+        let identifier = "snippet.\(trigger)"
+        shortcutService.unregisterShortcut(identifier: identifier)
+        registeredSnippetTriggers.remove(trigger)
+        print("✓ Unregistered snippet trigger: \(trigger)")
     }
     
     // MARK: - Event Handling

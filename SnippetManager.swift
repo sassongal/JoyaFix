@@ -219,6 +219,10 @@ class SnippetManager: ObservableObject {
         
         snippets.append(snippet)
         saveSnippets()
+        
+        // Notify InputMonitor to register the new trigger
+        InputMonitor.shared.registerSnippetTrigger(snippet.trigger)
+        
         print("✓ Added snippet: '\(snippet.trigger)' → '\(snippet.content.prefix(30))...'")
     }
     
@@ -247,15 +251,31 @@ class SnippetManager: ObservableObject {
             return
         }
         
+        // Get old trigger for unregistration
+        let oldSnippet = snippets[index]
+        let oldTrigger = oldSnippet.trigger
+        
         snippets[index] = snippet
         saveSnippets()
+        
+        // Update trigger registration if trigger changed
+        if oldTrigger != snippet.trigger {
+            InputMonitor.shared.unregisterSnippetTrigger(oldTrigger)
+            InputMonitor.shared.registerSnippetTrigger(snippet.trigger)
+        }
+        
         print("✓ Updated snippet: '\(snippet.trigger)' → '\(snippet.content.prefix(30))...'")
     }
     
     func removeSnippet(_ snippet: Snippet) {
+        let trigger = snippet.trigger
         snippets.removeAll { $0.id == snippet.id }
         saveSnippets()
-        print("✓ Removed snippet: \(snippet.trigger)")
+        
+        // Notify InputMonitor to unregister the trigger
+        InputMonitor.shared.unregisterSnippetTrigger(trigger)
+        
+        print("✓ Removed snippet: \(trigger)")
     }
     
     func removeSnippet(at index: Int) {
