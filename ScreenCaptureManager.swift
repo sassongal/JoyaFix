@@ -10,6 +10,7 @@ class ScreenCaptureManager {
     private var overlayWindow: SelectionOverlayWindow?
     private var completion: ((String?) -> Void)?
     private var escapeKeyMonitor: Any?
+    private var escapeKeyLocalMonitor: Any?  // FIX: Store local monitor for cleanup
     
     // CRITICAL FIX: Simple flag to prevent concurrent captures
     // MUST be checked FIRST in startScreenCapture
@@ -44,10 +45,16 @@ class ScreenCaptureManager {
     // MARK: - Safety Cleanup
     
     private func cleanupExistingSession() {
-        // Remove monitor safely
+        // Remove monitors safely
         if let monitor = escapeKeyMonitor {
             NSEvent.removeMonitor(monitor)
             escapeKeyMonitor = nil
+        }
+        
+        // FIX: Remove local monitor to prevent memory leak
+        if let localMonitor = escapeKeyLocalMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            escapeKeyLocalMonitor = nil
         }
         
         // Restore cursor if needed
@@ -111,8 +118,8 @@ class ScreenCaptureManager {
         }
         
         // Also add local monitor for window events - this CAN consume events
-        // Store the local monitor separately so we can remove it
-        let localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // FIX: Store the local monitor so we can remove it in cleanup
+        escapeKeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self, self.isCapturing else { return event }
             if event.keyCode == 53 { // ESC key
                 print("⌨️ ESC pressed (Local Monitor)")
@@ -123,24 +130,23 @@ class ScreenCaptureManager {
             }
             return event
         }
-        
-        // Store local monitor reference (we'll need to remove it in cleanup)
-        // Note: We can't easily track this separately, so we rely on the window's keyDown handler
     }
 
     private func hideSelectionOverlay() {
         // Prevent double-cleanup with guard
-        guard overlayWindow != nil || escapeKeyMonitor != nil || cursorPushed else {
+        guard overlayWindow != nil || escapeKeyMonitor != nil || escapeKeyLocalMonitor != nil || cursorPushed else {
             return
         }
 
         // Store references before clearing to avoid race conditions
         let window = overlayWindow
         let monitor = escapeKeyMonitor
+        let localMonitor = escapeKeyLocalMonitor
         
         // Clear references immediately to prevent re-entry
         overlayWindow = nil
         escapeKeyMonitor = nil
+        escapeKeyLocalMonitor = nil
         
         // Restore Cursor safely
         if cursorPushed {
@@ -148,9 +154,14 @@ class ScreenCaptureManager {
             cursorPushed = false
         }
         
-        // Remove Monitor safely
+        // Remove Monitors safely
         if let monitor = monitor {
             NSEvent.removeMonitor(monitor)
+        }
+        
+        // FIX: Remove local monitor to prevent memory leak
+        if let localMonitor = localMonitor {
+            NSEvent.removeMonitor(localMonitor)
         }
         
         // Close Window safely - validate it exists
@@ -350,6 +361,32 @@ class ScreenCaptureManager {
     // MARK: - Cloud OCR
 
     private func performGeminiOCR(image: CGImage, apiKey: String, completion: @escaping (String?) -> Void) {
+        // FIX: Rate limiting check
+        Task { @MainActor in
+            guard OCRRateLimiter.shared.canMakeRequest() else {
+                let waitTime = OCRRateLimiter.shared.timeUntilNextRequest()
+                print("⚠️ Cloud OCR rate limit reached. Please wait \(Int(waitTime)) seconds.")
+                print("   Current requests in window: \(OCRRateLimiter.shared.currentRequestCount)/\(JoyaFixConstants.maxCloudOCRRequestsPerMinute)")
+                
+                // Show user-friendly error
+                DispatchQueue.main.async {
+                    self.showRateLimitError(waitTime: waitTime)
+                }
+                
+                completion(nil)
+                return
+            }
+            
+            // Record the request
+            OCRRateLimiter.shared.recordRequest()
+            
+            // Perform OCR with retry logic
+            self.performGeminiOCRWithRetry(image: image, apiKey: apiKey, attempt: 0, completion: completion)
+        }
+    }
+    
+    /// Performs Gemini OCR with exponential backoff retry logic
+    private func performGeminiOCRWithRetry(image: CGImage, apiKey: String, attempt: Int, completion: @escaping (String?) -> Void) {
         // Validate API key
         guard !apiKey.isEmpty else {
             print("❌ Empty API key")
@@ -358,7 +395,7 @@ class ScreenCaptureManager {
         }
         
         let bitmapRep = NSBitmapImageRep(cgImage: image)
-        guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+        guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: JoyaFixConstants.cloudOCRCompressionFactor]) else {
             print("❌ Failed to convert image to JPEG")
             completion(nil)
             return
@@ -366,7 +403,7 @@ class ScreenCaptureManager {
 
         let base64Image = jpegData.base64EncodedString()
 
-        guard let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=\(apiKey)") else {
+        guard let url = URL(string: "\(JoyaFixConstants.API.geminiBaseURL)?key=\(apiKey)") else {
             print("❌ Invalid API URL")
             completion(nil)
             return
@@ -375,6 +412,7 @@ class ScreenCaptureManager {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30.0 // 30 second timeout
 
         let requestBody: [String: Any] = [
             "contents": [
@@ -395,11 +433,52 @@ class ScreenCaptureManager {
 
         request.httpBody = jsonData
 
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            // FIX: Enhanced error handling with retry logic
             if let error = error {
-                print("❌ Cloud OCR network error: \(error.localizedDescription)")
-                completion(nil)
+                print("❌ Cloud OCR network error (attempt \(attempt + 1)): \(error.localizedDescription)")
+                
+                // Retry with exponential backoff
+                if attempt < JoyaFixConstants.ocrMaxRetryAttempts {
+                    let delay = min(
+                        JoyaFixConstants.ocrRetryInitialDelay * pow(2.0, Double(attempt)),
+                        JoyaFixConstants.ocrRetryMaxDelay
+                    )
+                    print("🔄 Retrying in \(Int(delay)) seconds...")
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        self?.performGeminiOCRWithRetry(image: image, apiKey: apiKey, attempt: attempt + 1, completion: completion)
+                    }
+                } else {
+                    print("❌ Max retry attempts reached")
+                    completion(nil)
+                }
                 return
+            }
+            
+            // FIX: Handle HTTP status codes
+            if let httpResponse = response as? HTTPURLResponse {
+                // Handle rate limit (429)
+                if httpResponse.statusCode == 429 {
+                    print("⚠️ Cloud OCR rate limit exceeded (HTTP 429)")
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        let waitTime = OCRRateLimiter.shared.timeUntilNextRequest()
+                        self.showRateLimitError(waitTime: waitTime)
+                    }
+                    completion(nil)
+                    return
+                }
+                
+                // Handle other errors
+                if httpResponse.statusCode != 200 {
+                    print("❌ Cloud OCR HTTP error: \(httpResponse.statusCode)")
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("   Response: \(errorString.prefix(200))")
+                    }
+                    completion(nil)
+                    return
+                }
             }
             
             guard let data = data else {
@@ -415,12 +494,20 @@ class ScreenCaptureManager {
                       let parts = content["parts"] as? [[String: Any]],
                       let firstPart = parts.first,
                       let text = firstPart["text"] as? String else {
+                    print("⚠️ Cloud OCR: Invalid response structure")
                     completion(nil)
                     return
                 }
 
                 let extractedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                completion(extractedText)
+                
+                if extractedText.isEmpty {
+                    print("⚠️ Cloud OCR: Empty text extracted")
+                    completion(nil)
+                } else {
+                    print("✓ Cloud OCR success (attempt \(attempt + 1)): \(extractedText.count) characters")
+                    completion(extractedText)
+                }
             } catch {
                 print("❌ Failed to parse JSON response: \(error.localizedDescription)")
                 completion(nil)
@@ -428,6 +515,22 @@ class ScreenCaptureManager {
         }
 
         task.resume()
+    }
+    
+    /// Shows a user-friendly rate limit error
+    private func showRateLimitError(waitTime: TimeInterval) {
+        let alert = NSAlert()
+        alert.messageText = "Cloud OCR Rate Limit"
+        alert.informativeText = """
+        You've reached the rate limit for Cloud OCR (\(JoyaFixConstants.maxCloudOCRRequestsPerMinute) requests per minute).
+        
+        Please wait \(Int(waitTime)) seconds before trying again, or use Local OCR instead.
+        
+        You can switch to Local OCR in Settings → General → OCR Configuration.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
 
@@ -446,7 +549,7 @@ extension ScreenCaptureManager: SelectionOverlayDelegate {
         
         // Small delay to ensure overlay is completely gone before capturing
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            try? await Task.sleep(nanoseconds: UInt64(JoyaFixConstants.ocrCaptureDelay * 1_000_000_000))
             captureScreen(rect: rect)
         }
     }
@@ -460,7 +563,7 @@ extension ScreenCaptureManager: SelectionOverlayDelegate {
         
         // Call completion after cleanup
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
+            try? await Task.sleep(nanoseconds: UInt64(JoyaFixConstants.ocrCancelDelay * 1_000_000_000))
             completionHandler?(nil)
         }
     }
@@ -592,13 +695,13 @@ class SelectionView: NSView {
         let height = abs(end.y - start.y)
 
         // Prevent very small selections (clicks) from processing/crashing
-        if width < 10 || height < 10 {
+        if width < JoyaFixConstants.minOCRSelectionSize || height < JoyaFixConstants.minOCRSelectionSize {
             print("⚠️ Selection too small - treating as cancel")
             isSelecting = false
             confirmedSelection = nil
             if let delegate = delegate {
                 Task { @MainActor in
-                    await delegate.didCancelSelection()
+                    delegate.didCancelSelection()
                 }
             }
             return

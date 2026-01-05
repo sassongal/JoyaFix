@@ -19,7 +19,7 @@ class ClipboardHistoryManager: ObservableObject {
     // Configuration
     private let settings = SettingsManager.shared
     private let pollInterval: TimeInterval = 0.5
-    private let userDefaultsKey = "ClipboardHistory"
+    private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.clipboardHistory
 
     private var maxHistoryCount: Int {
         return settings.maxHistoryCount

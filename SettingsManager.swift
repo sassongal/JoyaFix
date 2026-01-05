@@ -84,7 +84,7 @@ class SettingsManager: ObservableObject {
 
     private init() {
         // Load settings or use defaults
-        self.maxHistoryCount = UserDefaults.standard.object(forKey: Keys.maxHistoryCount) as? Int ?? 20
+        self.maxHistoryCount = UserDefaults.standard.object(forKey: Keys.maxHistoryCount) as? Int ?? Int(JoyaFixConstants.defaultMaxClipboardHistoryCount)
         self.hotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.hotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_K)
         self.hotkeyModifiers = UserDefaults.standard.object(forKey: Keys.hotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
         self.playSoundOnConvert = UserDefaults.standard.object(forKey: Keys.playSoundOnConvert) as? Bool ?? true
@@ -198,7 +198,7 @@ class SettingsManager: ObservableObject {
 
     /// Resets all settings to defaults
     func resetToDefaults() {
-        maxHistoryCount = 20
+        maxHistoryCount = Int(JoyaFixConstants.defaultMaxClipboardHistoryCount)
         hotkeyKeyCode = UInt32(kVK_ANSI_K)
         hotkeyModifiers = UInt32(cmdKey | optionKey)
         playSoundOnConvert = true

@@ -10,8 +10,8 @@ class OCRHistoryManager: ObservableObject {
     
     // MARK: - Private Properties
     
-    private let userDefaultsKey = "OCRHistory"
-    private let maxHistoryCount = 50 // Maximum number of OCR scans to keep
+    private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.ocrHistory
+    private let maxHistoryCount = JoyaFixConstants.maxOCRHistoryCount
     private let previewImageDirectory: URL
     
     // MARK: - Initialization
@@ -19,7 +19,7 @@ class OCRHistoryManager: ObservableObject {
     private init() {
         // Create directory for preview images
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        previewImageDirectory = appSupport.appendingPathComponent("JoyaFix/OCRPreviews", isDirectory: true)
+        previewImageDirectory = appSupport.appendingPathComponent(JoyaFixConstants.FilePaths.ocrPreviewsDirectory, isDirectory: true)
         
         // Create directory if it doesn't exist
         try? FileManager.default.createDirectory(at: previewImageDirectory, withIntermediateDirectories: true, attributes: nil)
@@ -31,8 +31,18 @@ class OCRHistoryManager: ObservableObject {
     
     /// Adds a new OCR scan to history
     func addScan(_ scan: OCRScan) {
+        // FIX: Enhanced error handling
+        guard !scan.extractedText.isEmpty else {
+            print("⚠️ Skipping empty OCR scan")
+            return
+        }
+        
         // Remove duplicate if exists (based on text content)
+        let removedCount = history.count
         history.removeAll { $0.extractedText == scan.extractedText }
+        if removedCount != history.count {
+            print("📝 Removed duplicate OCR scan: \(scan.extractedText.prefix(30))...")
+        }
         
         // Add to beginning
         history.insert(scan, at: 0)
@@ -41,34 +51,80 @@ class OCRHistoryManager: ObservableObject {
         if history.count > maxHistoryCount {
             // Remove oldest scans and their preview images
             let scansToRemove = history.suffix(from: maxHistoryCount)
-            for scan in scansToRemove {
-                if let imagePath = scan.previewImagePath {
-                    try? FileManager.default.removeItem(atPath: imagePath)
+            var removedImages = 0
+            for scanToRemove in scansToRemove {
+                if let imagePath = scanToRemove.previewImagePath {
+                    do {
+                        try FileManager.default.removeItem(atPath: imagePath)
+                        removedImages += 1
+                    } catch {
+                        print("⚠️ Failed to remove old preview image: \(imagePath) - \(error.localizedDescription)")
+                    }
                 }
             }
             history = Array(history.prefix(maxHistoryCount))
+            print("🗑️ Removed \(scansToRemove.count) old OCR scans (\(removedImages) preview images deleted)")
         }
         
-        saveHistory()
-        print("📸 Added OCR scan to history: \(scan.extractedText.prefix(30))...")
+        // Save with error handling
+        if saveHistory() {
+            print("📸 Added OCR scan to history: \(scan.extractedText.prefix(30))...")
+        } else {
+            print("⚠️ OCR scan added but failed to save to UserDefaults")
+        }
     }
     
     /// Saves a preview image and returns the path
     func savePreviewImage(_ image: NSImage, for scan: OCRScan) -> String? {
-        guard let imageData = image.tiffRepresentation,
-              let bitmapRep = NSBitmapImageRep(data: imageData),
-              let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
+        // FIX: Enhanced error handling with detailed logging
+        
+        // Step 1: Validate image
+        guard image.size.width > 0 && image.size.height > 0 else {
+            print("❌ Invalid image size: \(image.size)")
             return nil
         }
         
+        // Step 2: Convert to TIFF representation
+        guard let imageData = image.tiffRepresentation else {
+            print("❌ Failed to convert image to TIFF representation")
+            return nil
+        }
+        
+        // Step 3: Create bitmap representation
+        guard let bitmapRep = NSBitmapImageRep(data: imageData) else {
+            print("❌ Failed to create bitmap representation from TIFF data (\(imageData.count) bytes)")
+            return nil
+        }
+        
+        // Step 4: Convert to PNG
+        guard let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
+            print("❌ Failed to convert bitmap to PNG representation")
+            return nil
+        }
+        
+        // Step 5: Ensure directory exists
+        do {
+            try FileManager.default.createDirectory(at: previewImageDirectory, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            print("❌ Failed to create preview image directory: \(error.localizedDescription)")
+            print("   Directory path: \(previewImageDirectory.path)")
+            return nil
+        }
+        
+        // Step 6: Write PNG data to file
         let fileName = "\(scan.id.uuidString).png"
         let fileURL = previewImageDirectory.appendingPathComponent(fileName)
         
         do {
             try pngData.write(to: fileURL)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+            print("✓ Preview image saved successfully: \(fileURL.path) (\(fileSize) bytes)")
             return fileURL.path
         } catch {
-            print("❌ Failed to save preview image: \(error)")
+            print("❌ Failed to write preview image to file: \(error.localizedDescription)")
+            print("   File path: \(fileURL.path)")
+            print("   PNG data size: \(pngData.count) bytes")
+            print("   Error details: \(error)")
             return nil
         }
     }
@@ -110,21 +166,39 @@ class OCRHistoryManager: ObservableObject {
     // MARK: - Persistence
     
     /// Saves OCR history to UserDefaults
-    private func saveHistory() {
+    /// Returns true if save was successful, false otherwise
+    @discardableResult
+    private func saveHistory() -> Bool {
         let encoder = JSONEncoder()
-        if let encoded = try? encoder.encode(history) {
+        do {
+            let encoded = try encoder.encode(history)
             UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
+            print("✓ OCR history saved (\(history.count) scans, \(encoded.count) bytes)")
+            return true
+        } catch {
+            print("❌ Failed to encode OCR history: \(error.localizedDescription)")
+            print("   History count: \(history.count)")
+            return false
         }
     }
     
     /// Loads OCR history from UserDefaults
     private func loadHistory() {
-        if let data = UserDefaults.standard.data(forKey: userDefaultsKey) {
-            let decoder = JSONDecoder()
-            if let decoded = try? decoder.decode([OCRScan].self, from: data) {
-                history = decoded
-                print("✓ Loaded \(history.count) OCR scans from history")
-            }
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
+            print("ℹ️ No OCR history found in UserDefaults (first run)")
+            return
+        }
+        
+        let decoder = JSONDecoder()
+        do {
+            let decoded = try decoder.decode([OCRScan].self, from: data)
+            history = decoded
+            print("✓ Loaded \(history.count) OCR scans from history (\(data.count) bytes)")
+        } catch {
+            print("❌ Failed to decode OCR history: \(error.localizedDescription)")
+            print("   Data size: \(data.count) bytes")
+            // Reset to empty history on decode failure
+            history = []
         }
     }
 }

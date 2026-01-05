@@ -7,7 +7,7 @@ class SnippetManager: ObservableObject {
     
     @Published private(set) var snippets: [Snippet] = []
     
-    private let userDefaultsKey = "JoyaFixSnippets"
+    private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.snippets
     
     private init() {
         loadSnippets()
@@ -16,9 +16,9 @@ class SnippetManager: ObservableObject {
     // MARK: - Persistence
     
     private func loadSnippets() {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let decoded = try? JSONDecoder().decode([Snippet].self, from: data) else {
-            // Initialize with some default snippets
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else {
+            // Initialize with some default snippets on first run
+            print("ℹ️ No snippets found in UserDefaults (first run) - initializing defaults")
             snippets = [
                 Snippet(trigger: "!mail", content: "gal@joyatech.com"),
                 Snippet(trigger: "!sig", content: "Best regards,\nGal Sasson\nJoyaTech")
@@ -26,18 +26,103 @@ class SnippetManager: ObservableObject {
             saveSnippets()
             return
         }
-        snippets = decoded
+        
+        do {
+            let decoded = try JSONDecoder().decode([Snippet].self, from: data)
+            snippets = decoded
+            print("✓ Loaded \(snippets.count) snippets from UserDefaults (\(data.count) bytes)")
+            
+            // Validate loaded snippets and remove invalid ones
+            let validSnippets = snippets.filter { snippet in
+                let validation = validateSnippet(snippet)
+                if !validation.isValid {
+                    print("⚠️ Removing invalid snippet from history: '\(snippet.trigger)' - \(validation.error ?? "Unknown error")")
+                }
+                return validation.isValid
+            }
+            
+            if validSnippets.count != snippets.count {
+                snippets = validSnippets
+                saveSnippets()
+                print("✓ Cleaned up invalid snippets: \(snippets.count) valid snippets remaining")
+            }
+        } catch {
+            print("❌ Failed to decode snippets: \(error.localizedDescription)")
+            print("   Data size: \(data.count) bytes")
+            // Reset to default snippets on decode failure
+            snippets = [
+                Snippet(trigger: "!mail", content: "gal@joyatech.com"),
+                Snippet(trigger: "!sig", content: "Best regards,\nGal Sasson\nJoyaTech")
+            ]
+            saveSnippets()
+        }
     }
     
     private func saveSnippets() {
-        if let encoded = try? JSONEncoder().encode(snippets) {
+        do {
+            let encoded = try JSONEncoder().encode(snippets)
             UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
+            print("✓ Snippets saved (\(snippets.count) snippets, \(encoded.count) bytes)")
+        } catch {
+            print("❌ Failed to save snippets: \(error.localizedDescription)")
+            print("   Snippets count: \(snippets.count)")
         }
     }
     
     // MARK: - CRUD Operations
     
+    /// Validates a snippet before adding/updating
+    private func validateSnippet(_ snippet: Snippet) -> (isValid: Bool, error: String?) {
+        // Validate trigger is not empty
+        guard !snippet.trigger.isEmpty else {
+            return (false, "Snippet trigger cannot be empty")
+        }
+        
+        // Validate trigger length (min 2, max 20 characters)
+        guard snippet.trigger.count >= JoyaFixConstants.minSnippetTriggerLength else {
+            return (false, "Snippet trigger must be at least \(JoyaFixConstants.minSnippetTriggerLength) characters long")
+        }
+        
+        guard snippet.trigger.count <= JoyaFixConstants.maxSnippetTriggerLength else {
+            return (false, "Snippet trigger cannot exceed \(JoyaFixConstants.maxSnippetTriggerLength) characters")
+        }
+        
+        // Validate content is not empty
+        guard !snippet.content.isEmpty else {
+            return (false, "Snippet content cannot be empty")
+        }
+        
+        // Validate content length (max 10,000 characters to prevent abuse)
+        guard snippet.content.count <= JoyaFixConstants.maxSnippetContentLength else {
+            return (false, "Snippet content cannot exceed \(JoyaFixConstants.maxSnippetContentLength) characters")
+        }
+        
+        // Validate trigger doesn't contain only whitespace
+        guard snippet.trigger.trimmingCharacters(in: .whitespacesAndNewlines).count > 0 else {
+            return (false, "Snippet trigger cannot be only whitespace")
+        }
+        
+        // Validate trigger doesn't start with common command prefixes that might conflict
+        let trimmedTrigger = snippet.trigger.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reservedPrefixes = ["!", "@", "#", "$", "%", "^", "&", "*"]
+        // Note: We allow "!" but warn if it's just "!"
+        if trimmedTrigger.count == 1 && reservedPrefixes.contains(trimmedTrigger) {
+            return (false, "Single-character triggers with special characters are not recommended")
+        }
+        
+        return (true, nil)
+    }
+    
     func addSnippet(_ snippet: Snippet) {
+        // FIX: Validate snippet before adding
+        let validation = validateSnippet(snippet)
+        guard validation.isValid else {
+            print("❌ Invalid snippet: \(validation.error ?? "Unknown error")")
+            print("   Trigger: '\(snippet.trigger)'")
+            print("   Content length: \(snippet.content.count) characters")
+            return
+        }
+        
         // Validate trigger is unique
         guard !snippets.contains(where: { $0.trigger.lowercased() == snippet.trigger.lowercased() }) else {
             print("⚠️ Snippet with trigger '\(snippet.trigger)' already exists")
@@ -46,12 +131,21 @@ class SnippetManager: ObservableObject {
         
         snippets.append(snippet)
         saveSnippets()
-        print("✓ Added snippet: \(snippet.trigger)")
+        print("✓ Added snippet: '\(snippet.trigger)' → '\(snippet.content.prefix(30))...'")
     }
     
     func updateSnippet(_ snippet: Snippet) {
         guard let index = snippets.firstIndex(where: { $0.id == snippet.id }) else {
-            print("⚠️ Snippet not found for update")
+            print("⚠️ Snippet not found for update (ID: \(snippet.id))")
+            return
+        }
+        
+        // FIX: Validate snippet before updating
+        let validation = validateSnippet(snippet)
+        guard validation.isValid else {
+            print("❌ Invalid snippet update: \(validation.error ?? "Unknown error")")
+            print("   Trigger: '\(snippet.trigger)'")
+            print("   Content length: \(snippet.content.count) characters")
             return
         }
         
@@ -67,7 +161,7 @@ class SnippetManager: ObservableObject {
         
         snippets[index] = snippet
         saveSnippets()
-        print("✓ Updated snippet: \(snippet.trigger)")
+        print("✓ Updated snippet: '\(snippet.trigger)' → '\(snippet.content.prefix(30))...'")
     }
     
     func removeSnippet(_ snippet: Snippet) {

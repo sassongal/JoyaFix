@@ -3,8 +3,8 @@ import Security
 
 /// Helper class for secure storage using macOS Keychain
 class KeychainHelper {
-    private static let service = "com.joyafix.app"
-    private static let geminiKeyAccount = "gemini_api_key"
+    private static let service = JoyaFixConstants.Keychain.service
+    private static let geminiKeyAccount = JoyaFixConstants.Keychain.geminiKeyAccount
     
     /// Stores a string value securely in the Keychain
     static func store(key: String, value: String) -> Bool {

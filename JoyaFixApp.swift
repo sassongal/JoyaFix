@@ -19,43 +19,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardManager = ClipboardHistoryManager.shared
     private var cancellables = Set<AnyCancellable>()
 
+    /// Fail-safe logo loading for menubar - tries multiple methods
+    private func loadMenubarLogo() -> NSImage? {
+        // Method 1: Try from bundle with .png extension
+        if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: "png"),
+           let logoImage = NSImage(contentsOfFile: logoPath) {
+            return logoImage
+        }
+        
+        // Method 2: Try from bundle without extension
+        if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: nil),
+           let logoImage = NSImage(contentsOfFile: logoPath) {
+            return logoImage
+        }
+        
+        // Method 3: Try using NSImage(named:) (for production bundle)
+        if let logoImage = NSImage(named: "FLATLOGO") {
+            return logoImage
+        }
+        
+        // Method 4: Try loading from development path (for testing)
+        let devPath = "/Users/galsasson/Desktop/JoyaFix/FLATLOGO.png"
+        if FileManager.default.fileExists(atPath: devPath),
+           let logoImage = NSImage(contentsOfFile: devPath) {
+            return logoImage
+        }
+        
+        return nil
+    }
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            // Try to load custom logo
-            var logoImage: NSImage?
-            
-            // Try with .png extension first
-            if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: "png") {
-                logoImage = NSImage(contentsOfFile: logoPath)
-            }
-            
-            // Try without extension
-            if logoImage == nil, let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: nil) {
-                logoImage = NSImage(contentsOfFile: logoPath)
-            }
-            
-            // Try loading from main bundle resources
-            if logoImage == nil {
-                logoImage = NSImage(named: "FLATLOGO")
-            }
-            
-            if let logo = logoImage {
+            // Fail-safe logo loading for menubar icon
+            if let logoImage = loadMenubarLogo() {
                 // Resize logo to menubar size (typically 18-22px)
-                let resizedLogo = NSImage(size: NSSize(width: 18, height: 18))
+                let resizedLogo = NSImage(size: NSSize(width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize))
                 resizedLogo.lockFocus()
-                logo.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18),
-                         from: NSRect(origin: .zero, size: logo.size),
-                         operation: .sourceOver,
-                         fraction: 1.0)
+                logoImage.draw(in: NSRect(x: 0, y: 0, width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize),
+                              from: NSRect(origin: .zero, size: logoImage.size),
+                              operation: .sourceOver,
+                              fraction: 1.0)
                 resizedLogo.unlockFocus()
-                resizedLogo.isTemplate = false  // Keep original colors
+                resizedLogo.isTemplate = false  // Keep original colors (not template)
                 button.image = resizedLogo
             } else {
-                // Fallback to text icon
+                // Fallback to text icon if logo not found
                 button.title = "א/A"
+                print("⚠️ Logo not found - using text fallback")
             }
 
             // Set up button action
@@ -208,6 +221,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.isEnabled = true
         menu.addItem(settingsItem)
         
+        // Add Keyboard Shortcuts menu item
+        let shortcutsItem = NSMenuItem(
+            title: "Keyboard Shortcuts...",
+            action: #selector(showKeyboardShortcuts),
+            keyEquivalent: "?"
+        )
+        shortcutsItem.keyEquivalentModifierMask = [.command, .shift]
+        shortcutsItem.target = self
+        menu.addItem(shortcutsItem)
+        
         menu.addItem(NSMenuItem.separator())
         
         // Add About menu item
@@ -298,6 +321,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         AboutWindowController.shared.show()
     }
+    
+    /// Shows the Keyboard Shortcuts help window
+    @objc func showKeyboardShortcuts() {
+        // Close popover if open
+        if let popover = popover, popover.isShown {
+            closePopover()
+        }
+        
+        KeyboardShortcutsWindowController.shared.show()
+    }
 
     /// Toggles keyboard lock mode
     @objc func toggleKeyboardLock() {
@@ -322,7 +355,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     /// Checks if onboarding is needed and shows it
     private func checkAndShowOnboarding() {
-        let hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+        let hasCompletedOnboarding = UserDefaults.standard.bool(forKey: JoyaFixConstants.UserDefaultsKeys.hasCompletedOnboarding)
         
         if !hasCompletedOnboarding {
             print("📋 First run detected - showing onboarding")

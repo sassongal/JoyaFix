@@ -1,0 +1,123 @@
+import Foundation
+
+/// Centralized constants for JoyaFix application
+enum JoyaFixConstants {
+    
+    // MARK: - Buffer Sizes
+    
+    /// Maximum number of characters to keep in snippet expansion buffer
+    static let maxSnippetBufferSize = 50
+    
+    // MARK: - History Limits
+    
+    /// Maximum number of OCR scans to keep in history
+    static let maxOCRHistoryCount = 50
+    
+    /// Default maximum number of clipboard history items
+    static let defaultMaxClipboardHistoryCount = 20
+    
+    /// Maximum allowed clipboard history items
+    static let maxClipboardHistoryCount = 100
+    
+    /// Minimum allowed clipboard history items
+    static let minClipboardHistoryCount = 5
+    
+    // MARK: - Text Limits
+    
+    /// Maximum length for snippet trigger
+    static let maxSnippetTriggerLength = 20
+    
+    /// Minimum length for snippet trigger
+    static let minSnippetTriggerLength = 2
+    
+    /// Maximum length for snippet content
+    static let maxSnippetContentLength = 10_000
+    
+    /// Threshold for large text optimization in TextConverter
+    static let largeTextOptimizationThreshold = 10_000
+    
+    // MARK: - Timing & Delays
+    
+    /// Delay before capturing screen after selection (seconds)
+    static let ocrCaptureDelay: TimeInterval = 0.1
+    
+    /// Delay after canceling selection (seconds)
+    static let ocrCancelDelay: TimeInterval = 0.05
+    
+    /// Delay for snippet backspace processing (seconds)
+    static let snippetBackspaceDelay: TimeInterval = 0.05
+    
+    /// Delay for clipboard paste simulation (seconds)
+    static let clipboardPasteDelay: TimeInterval = 0.05
+    
+    /// Delay for text conversion clipboard update (seconds)
+    static let textConversionClipboardDelay: TimeInterval = 0.25
+    
+    /// Delay for text conversion delete before paste (seconds)
+    static let textConversionDeleteDelay: TimeInterval = 0.1
+    
+    // MARK: - OCR Rate Limiting
+    
+    /// Maximum number of Cloud OCR requests per minute
+    static let maxCloudOCRRequestsPerMinute = 10
+    
+    /// Time window for rate limiting (seconds)
+    static let rateLimitWindow: TimeInterval = 60.0
+    
+    /// Initial retry delay for failed OCR requests (seconds)
+    static let ocrRetryInitialDelay: TimeInterval = 1.0
+    
+    /// Maximum retry delay for exponential backoff (seconds)
+    static let ocrRetryMaxDelay: TimeInterval = 30.0
+    
+    /// Maximum number of retry attempts for OCR
+    static let ocrMaxRetryAttempts = 3
+    
+    // MARK: - Image Processing
+    
+    /// JPEG compression factor for Cloud OCR
+    static let cloudOCRCompressionFactor: CGFloat = 0.8
+    
+    /// Minimum selection size for OCR (pixels)
+    static let minOCRSelectionSize: CGFloat = 10.0
+    
+    // MARK: - UI Sizes
+    
+    /// Menubar icon size (pixels)
+    static let menubarIconSize: CGFloat = 18.0
+    
+    /// About window logo size (pixels)
+    static let aboutLogoSize: CGFloat = 128.0
+    
+    /// Onboarding logo size (pixels)
+    static let onboardingLogoSize: CGFloat = 120.0
+    
+    // MARK: - UserDefaults Keys
+    
+    enum UserDefaultsKeys {
+        static let clipboardHistory = "ClipboardHistory"
+        static let ocrHistory = "OCRHistory"
+        static let snippets = "JoyaFixSnippets"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    }
+    
+    // MARK: - Keychain
+    
+    enum Keychain {
+        static let service = "com.joyafix.app"
+        static let geminiKeyAccount = "gemini_api_key"
+    }
+    
+    // MARK: - API Endpoints
+    
+    enum API {
+        static let geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    }
+    
+    // MARK: - File Paths
+    
+    enum FilePaths {
+        static let ocrPreviewsDirectory = "JoyaFix/OCRPreviews"
+    }
+}
+

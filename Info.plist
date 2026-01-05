@@ -20,5 +20,7 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 JoyaFix. Built with Claude Code.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>JoyaFix needs Accessibility permission to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete) for text conversion, snippet expansion, and keyboard cleaner mode.</string>
 </dict>
 </plist>

@@ -8,24 +8,48 @@ class InputMonitor {
     
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var isMonitoring = false
+    
+    // FIX: Thread-safe monitoring flag with synchronization
+    private let monitoringQueue = DispatchQueue(label: "com.joyafix.inputmonitor", attributes: .concurrent)
+    private var _isMonitoring = false
+    private var isMonitoring: Bool {
+        get {
+            return monitoringQueue.sync { _isMonitoring }
+        }
+        set {
+            monitoringQueue.async(flags: .barrier) {
+                self._isMonitoring = newValue
+            }
+        }
+    }
     
     private let snippetManager = SnippetManager.shared
     private var keyBuffer: String = ""
-    private let maxBufferSize = 50  // Keep last 50 characters
+    private let maxBufferSize = JoyaFixConstants.maxSnippetBufferSize
     
     private init() {}
     
     // MARK: - Start/Stop Monitoring
     
     func startMonitoring() {
-        guard !isMonitoring else {
-            print("⚠️ InputMonitor already running")
-            return
+        // FIX: Thread-safe check and set
+        let shouldStart = monitoringQueue.sync { () -> Bool in
+            guard !_isMonitoring else {
+                print("⚠️ InputMonitor already running")
+                return false
+            }
+            _isMonitoring = true
+            return true
         }
+        
+        guard shouldStart else { return }
         
         // Check Accessibility permissions
         guard PermissionManager.shared.isAccessibilityTrusted() else {
+            // Reset flag if permission check fails
+            monitoringQueue.async(flags: .barrier) {
+                self._isMonitoring = false
+            }
             print("⚠️ Accessibility permission required for snippet expansion")
             return
         }
@@ -63,12 +87,19 @@ class InputMonitor {
         // Enable the event tap
         CGEvent.tapEnable(tap: eventTap, enable: true)
         
-        isMonitoring = true
+        // Flag already set to true above
         print("✓ InputMonitor started - snippet expansion active")
     }
     
     func stopMonitoring() {
-        guard isMonitoring else { return }
+        // FIX: Thread-safe check and set
+        let shouldStop = monitoringQueue.sync { () -> Bool in
+            guard _isMonitoring else { return false }
+            _isMonitoring = false
+            return true
+        }
+        
+        guard shouldStop else { return }
         
         if let eventTap = eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
@@ -80,15 +111,26 @@ class InputMonitor {
         
         eventTap = nil
         runLoopSource = nil
-        isMonitoring = false
-        keyBuffer = ""
+        
+        // Clear buffer safely
+        monitoringQueue.async(flags: .barrier) {
+            self.keyBuffer = ""
+        }
+        
         print("✓ InputMonitor stopped")
     }
     
     // MARK: - Event Handling
     
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // FIX: Thread-safe check - return early if not monitoring
         guard type == .keyDown else {
+            return Unmanaged.passUnretained(event)
+        }
+        
+        // Check if monitoring in a thread-safe way
+        let currentlyMonitoring = monitoringQueue.sync { _isMonitoring }
+        guard currentlyMonitoring else {
             return Unmanaged.passUnretained(event)
         }
         
@@ -99,31 +141,47 @@ class InputMonitor {
         if let nsEvent = NSEvent(cgEvent: event) {
             // Get the character(s) typed
             if let characters = nsEvent.characters, !characters.isEmpty {
-                // Add to buffer
-                keyBuffer.append(characters)
-                
-                // Keep buffer size manageable
-                if keyBuffer.count > maxBufferSize {
-                    keyBuffer = String(keyBuffer.suffix(maxBufferSize))
+                // FIX: Thread-safe buffer update
+                monitoringQueue.async(flags: .barrier) {
+                    self.keyBuffer.append(characters)
+                    
+                    // Keep buffer size manageable
+                    if self.keyBuffer.count > self.maxBufferSize {
+                        self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
+                    }
                 }
                 
-                // Check for snippet matches
-                checkForSnippetMatch()
+                // Check for snippet matches (synchronously to ensure buffer is up to date)
+                monitoringQueue.sync {
+                    checkForSnippetMatch()
+                }
             } else if keyCode == 49 { // Space key
-                keyBuffer.append(" ")
-                if keyBuffer.count > maxBufferSize {
-                    keyBuffer = String(keyBuffer.suffix(maxBufferSize))
+                // FIX: Thread-safe buffer update
+                monitoringQueue.async(flags: .barrier) {
+                    self.keyBuffer.append(" ")
+                    if self.keyBuffer.count > self.maxBufferSize {
+                        self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
+                    }
                 }
-                checkForSnippetMatch()
+                
+                monitoringQueue.sync {
+                    checkForSnippetMatch()
+                }
             }
         } else {
             // Fallback: check for space key
             if keyCode == 49 { // Space
-                keyBuffer.append(" ")
-                if keyBuffer.count > maxBufferSize {
-                    keyBuffer = String(keyBuffer.suffix(maxBufferSize))
+                // FIX: Thread-safe buffer update
+                monitoringQueue.async(flags: .barrier) {
+                    self.keyBuffer.append(" ")
+                    if self.keyBuffer.count > self.maxBufferSize {
+                        self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
+                    }
                 }
-                checkForSnippetMatch()
+                
+                monitoringQueue.sync {
+                    checkForSnippetMatch()
+                }
             }
         }
         
@@ -212,6 +270,9 @@ class InputMonitor {
     }
     
     private func checkForSnippetMatch() {
+        // FIX: Thread-safe - check monitoring state and buffer
+        guard _isMonitoring else { return }
+        
         // Check if buffer ends with any snippet trigger
         let triggers = snippetManager.getAllTriggers()
         
@@ -237,7 +298,7 @@ class InputMonitor {
         }
         
         // Small delay to ensure backspaces are processed
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.snippetBackspaceDelay) {
             // Paste the snippet content
             self.pasteText(snippet.content)
             

@@ -130,20 +130,20 @@ struct WelcomeSlide: View {
                     Image(nsImage: logoImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 120, height: 120)
+                        .frame(width: JoyaFixConstants.onboardingLogoSize, height: JoyaFixConstants.onboardingLogoSize)
                         .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 } else if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: nil),
                           let logoImage = NSImage(contentsOfFile: logoPath) {
                     Image(nsImage: logoImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 120, height: 120)
+                        .frame(width: JoyaFixConstants.onboardingLogoSize, height: JoyaFixConstants.onboardingLogoSize)
                         .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 } else {
                     Image("FLATLOGO")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 120, height: 120)
+                        .frame(width: JoyaFixConstants.onboardingLogoSize, height: JoyaFixConstants.onboardingLogoSize)
                         .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 }
             }
@@ -190,7 +190,8 @@ struct FeaturesSlide: View {
                 FeatureCard(
                     icon: "text.bubble",
                     title: "Text Snippets",
-                    description: "Create shortcuts that expand into full text automatically"
+                    description: "Create shortcuts that expand into full text automatically",
+                    example: "Example: Type '!mail' → expands to 'gal@joyatech.com'"
                 )
             }
         }
@@ -202,23 +203,40 @@ struct FeatureCard: View {
     let icon: String
     let title: String
     let description: String
+    var example: String? = nil
     
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 32))
-                .foregroundColor(.blue)
-                .frame(width: 50)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                Text(description)
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 32))
+                    .foregroundColor(.blue)
+                    .frame(width: 50)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(description)
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
             }
             
-            Spacer()
+            // Show example if provided
+            if let example = example {
+                HStack(spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                    Text(example)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+                .padding(.leading, 66) // Align with content above
+            }
         }
         .padding()
         .background(Color(NSColor.controlBackgroundColor))

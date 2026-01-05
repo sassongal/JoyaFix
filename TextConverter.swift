@@ -79,36 +79,62 @@ struct TextConverter {
         return char.isLetter && char.isASCII
     }
 
-    /// Simple detection: if text has Hebrew characters -> convert to English
-    /// If text has English characters -> convert to Hebrew
-    /// Improved: Count both types to make better decision
-    /// Also checks if text looks like it was already converted (mixed case with Hebrew-like patterns)
+    /// Improved detection: Analyzes text to determine conversion direction
+    /// Handles mixed Hebrew/English text intelligently
+    /// Optimized for large text with early termination
     private static func shouldConvertToEnglish(_ text: String) -> Bool {
+        // FIX: Optimize for large text - sample first 1000 characters if text is very long
+        let sampleText: String
+        if text.count > JoyaFixConstants.largeTextOptimizationThreshold {
+            // For very long text, analyze first portion to make decision faster
+            sampleText = String(text.prefix(1000))
+        } else {
+            sampleText = text
+        }
+        
         var hebrewCount = 0
         var englishCount = 0
-        var uppercaseEnglishCount = 0
+        var numberCount = 0
+        var punctuationCount = 0
+        var spaceCount = 0
         
-        for char in text {
+        // FIX: More comprehensive character analysis
+        for char in sampleText {
             if isHebrewCharacter(char) {
                 hebrewCount += 1
             } else if isEnglishCharacter(char) {
                 englishCount += 1
-                if char.isUppercase {
-                    uppercaseEnglishCount += 1
-                }
+            } else if char.isNumber {
+                numberCount += 1
+            } else if char.isPunctuation {
+                punctuationCount += 1
+            } else if char.isWhitespace {
+                spaceCount += 1
             }
         }
         
+        // FIX: Improved decision logic for mixed text
         // If we have Hebrew characters, convert to English
         if hebrewCount > 0 {
-            return true
+            // If Hebrew is dominant (more than 30% of letters), convert to English
+            let totalLetters = hebrewCount + englishCount
+            if totalLetters > 0 {
+                let hebrewRatio = Double(hebrewCount) / Double(totalLetters)
+                if hebrewRatio > 0.3 {
+                    return true
+                }
+            } else {
+                // Only Hebrew, no English letters
+                return true
+            }
         }
         
-        // If we have English characters, convert to Hebrew
-        if englishCount > 0 {
+        // If we have English characters and no Hebrew, convert to Hebrew
+        if englishCount > 0 && hebrewCount == 0 {
             return false
         }
         
+        // FIX: Handle edge case - only numbers/punctuation/spaces
         // Default: assume English -> convert to Hebrew
         return false
     }
@@ -118,13 +144,17 @@ struct TextConverter {
     /// Converts text from one keyboard layout to another
     /// If text contains Hebrew characters -> converts to English keyboard layout
     /// If text contains English characters -> converts to Hebrew keyboard layout
+    /// FIX: Optimized for large text with pre-allocated capacity
     static func convert(_ text: String) -> String {
         guard !text.isEmpty else { return text }
 
         let convertToEnglish = shouldConvertToEnglish(text)
         let mapping = convertToEnglish ? hebrewToEnglish : englishToHebrew
 
+        // FIX: Pre-allocate capacity for better performance with large text
         var result = ""
+        result.reserveCapacity(text.count) // Pre-allocate to avoid multiple reallocations
+        
         for char in text {
             if let mappedChar = mapping[char] {
                 result.append(mappedChar)
@@ -140,8 +170,10 @@ struct TextConverter {
     // MARK: - Explicit Conversion Functions
 
     /// Explicitly converts English text to Hebrew keyboard layout
+    /// FIX: Optimized with pre-allocated capacity
     static func convertToHebrew(_ text: String) -> String {
         var result = ""
+        result.reserveCapacity(text.count)
         for char in text {
             if let mappedChar = englishToHebrew[char] {
                 result.append(mappedChar)
@@ -153,8 +185,10 @@ struct TextConverter {
     }
 
     /// Explicitly converts Hebrew text to English keyboard layout
+    /// FIX: Optimized with pre-allocated capacity
     static func convertToEnglish(_ text: String) -> String {
         var result = ""
+        result.reserveCapacity(text.count)
         for char in text {
             if let mappedChar = hebrewToEnglish[char] {
                 result.append(mappedChar)

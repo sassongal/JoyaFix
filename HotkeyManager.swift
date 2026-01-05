@@ -346,7 +346,7 @@ class HotkeyManager {
         simulateCopy()
 
         // Step 2: Wait for clipboard to update
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.textConversionClipboardDelay) {
             // Step 3: Read from clipboard
             guard let copiedText = self.readFromClipboard() else {
                 print("❌ No text in clipboard")
@@ -367,14 +367,14 @@ class HotkeyManager {
             print("📋 Converted text written to clipboard")
 
             // Step 7: Delete selected text, then paste (if enabled in settings)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.clipboardPasteDelay) {
                 if self.settings.autoPasteAfterConvert {
                     // Delete the selected text first
                     print("🗑️ Deleting selected text...")
                     self.simulateDelete()
                     
                     // Wait a bit before pasting
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.textConversionDeleteDelay) {
                         print("📋 Simulating paste...")
                         self.simulatePaste()
                         
