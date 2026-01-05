@@ -30,6 +30,7 @@ struct GeneralSettingsTab: View {
     @State private var showImportSuccess = false
     @State private var showImportError = false
     @State private var importErrorMessage = ""
+    @State private var showLanguageRestartAlert = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -152,6 +153,41 @@ struct GeneralSettingsTab: View {
                                 .buttonStyle(.bordered)
                                 .disabled(isCheckingForUpdates)
                             }
+                        }
+                        .padding(8)
+                    }
+                    
+                    // Language Selection Section
+                    GroupBox(label: Label("Language / שפה", systemImage: "globe")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("App Language")
+                                Spacer()
+                                Picker("", selection: Binding(
+                                    get: {
+                                        // Check if a specific language is set
+                                        UserDefaults.standard.array(forKey: "AppleLanguages")?.first as? String == "en" ? "en" : "system"
+                                    },
+                                    set: { newValue in
+                                        if newValue == "en" {
+                                            // Force English
+                                            UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
+                                        } else {
+                                            // Reset to system default
+                                            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+                                        }
+                                        // Show message that restart is required
+                                        showLanguageRestartAlert = true
+                                    }
+                                )) {
+                                    Text("System Default").tag("system")
+                                    Text("English (Force)").tag("en")
+                                }
+                                .frame(width: 150)
+                            }
+                            Text("Restart required to apply language changes.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                         .padding(8)
                     }
@@ -343,6 +379,11 @@ struct GeneralSettingsTab: View {
             Button(NSLocalizedString("alert.button.ok", comment: "OK"), role: .cancel) { }
         } message: {
             Text(NSLocalizedString("update.alert.no.update.message", comment: "No update message"))
+        }
+        .alert("Language Change", isPresented: $showLanguageRestartAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please restart the app for the language change to take effect.")
         }
     }
     
@@ -548,6 +589,7 @@ struct SnippetRow: View {
             }
         }
         .padding(.vertical, 4)
+        .help(snippet.content) // Display full content on hover
     }
 }
 

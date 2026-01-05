@@ -47,6 +47,34 @@ mkdir -p "$RESOURCES_DIR"
 echo "📦 Copying binary..."
 cp "$SPM_BINARY" "$MACOS_DIR/$APP_NAME"
 
+# Copy frameworks (Sparkle, Pulse, etc.)
+echo "🔗 Copying frameworks..."
+FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
+mkdir -p "$FRAMEWORKS_DIR"
+
+# Find and copy Sparkle framework
+SPARKLE_FRAMEWORK=$(find .build -name "Sparkle.framework" -type d -path "*/release/*" | head -1)
+if [ -n "$SPARKLE_FRAMEWORK" ] && [ -d "$SPARKLE_FRAMEWORK" ]; then
+    echo "  📦 Copying Sparkle.framework..."
+    cp -R "$SPARKLE_FRAMEWORK" "$FRAMEWORKS_DIR/"
+    # Fix framework permissions
+    chmod -R u+w "$FRAMEWORKS_DIR/Sparkle.framework"
+fi
+
+# Find and copy Pulse framework if it exists
+PULSE_FRAMEWORK=$(find .build -name "Pulse.framework" -type d -path "*/release/*" | head -1)
+if [ -n "$PULSE_FRAMEWORK" ] && [ -d "$PULSE_FRAMEWORK" ]; then
+    echo "  📦 Copying Pulse.framework..."
+    cp -R "$PULSE_FRAMEWORK" "$FRAMEWORKS_DIR/"
+    chmod -R u+w "$FRAMEWORKS_DIR/Pulse.framework"
+fi
+
+# Update binary's rpath to find frameworks
+if [ -d "$FRAMEWORKS_DIR" ] && [ "$(ls -A $FRAMEWORKS_DIR)" ]; then
+    echo "  🔧 Updating binary rpath..."
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$APP_NAME" 2>/dev/null || true
+fi
+
 # Copy Info.plist
 echo "📋 Copying Info.plist..."
 if [ -f "Info.plist" ]; then

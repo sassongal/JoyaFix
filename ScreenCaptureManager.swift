@@ -8,6 +8,8 @@ class ScreenCaptureManager {
     static let shared = ScreenCaptureManager()
 
     private var overlayWindow: SelectionOverlayWindow?
+    // FIX: Support multiple monitors - array of overlay windows (one per screen)
+    private var overlayWindows: [SelectionOverlayWindow] = []
     private var completion: ((String?) -> Void)?
     private var escapeKeyMonitor: Any?
     private var escapeKeyLocalMonitor: Any?
@@ -61,7 +63,14 @@ class ScreenCaptureManager {
         NSCursor.arrow.set() // Force cursor back to arrow (safe)
         cursorPushed = false
         
-        // Close window safely - validate it exists before closing
+        // Close all overlay windows safely
+        for window in overlayWindows {
+            window.orderOut(nil)
+            window.close()
+        }
+        overlayWindows.removeAll()
+        
+        // Close single window reference (backward compatibility)
         if let window = overlayWindow {
             window.orderOut(nil)
             window.close()
@@ -75,29 +84,44 @@ class ScreenCaptureManager {
         // Cleanup any existing overlay first
         cleanupExistingSession()
         
-        // Create full-screen overlay covering all screens
-        let combinedFrame = NSScreen.screens.reduce(NSRect.zero) { result, screen in
-            return result.union(screen.frame)
+        // FIX: Create separate overlay window for each screen (multi-monitor support)
+        // This fixes the issue where macOS "Displays have separate Spaces" prevents
+        // a single window from spanning multiple screens properly
+        overlayWindows.removeAll()
+        
+        for screen in NSScreen.screens {
+            let screenFrame = screen.frame
+            
+            let window = SelectionOverlayWindow(
+                contentRect: screenFrame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            
+            window.selectionDelegate = self
+            window.backgroundColor = NSColor.clear
+            window.isOpaque = false
+            window.level = .screenSaver
+            window.ignoresMouseEvents = false
+            
+            // Position window on the correct screen
+            window.setFrameOrigin(screenFrame.origin)
+            
+            overlayWindows.append(window)
+            
+            // Make sure window can receive key events
+            window.makeKeyAndOrderFront(nil)
+            
+            // Only set first responder on the primary screen's window
+            if screen == NSScreen.main {
+                window.makeFirstResponder(window.contentView)
+            }
         }
-
-        let window = SelectionOverlayWindow(
-            contentRect: combinedFrame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
         
-        self.overlayWindow = window
-
-        window.selectionDelegate = self
-        window.backgroundColor = NSColor.clear
-        window.isOpaque = false
-        window.level = .screenSaver
-        window.ignoresMouseEvents = false
-        
-        // Make sure window can receive key events
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(window.contentView)
+        // Keep backward compatibility with single overlayWindow reference
+        // Use the main screen's window as the primary reference
+        overlayWindow = overlayWindows.first(where: { $0.screen == NSScreen.main }) ?? overlayWindows.first
 
         // Change cursor to crosshair
         NSCursor.crosshair.set()
@@ -117,31 +141,36 @@ class ScreenCaptureManager {
         
         // Also add local monitor for window events - this CAN consume events
         // FIX: Store the local monitor so we can remove it in cleanup
-        escapeKeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self = self, self.isCapturing else { return event }
-            if event.keyCode == 53 { // ESC key
-                print("⌨️ ESC pressed (Local Monitor)")
-                Task { @MainActor in
-                    self.didCancelSelection()
+        // Add monitor once (it will catch events from all windows)
+        if let primaryWindow = overlayWindows.first {
+            escapeKeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self = self, self.isCapturing else { return event }
+                if event.keyCode == 53 { // ESC key
+                    print("⌨️ ESC pressed (Local Monitor)")
+                    Task { @MainActor in
+                        self.didCancelSelection()
+                    }
+                    return nil // Consume the event to prevent it from propagating
                 }
-                return nil // Consume the event to prevent it from propagating
+                return event
             }
-            return event
         }
     }
 
     private func hideSelectionOverlay() {
         // Prevent double-cleanup with guard
-        guard overlayWindow != nil || escapeKeyMonitor != nil || escapeKeyLocalMonitor != nil || cursorPushed else {
+        guard !overlayWindows.isEmpty || overlayWindow != nil || escapeKeyMonitor != nil || escapeKeyLocalMonitor != nil || cursorPushed else {
             return
         }
 
         // Store references before clearing to avoid race conditions
+        let windows = overlayWindows
         let window = overlayWindow
         let monitor = escapeKeyMonitor
         let localMonitor = escapeKeyLocalMonitor
         
         // Clear references immediately to prevent re-entry
+        overlayWindows.removeAll()
         overlayWindow = nil
         escapeKeyMonitor = nil
         escapeKeyLocalMonitor = nil
@@ -161,7 +190,13 @@ class ScreenCaptureManager {
             NSEvent.removeMonitor(localMonitor)
         }
         
-        // Close Window safely - validate it exists
+        // Close all overlay windows safely
+        for overlayWindow in windows {
+            overlayWindow.orderOut(nil)
+            overlayWindow.close()
+        }
+        
+        // Close single window reference (backward compatibility)
         if let window = window {
             window.orderOut(nil)
             window.close()
@@ -199,14 +234,6 @@ class ScreenCaptureManager {
             return
         }
 
-        // Get overlay window for hiding during capture
-        guard let overlayWindow = self.overlayWindow else {
-            print("❌ Overlay window not available")
-            completion?(nil)
-            isCapturing = false
-            return
-        }
-        
         // Validate rect
         guard rect.origin.x >= 0 && rect.origin.y >= 0 &&
               rect.width > 0 && rect.height > 0 else {
@@ -220,8 +247,11 @@ class ScreenCaptureManager {
         
         // On macOS 15.0+, CGWindowListCreateImage is unavailable
         // Use screencapture CLI as fallback
-        // Hide overlay first, then capture
-        overlayWindow.orderOut(nil)
+        // Hide all overlay windows first, then capture
+        for window in overlayWindows {
+            window.orderOut(nil)
+        }
+        overlayWindow?.orderOut(nil)
         
         // Small delay to ensure overlay is hidden
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -388,73 +418,82 @@ class ScreenCaptureManager {
     // MARK: - CLI Screen Capture (Fallback for macOS 15.0+)
     
     /// Captures screen region using screencapture CLI (fallback for macOS 15.0+)
+    /// CRITICAL FIX: Runs on background thread to prevent UI freeze
     private func captureScreenWithCLI(rect: NSRect, completion: ((String?) -> Void)?) {
         let tempFile = NSTemporaryDirectory() + "joyafix_capture_\(UUID().uuidString).png"
         
         // Convert rect to screencapture format: x,y,width,height
         let captureRect = "\(Int(rect.origin.x)),\(Int(rect.origin.y)),\(Int(rect.width)),\(Int(rect.height))"
         
-        let task = Process()
-        task.launchPath = "/usr/sbin/screencapture"
-        task.arguments = [
-            "-R", captureRect,
-            "-x",  // No sound
-            "-t", "png",
-            tempFile
-        ]
-        
-        task.standardOutput = Pipe()
-        task.standardError = Pipe()
-        
-        task.launch()
-        task.waitUntilExit()
-        
-        defer {
-            // Clean up temp file
-            try? FileManager.default.removeItem(atPath: tempFile)
-        }
-        
-        guard task.terminationStatus == 0,
-              FileManager.default.fileExists(atPath: tempFile),
-              let image = NSImage(contentsOfFile: tempFile),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            print("❌ CLI screen capture failed")
-            completion?(nil)
-            isCapturing = false
-            return
-        }
-        
-        print("✓ Screen captured via CLI (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
-        
-        // Store completion handler before any async operations
-        let completionHandler = self.completion
-        
-        // Perform OCR
-        self.extractText(from: cgImage) { text in
-            Task { @MainActor in
-                self.isCapturing = false
-                
-                // Save to OCR history if text was extracted
-                if let extractedText = text, !extractedText.isEmpty {
-                    let scan = OCRScan(extractedText: extractedText)
-                    let nsImage = NSImage(contentsOfFile: tempFile)
-                    var finalScan = scan
-                    if let previewImage = nsImage {
-                        OCRHistoryManager.shared.savePreviewImage(previewImage, for: scan) { previewPath in
-                            if let previewPath = previewPath {
-                                let scanWithImage = scan.withPreviewImagePath(previewPath)
-                                OCRHistoryManager.shared.addScan(scanWithImage)
-                            } else {
-                                OCRHistoryManager.shared.addScan(scan)
-                            }
-                        }
-                    } else {
-                        OCRHistoryManager.shared.addScan(scan)
-                    }
-                    print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
+        // CRITICAL FIX: Run CLI command on background thread to prevent UI freeze
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            let task = Process()
+            task.launchPath = "/usr/sbin/screencapture"
+            task.arguments = [
+                "-R", captureRect,
+                "-x",  // No sound
+                "-t", "png",
+                tempFile
+            ]
+            
+            task.standardOutput = Pipe()
+            task.standardError = Pipe()
+            
+            task.launch()
+            task.waitUntilExit() // Now this doesn't block the main thread
+            
+            // Check results on background thread
+            guard task.terminationStatus == 0,
+                  FileManager.default.fileExists(atPath: tempFile),
+                  let image = NSImage(contentsOfFile: tempFile),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                print("❌ CLI screen capture failed")
+                DispatchQueue.main.async {
+                    completion?(nil)
+                    self.isCapturing = false
                 }
-                
-                completionHandler?(text)
+                // Clean up temp file
+                try? FileManager.default.removeItem(atPath: tempFile)
+                return
+            }
+            
+            print("✓ Screen captured via CLI (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
+            
+            // Store completion handler before any async operations
+            let completionHandler = self.completion
+            
+            // Perform OCR (this already handles threading internally)
+            self.extractText(from: cgImage) { text in
+                Task { @MainActor in
+                    self.isCapturing = false
+                    
+                    // Save to OCR history if text was extracted
+                    if let extractedText = text, !extractedText.isEmpty {
+                        let scan = OCRScan(extractedText: extractedText)
+                        let nsImage = NSImage(contentsOfFile: tempFile)
+                        var finalScan = scan
+                        if let previewImage = nsImage {
+                            OCRHistoryManager.shared.savePreviewImage(previewImage, for: scan) { previewPath in
+                                if let previewPath = previewPath {
+                                    let scanWithImage = scan.withPreviewImagePath(previewPath)
+                                    OCRHistoryManager.shared.addScan(scanWithImage)
+                                } else {
+                                    OCRHistoryManager.shared.addScan(scan)
+                                }
+                            }
+                        } else {
+                            OCRHistoryManager.shared.addScan(scan)
+                        }
+                        print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
+                    }
+                    
+                    // Clean up temp file after OCR processing
+                    try? FileManager.default.removeItem(atPath: tempFile)
+                    
+                    completionHandler?(text)
+                }
             }
         }
     }
@@ -646,16 +685,24 @@ class SelectionView: NSView {
 
         let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
 
-        // Convert to global screen coordinates (works with multiple monitors)
-        // The window's frame is already in global coordinates covering all screens
+        // FIX: Convert to global screen coordinates (multi-monitor support)
+        // Convert from window coordinates to global screen coordinates
+        guard let window = self.window else {
+            print("❌ Window not available for coordinate conversion")
+            return
+        }
+        
+        // Convert the selection rect from window coordinates to global screen coordinates
+        let windowFrame = window.frame
         let globalRect = NSRect(
-            x: selectionRect.origin.x + self.frame.origin.x,
-            y: selectionRect.origin.y + self.frame.origin.y,
+            x: selectionRect.origin.x + windowFrame.origin.x,
+            y: selectionRect.origin.y + windowFrame.origin.y,
             width: selectionRect.width,
             height: selectionRect.height
         )
         
         print("📐 Selection rect (local): \(selectionRect)")
+        print("📐 Window frame: \(windowFrame)")
         print("📐 Selection rect (global): \(globalRect)")
         
         // Store the confirmed selection for ENTER key, but don't process it yet
@@ -700,14 +747,22 @@ class SelectionView: NSView {
                      
                      let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
                      
-                     // Convert to global screen coordinates (works with multiple monitors)
+                     // FIX: Convert to global screen coordinates (multi-monitor support)
+                     guard let window = self.window else {
+                         print("❌ Window not available for coordinate conversion")
+                         return
+                     }
+                     
+                     let windowFrame = window.frame
                      let globalRect = NSRect(
-                         x: selectionRect.origin.x + self.frame.origin.x,
-                         y: selectionRect.origin.y + self.frame.origin.y,
+                         x: selectionRect.origin.x + windowFrame.origin.x,
+                         y: selectionRect.origin.y + windowFrame.origin.y,
                          width: selectionRect.width,
                          height: selectionRect.height
                      )
                      
+                     print("📐 ENTER: Selection rect (local): \(selectionRect)")
+                     print("📐 ENTER: Window frame: \(windowFrame)")
                      print("📐 ENTER: Selection rect (global): \(globalRect)")
                      
                      // Call delegate safely

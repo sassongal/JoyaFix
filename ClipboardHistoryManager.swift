@@ -652,6 +652,70 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
+    // MARK: - Cleanup
+    
+    /// Cleans up orphaned files in the data directory that are not referenced in history
+    /// This should be called after history is loaded to remove files that are no longer needed
+    @MainActor
+    func cleanupOrphanedFiles() {
+        // Collect all valid file paths from history
+        var validPaths = Set<String>()
+        
+        for item in history {
+            if let rtfPath = item.rtfDataPath {
+                validPaths.insert(rtfPath)
+            }
+            if let htmlPath = item.htmlDataPath {
+                validPaths.insert(htmlPath)
+            }
+            if let imagePath = item.imagePath {
+                validPaths.insert(imagePath)
+            }
+        }
+        
+        // Get all files in the data directory
+        let fileManager = FileManager.default
+        guard let directoryContents = try? fileManager.contentsOfDirectory(at: dataDirectory, includingPropertiesForKeys: nil, options: []) else {
+            print("⚠️ Could not read data directory for cleanup")
+            return
+        }
+        
+        var deletedCount = 0
+        var totalSizeDeleted: Int64 = 0
+        
+        // Check each file and delete if not in valid paths
+        for fileURL in directoryContents {
+            let filePath = fileURL.path
+            
+            // Skip if this file is referenced in history
+            if validPaths.contains(filePath) {
+                continue
+            }
+            
+            // Get file size before deletion for reporting
+            if let attributes = try? fileManager.attributesOfItem(atPath: filePath),
+               let fileSize = attributes[.size] as? Int64 {
+                totalSizeDeleted += fileSize
+            }
+            
+            // Delete orphaned file
+            do {
+                try fileManager.removeItem(at: fileURL)
+                deletedCount += 1
+                print("🗑️ Deleted orphaned file: \(fileURL.lastPathComponent)")
+            } catch {
+                print("❌ Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        
+        if deletedCount > 0 {
+            let sizeInMB = Double(totalSizeDeleted) / (1024 * 1024)
+            print("✓ Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB")
+        } else {
+            print("✓ Cleanup completed: No orphaned files found")
+        }
+    }
+    
     // MARK: - Migration
     
     /// Migrates old clipboard history from UserDefaults (with embedded Data) to disk-based storage

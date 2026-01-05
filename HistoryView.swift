@@ -493,6 +493,7 @@ struct OCRScanRow: View {
         .onTapGesture {
             onCopy()
         }
+        .help(scan.extractedText) // Display full extracted text on hover
     }
     
     private func timeAgo(from date: Date) -> String {
@@ -675,6 +676,7 @@ struct HistoryItemRow: View {
             let plainTextOnly = isShiftHeld || isOptionHeld
             onPaste(plainTextOnly)
         }
+        .help(item.textForPasting) // Display full text content on hover
     }
 
     private func timeAgo(from date: Date) -> String {
@@ -1062,6 +1064,7 @@ struct PromptRowView: View {
         .onTapGesture {
             onCopy()
         }
+        .help(prompt.content) // Display full prompt content on hover
     }
     
     private var truncatedContent: String {

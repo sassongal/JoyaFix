@@ -94,6 +94,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start clipboard monitoring
         clipboardManager.startMonitoring()
+        
+        // Cleanup orphaned files (files not referenced in history JSON)
+        // This should run after history is loaded to remove unused files
+        DispatchQueue.main.async {
+            ClipboardHistoryManager.shared.cleanupOrphanedFiles()
+        }
 
         // CRITICAL FIX: Always register hotkeys, regardless of permission status
         // Permissions will be checked when hotkeys are actually pressed

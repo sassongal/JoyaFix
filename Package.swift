@@ -37,6 +37,7 @@ let package = Package(
                 "Tests",
                 "JoyaFix.app",
                 ".build",
+                "build",
                 "DEBUG.md",
                 "EXECUTION_PLAN.md",
                 "GAP_ANALYSIS.md",
