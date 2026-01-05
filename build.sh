@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # JoyaFix Build Script
-# This script compiles the app and creates a proper macOS app bundle
+# This script uses Swift Package Manager to build the app and create a proper macOS app bundle
 
 set -e  # Exit on error
 
@@ -11,48 +11,97 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+SPM_BUILD_DIR=".build/release"
+SPM_BINARY="$SPM_BUILD_DIR/$APP_NAME"
 
-echo "🔨 Building $APP_NAME..."
+echo "🔨 Building $APP_NAME with Swift Package Manager..."
+
+# Run tests first
+echo "🧪 Running tests..."
+swift test
+if [ $? -eq 0 ]; then
+    echo "✅ All tests passed!"
+else
+    echo "❌ Tests failed. Aborting build."
+    exit 1
+fi
 
 # Clean previous build
 rm -rf "$BUILD_DIR"
+
+# Build with SPM
+echo "📦 Building with Swift Package Manager..."
+swift build -c release
+
+# Verify binary exists
+if [ ! -f "$SPM_BINARY" ]; then
+    echo "❌ Build failed: Binary not found at $SPM_BINARY"
+    exit 1
+fi
 
 # Create app bundle structure
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
-# Compile Swift files
-echo "📦 Compiling Swift sources..."
-swiftc -framework Cocoa -framework Carbon -framework ApplicationServices \
-    *.swift \
-    -o "$MACOS_DIR/$APP_NAME"
+# Copy binary from SPM build
+echo "📦 Copying binary..."
+cp "$SPM_BINARY" "$MACOS_DIR/$APP_NAME"
 
 # Copy Info.plist
 echo "📋 Copying Info.plist..."
-cp Info.plist "$CONTENTS_DIR/"
-
-# Copy sound files if they exist
-if [ -f "success.wav" ]; then
-    echo "🔊 Copying sound resources..."
-    cp success.wav "$RESOURCES_DIR/"
+if [ -f "Info.plist" ]; then
+    cp Info.plist "$CONTENTS_DIR/"
+elif [ -f "Sources/JoyaFix/Resources/Info.plist" ]; then
+    cp Sources/JoyaFix/Resources/Info.plist "$CONTENTS_DIR/"
+else
+    echo "⚠️  Warning: Info.plist not found"
 fi
 
-# Copy Logo
-if [ -f "FLATLOGO.png" ]; then
-    echo "🖼️ Copying logo..."
-    cp FLATLOGO.png "$RESOURCES_DIR/"
-fi
-
-# Copy Localization
-echo "🌍 Copying localization files..."
-if [ -d "he.lproj" ]; then
-    mkdir -p "$RESOURCES_DIR/he.lproj"
-    cp he.lproj/Localizable.strings "$RESOURCES_DIR/he.lproj/"
-fi
-
-if [ -d "en.lproj" ]; then
-    mkdir -p "$RESOURCES_DIR/en.lproj"
-    cp en.lproj/Localizable.strings "$RESOURCES_DIR/en.lproj/"
+# Copy resources from SPM Resources directory or root
+echo "📁 Copying resources..."
+if [ -d "Sources/JoyaFix/Resources" ]; then
+    # Copy from SPM Resources directory
+    if [ -f "Sources/JoyaFix/Resources/success.wav" ]; then
+        echo "🔊 Copying sound resources..."
+        cp Sources/JoyaFix/Resources/success.wav "$RESOURCES_DIR/"
+    fi
+    
+    if [ -f "Sources/JoyaFix/Resources/FLATLOGO.png" ]; then
+        echo "🖼️ Copying logo..."
+        cp Sources/JoyaFix/Resources/FLATLOGO.png "$RESOURCES_DIR/"
+    fi
+    
+    # Copy localization
+    if [ -d "Sources/JoyaFix/Resources/he.lproj" ]; then
+        mkdir -p "$RESOURCES_DIR/he.lproj"
+        cp Sources/JoyaFix/Resources/he.lproj/Localizable.strings "$RESOURCES_DIR/he.lproj/"
+    fi
+    
+    if [ -d "Sources/JoyaFix/Resources/en.lproj" ]; then
+        mkdir -p "$RESOURCES_DIR/en.lproj"
+        cp Sources/JoyaFix/Resources/en.lproj/Localizable.strings "$RESOURCES_DIR/en.lproj/"
+    fi
+else
+    # Fallback: Copy from root directory (for backward compatibility)
+    if [ -f "success.wav" ]; then
+        echo "🔊 Copying sound resources..."
+        cp success.wav "$RESOURCES_DIR/"
+    fi
+    
+    if [ -f "FLATLOGO.png" ]; then
+        echo "🖼️ Copying logo..."
+        cp FLATLOGO.png "$RESOURCES_DIR/"
+    fi
+    
+    if [ -d "he.lproj" ]; then
+        mkdir -p "$RESOURCES_DIR/he.lproj"
+        cp he.lproj/Localizable.strings "$RESOURCES_DIR/he.lproj/"
+    fi
+    
+    if [ -d "en.lproj" ]; then
+        mkdir -p "$RESOURCES_DIR/en.lproj"
+        cp en.lproj/Localizable.strings "$RESOURCES_DIR/en.lproj/"
+    fi
 fi
 
 # Create PkgInfo

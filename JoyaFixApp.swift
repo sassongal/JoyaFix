@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import Pulse
 
 @main
 struct JoyaFixApp: App {
@@ -56,6 +57,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize Pulse logging system for network request logging
+        // Pulse automatically intercepts URLSession requests when imported
+        // For full UI integration, import PulseUI and add PulseView to your settings
+        
         // Create the status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 

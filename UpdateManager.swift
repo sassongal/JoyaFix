@@ -1,17 +1,36 @@
 import Foundation
 import Cocoa
+import Sparkle
 
 /// Manages app update checking and notifications
+/// TODO: Migrate to SPUStandardUpdaterController for full Sparkle integration
+/// Currently uses custom JSON-based update checking as a fallback
 @MainActor
 class UpdateManager {
     static let shared = UpdateManager()
     
     // MARK: - Configuration
     
+    /// Sparkle updater controller (for future full integration)
+    /// To fully integrate: Initialize SPUStandardUpdaterController in AppDelegate
+    /// and connect it to the menu item "Check for Updates..."
+    private var updaterController: SPUStandardUpdaterController?
+    
     /// GitHub URL for version check (placeholder - replace with actual repo URL)
     private let versionCheckURL = "https://raw.githubusercontent.com/sassongal/JoyaFix/master/version.json"
     
-    private init() {}
+    private init() {
+        // Initialize Sparkle updater controller
+        // Note: Full integration requires adding to Info.plist:
+        // - SUFeedURL: URL to appcast.xml
+        // - SUPublicEDSAKey: Public key for signing
+        // For now, we keep the custom update checking as fallback
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+    }
     
     // MARK: - Version Checking
     
