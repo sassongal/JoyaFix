@@ -281,10 +281,12 @@ class SnippetManager: ObservableObject {
     /// Processes snippet content to replace dynamic variables and handle cursor placement
     /// - Parameter content: The raw snippet content
     /// - Returns: A tuple containing the processed text and the cursor position (if any)
+    /// Note: This method may prompt user for variable values (synchronous, runs on MainActor)
+    @MainActor
     func processSnippetContent(_ content: String) -> (text: String, cursorPosition: Int?) {
         var processedText = content
         
-        // Replace dynamic variables
+        // Replace dynamic variables (may prompt user)
         processedText = replaceDynamicVariables(in: processedText)
         
         // Handle cursor placement (| syntax)
@@ -302,8 +304,29 @@ class SnippetManager: ObservableObject {
     }
     
     /// Replaces dynamic variables in snippet content
-    /// Supported variables: {date}, {time}, {clipboard}
+    /// Supported variables:
+    /// - Built-in: {date}, {time}, {clipboard}
+    /// - User-defined: {name}, {email}, etc. (prompts user for input)
+    /// - Conditional: {if:condition:trueValue:falseValue}
+    /// Note: Must be called on MainActor if user-defined variables are used
+    @MainActor
     private func replaceDynamicVariables(in text: String) -> String {
+        var result = text
+        
+        // Process conditional logic first (before variable replacement)
+        result = processConditionalLogic(in: result)
+        
+        // Replace built-in variables
+        result = replaceBuiltInVariables(in: result)
+        
+        // Replace user-defined variables (with prompts)
+        result = replaceUserDefinedVariables(in: result)
+        
+        return result
+    }
+    
+    /// Replaces built-in system variables
+    private func replaceBuiltInVariables(in text: String) -> String {
         var result = text
         
         // Replace {date} with current date (dd/MM/yyyy)
@@ -329,7 +352,232 @@ class SnippetManager: ObservableObject {
             result = result.replacingOccurrences(of: "{clipboard}", with: clipboardContent)
         }
         
+        // Replace {datetime} with current date and time
+        if result.contains("{datetime}") {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "dd/MM/yyyy HH:mm"
+            let currentDateTime = dateFormatter.string(from: Date())
+            result = result.replacingOccurrences(of: "{datetime}", with: currentDateTime)
+        }
+        
+        // Replace {year} with current year
+        if result.contains("{year}") {
+            let year = Calendar.current.component(.year, from: Date())
+            result = result.replacingOccurrences(of: "{year}", with: String(year))
+        }
+        
+        // Replace {month} with current month (01-12)
+        if result.contains("{month}") {
+            let month = Calendar.current.component(.month, from: Date())
+            result = result.replacingOccurrences(of: "{month}", with: String(format: "%02d", month))
+        }
+        
+        // Replace {day} with current day (01-31)
+        if result.contains("{day}") {
+            let day = Calendar.current.component(.day, from: Date())
+            result = result.replacingOccurrences(of: "{day}", with: String(format: "%02d", day))
+        }
+        
         return result
+    }
+    
+    /// Replaces user-defined variables with prompts
+    /// Syntax: {variableName} or {variableName:defaultValue}
+    /// Example: {name} or {name:John}
+    /// Note: Must be called on MainActor (shows UI dialogs)
+    @MainActor
+    private func replaceUserDefinedVariables(in text: String) -> String {
+        var result = text
+        
+        // Pattern to match {variableName} or {variableName:defaultValue}
+        let variablePattern = #"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^}]*))?\}"#
+        
+        guard let regex = try? NSRegularExpression(pattern: variablePattern, options: []) else {
+            return result
+        }
+        
+        let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
+        
+        // Process matches in reverse order to preserve indices
+        for match in matches.reversed() {
+            guard match.numberOfRanges >= 2 else { continue }
+            
+            let variableNameRange = Range(match.range(at: 1), in: result)!
+            let variableName = String(result[variableNameRange])
+            
+            // Check if it's a built-in variable (already processed)
+            let builtInVariables = ["date", "time", "clipboard", "datetime", "year", "month", "day"]
+            if builtInVariables.contains(variableName.lowercased()) {
+                continue
+            }
+            
+            // Get default value if provided
+            var defaultValue: String? = nil
+            if match.numberOfRanges >= 3 {
+                let defaultValueRange = Range(match.range(at: 2), in: result)
+                if let defaultValueRange = defaultValueRange {
+                    defaultValue = String(result[defaultValueRange])
+                }
+            }
+            
+            // Check if variable is cached
+            let cacheKey = "snippet_variable_\(variableName)"
+            if let cachedValue = UserDefaults.standard.string(forKey: cacheKey), !cachedValue.isEmpty {
+                // Use cached value
+                let fullMatchRange = Range(match.range, in: result)!
+                result.replaceSubrange(fullMatchRange, with: cachedValue)
+                continue
+            }
+            
+            // Prompt user for variable value
+            let value = promptForVariable(name: variableName, defaultValue: defaultValue)
+            
+            // Cache the value for future use
+            if !value.isEmpty {
+                UserDefaults.standard.set(value, forKey: cacheKey)
+            }
+            
+            // Replace variable with user input
+            let fullMatchRange = Range(match.range, in: result)!
+            result.replaceSubrange(fullMatchRange, with: value)
+        }
+        
+        return result
+    }
+    
+    /// Prompts user for a variable value
+    /// Note: Must be called on MainActor (shows UI dialog)
+    @MainActor
+    private func promptForVariable(name: String, defaultValue: String?) -> String {
+        // Use NSAlert with text field for input
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("snippet.variable.prompt.title", comment: "Enter Variable Value")
+        alert.informativeText = String(format: NSLocalizedString("snippet.variable.prompt.message", comment: "Enter value for variable"), name)
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+        alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
+        
+        // Add text field for input
+        let inputField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        inputField.stringValue = defaultValue ?? ""
+        inputField.placeholderString = name
+        alert.accessoryView = inputField
+        
+        // Focus the text field
+        alert.window.initialFirstResponder = inputField
+        
+        let response = alert.runModal()
+        
+        if response == .alertFirstButtonReturn {
+            return inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        return defaultValue ?? ""
+    }
+    
+    /// Processes conditional logic in snippet content
+    /// Syntax: {if:condition:trueValue:falseValue}
+    /// Example: {if:{time}<12:Good morning:Good afternoon}
+    /// Supported conditions: <, >, ==, !=, contains
+    private func processConditionalLogic(in text: String) -> String {
+        var result = text
+        
+        // Pattern to match {if:condition:trueValue:falseValue}
+        let conditionalPattern = #"\{if:([^:]+):([^:]+):([^}]+)\}"#
+        
+        guard let regex = try? NSRegularExpression(pattern: conditionalPattern, options: []) else {
+            return result
+        }
+        
+        var hasChanges = true
+        var iterations = 0
+        let maxIterations = 10 // Prevent infinite loops
+        
+        // Process conditionals iteratively (they can be nested)
+        while hasChanges && iterations < maxIterations {
+            hasChanges = false
+            iterations += 1
+            
+            let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
+            
+            // Process matches in reverse order to preserve indices
+            for match in matches.reversed() {
+                guard match.numberOfRanges >= 4 else { continue }
+                
+                let conditionRange = Range(match.range(at: 1), in: result)!
+                let trueValueRange = Range(match.range(at: 2), in: result)!
+                let falseValueRange = Range(match.range(at: 3), in: result)!
+                
+                let condition = String(result[conditionRange])
+                let trueValue = String(result[trueValueRange])
+                let falseValue = String(result[falseValueRange])
+                
+                // Evaluate condition
+                let conditionResult = evaluateCondition(condition)
+                
+                // Replace with appropriate value
+                let replacement = conditionResult ? trueValue : falseValue
+                let fullMatchRange = Range(match.range, in: result)!
+                result.replaceSubrange(fullMatchRange, with: replacement)
+                hasChanges = true
+            }
+        }
+        
+        return result
+    }
+    
+    /// Evaluates a conditional expression
+    /// Supports: <, >, ==, !=, contains
+    /// Examples: "5<10", "name==John", "text contains hello"
+    private func evaluateCondition(_ condition: String) -> Bool {
+        let trimmed = condition.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check for comparison operators
+        if let lessThanRange = trimmed.range(of: "<") {
+            let left = String(trimmed[..<lessThanRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let right = String(trimmed[lessThanRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            
+            if let leftNum = Double(left), let rightNum = Double(right) {
+                return leftNum < rightNum
+            }
+            
+            // String comparison
+            return left < right
+        }
+        
+        if let greaterThanRange = trimmed.range(of: ">") {
+            let left = String(trimmed[..<greaterThanRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let right = String(trimmed[greaterThanRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            
+            if let leftNum = Double(left), let rightNum = Double(right) {
+                return leftNum > rightNum
+            }
+            
+            // String comparison
+            return left > right
+        }
+        
+        if let equalsRange = trimmed.range(of: "==") {
+            let left = String(trimmed[..<equalsRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let right = String(trimmed[equalsRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            return left == right
+        }
+        
+        if let notEqualsRange = trimmed.range(of: "!=") {
+            let left = String(trimmed[..<notEqualsRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let right = String(trimmed[notEqualsRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            return left != right
+        }
+        
+        // Check for "contains" operator
+        if let containsRange = trimmed.range(of: " contains ", options: .caseInsensitive) {
+            let left = String(trimmed[..<containsRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let right = String(trimmed[containsRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            return left.lowercased().contains(right.lowercased())
+        }
+        
+        // If no operator found, treat as boolean (non-empty = true)
+        return !trimmed.isEmpty
     }
 }
 

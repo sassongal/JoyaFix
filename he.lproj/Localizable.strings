@@ -72,6 +72,11 @@
 "settings.snippets.trigger.placeholder" = "לדוגמה, !mail";
 "settings.snippets.content.placeholder" = "לדוגמה, gal@joyatech.com";
 
+/* Snippet Variables */
+"snippet.variable.prompt.title" = "הכנס ערך למשתנה";
+"snippet.variable.prompt.message" = "הכנס ערך למשתנה: %@";
+"snippet.variable.help" = "משתנים: {date}, {time}, {clipboard}, {name}, {email}, וכו'\nתנאים: {if:condition:true:false}";
+
 /* Context Menu */
 "menu.convert.selection" = "המר פריסת בחירה";
 "menu.extract.text" = "חלץ טקסט מהמסך...";

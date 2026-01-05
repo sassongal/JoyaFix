@@ -72,6 +72,11 @@
 "settings.snippets.trigger.placeholder" = "e.g., !mail";
 "settings.snippets.content.placeholder" = "e.g., gal@joyatech.com";
 
+/* Snippet Variables */
+"snippet.variable.prompt.title" = "Enter Variable Value";
+"snippet.variable.prompt.message" = "Enter value for variable: %@";
+"snippet.variable.help" = "Variables: {date}, {time}, {clipboard}, {name}, {email}, etc.\nConditionals: {if:condition:true:false}";
+
 /* Context Menu */
 "menu.convert.selection" = "Convert Selection Layout";
 "menu.extract.text" = "Extract Text from Screen...";

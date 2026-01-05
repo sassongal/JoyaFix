@@ -414,13 +414,23 @@ class InputMonitor {
         print("🔤 Expanding snippet: \(trigger) → \(snippet.content.prefix(30))...")
         
         // Process snippet content first (Snippets 2.0: dynamic variables and cursor placement)
-        let processed = snippetManager.processSnippetContent(snippet.content)
-        let processedText = processed.text
-        let cursorPosition = processed.cursorPosition
+        // Note: processSnippetContent is @MainActor and may prompt user for variable values
+        Task { @MainActor in
+            let processed = snippetManager.processSnippetContent(snippet.content)
+            let processedText = processed.text
+            let cursorPosition = processed.cursorPosition
+            
+            self.continueSnippetExpansion(processedText: processedText, cursorPosition: cursorPosition, triggerLength: trigger.count)
+        }
+    }
+    
+    /// Continues snippet expansion after processing (called from MainActor context)
+    @MainActor
+    private func continueSnippetExpansion(processedText: String, cursorPosition: Int?, triggerLength: Int) {
         
         // Use delete-by-selection method for more reliable deletion
         // This is more robust than multiple backspaces under high CPU load
-        deleteTriggerBySelection(triggerLength: trigger.count) { [weak self] success in
+        deleteTriggerBySelection(triggerLength: triggerLength) { [weak self] success in
             guard let self = self else { return }
             
             if success {
