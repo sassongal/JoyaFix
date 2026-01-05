@@ -255,7 +255,7 @@ class KeyboardLockOverlayView: NSView {
         dirtyRect.fill()
         
         // Draw message
-        let message = "Keyboard Locked - Hold ESC for 3 seconds to Unlock"
+        let message = NSLocalizedString("keyboard.lock.overlay.message", comment: "Keyboard locked overlay message")
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 24, weight: .bold),
             .foregroundColor: NSColor.white,

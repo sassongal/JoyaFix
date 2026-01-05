@@ -33,35 +33,15 @@ let package = Package(
                 .product(name: "Pulse", package: "Pulse"),
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
-            path: ".",
+            path: "Sources/JoyaFix",
             exclude: [
-                "build.sh",
-                "run.sh",
-                "test.sh",
-                "migrate_to_spm.sh",
-                "Tests",
-                "JoyaFix.app",
-                ".build",
-                "build",
-                "DEBUG.md",
-                "EXECUTION_PLAN.md",
-                "GAP_ANALYSIS.md",
-                "HOTKEY_SYSTEM.md",
-                "OPTIMIZATION.md",
-                "README.md",
-                "SOUND_SETUP.md",
-                "SPM_MIGRATION.md",
-                "UI_UPGRADE.md",
-                "version.json",
-                "Package.swift",
-                "Package.resolved",
-                ".swiftlint.yml"
+                "Resources/Info.plist"
             ],
             resources: [
-                .process("en.lproj"),
-                .process("he.lproj"),
-                .process("FLATLOGO.png"),
-                .process("success.wav")
+                .process("Resources/en.lproj"),
+                .process("Resources/he.lproj"),
+                .process("Resources/FLATLOGO.png"),
+                .process("Resources/success.wav")
             ],
             linkerSettings: [
                 .linkedFramework("Cocoa"),

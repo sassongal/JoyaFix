@@ -57,20 +57,59 @@ class SnippetManager: ObservableObject {
     private func mergeSnippets(iCloudSnippets: [Snippet]) {
         var mergedSnippets: [Snippet] = []
         var seenTriggers = Set<String>()
+        var conflicts: [(local: Snippet, cloud: Snippet)] = []
         
-        // Add iCloud snippets first (they take precedence)
-        for snippet in iCloudSnippets {
-            if !seenTriggers.contains(snippet.trigger) {
-                mergedSnippets.append(snippet)
-                seenTriggers.insert(snippet.trigger)
-            }
+        // Create a map of local snippets by trigger for quick lookup
+        var localSnippetsByTrigger: [String: Snippet] = [:]
+        for snippet in snippets {
+            let key = snippet.trigger.lowercased()
+            localSnippetsByTrigger[key] = snippet
         }
         
-        // Add local snippets that don't conflict
-        for snippet in snippets {
-            if !seenTriggers.contains(snippet.trigger) {
-                mergedSnippets.append(snippet)
-                seenTriggers.insert(snippet.trigger)
+        // Process iCloud snippets and resolve conflicts based on lastModified
+        for cloudSnippet in iCloudSnippets {
+            let triggerKey = cloudSnippet.trigger.lowercased()
+            
+            if let localSnippet = localSnippetsByTrigger[triggerKey] {
+                // Conflict detected - same trigger exists in both
+                if cloudSnippet.id == localSnippet.id {
+                    // Same snippet ID - use the one with later modification time
+                    if cloudSnippet.lastModified > localSnippet.lastModified {
+                        mergedSnippets.append(cloudSnippet)
+                        print("☁️ iCloud version of '\(cloudSnippet.trigger)' is newer, using it")
+                    } else if cloudSnippet.lastModified < localSnippet.lastModified {
+                        mergedSnippets.append(localSnippet)
+                        print("📱 Local version of '\(localSnippet.trigger)' is newer, keeping it")
+                    } else {
+                        // Same timestamp - prefer iCloud (fallback)
+                        mergedSnippets.append(cloudSnippet)
+                        print("☁️ Same timestamp for '\(cloudSnippet.trigger)', using iCloud version")
+                    }
+                } else {
+                    // Different IDs with same trigger - this is a real conflict
+                    // Use the one with later modification time
+                    if cloudSnippet.lastModified > localSnippet.lastModified {
+                        mergedSnippets.append(cloudSnippet)
+                        print("⚠️ Conflict resolved: iCloud version of '\(cloudSnippet.trigger)' is newer")
+                    } else {
+                        mergedSnippets.append(localSnippet)
+                        print("⚠️ Conflict resolved: Local version of '\(localSnippet.trigger)' is newer")
+                    }
+                    conflicts.append((local: localSnippet, cloud: cloudSnippet))
+                }
+            } else {
+                // No conflict - add iCloud snippet
+                mergedSnippets.append(cloudSnippet)
+            }
+            
+            seenTriggers.insert(triggerKey)
+        }
+        
+        // Add local snippets that don't conflict (not in iCloud)
+        for localSnippet in snippets {
+            let triggerKey = localSnippet.trigger.lowercased()
+            if !seenTriggers.contains(triggerKey) {
+                mergedSnippets.append(localSnippet)
             }
         }
         
@@ -78,6 +117,9 @@ class SnippetManager: ObservableObject {
             snippets = mergedSnippets
             saveSnippets() // Save merged result locally
             print("✓ Merged snippets: \(snippets.count) total")
+            if !conflicts.isEmpty {
+                print("⚠️ Resolved \(conflicts.count) conflict(s) using lastModified timestamps")
+            }
         }
     }
     
@@ -112,9 +154,31 @@ class SnippetManager: ObservableObject {
         }
         
         do {
+            // Try to decode with new format (includes lastModified)
             let decoded = try JSONDecoder().decode([Snippet].self, from: data)
             snippets = decoded
             print("✓ Loaded \(snippets.count) snippets from UserDefaults (\(data.count) bytes)")
+            
+            // Check if any snippets are missing lastModified (migration needed)
+            var needsMigration = false
+            let migratedSnippets = snippets.map { snippet -> Snippet in
+                // If lastModified is in the distant past (before 2020), it's likely a default value
+                // This indicates old data that needs migration
+                let cutoffDate = Date(timeIntervalSince1970: 1577836800) // Jan 1, 2020
+                if snippet.lastModified < cutoffDate {
+                    needsMigration = true
+                    var migrated = snippet
+                    migrated.lastModified = Date() // Set to current time
+                    return migrated
+                }
+                return snippet
+            }
+            
+            if needsMigration {
+                snippets = migratedSnippets
+                saveSnippets() // Save migrated data
+                print("✓ Migrated snippets to include lastModified timestamps")
+            }
             
             // Validate loaded snippets and remove invalid ones
             let validSnippets = snippets.filter { snippet in
@@ -131,6 +195,32 @@ class SnippetManager: ObservableObject {
                 print("✓ Cleaned up invalid snippets: \(snippets.count) valid snippets remaining")
             }
         } catch {
+            // If decoding fails, try to decode as old format (without lastModified)
+            print("⚠️ Failed to decode with new format, trying migration: \(error.localizedDescription)")
+            
+            // Try to decode as array of dictionaries to handle missing lastModified
+            if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                var migratedSnippets: [Snippet] = []
+                for dict in jsonArray {
+                    if let idString = dict["id"] as? String,
+                       let id = UUID(uuidString: idString),
+                       let trigger = dict["trigger"] as? String,
+                       let content = dict["content"] as? String {
+                        // Create snippet with current timestamp for migration
+                        let snippet = Snippet(id: id, trigger: trigger, content: content, lastModified: Date())
+                        migratedSnippets.append(snippet)
+                    }
+                }
+                
+                if !migratedSnippets.isEmpty {
+                    snippets = migratedSnippets
+                    saveSnippets() // Save migrated data
+                    print("✓ Migrated \(migratedSnippets.count) snippets from old format")
+                    return
+                }
+            }
+            
+            // If all else fails, reset to defaults
             print("❌ Failed to decode snippets: \(error.localizedDescription)")
             print("   Data size: \(data.count) bytes")
             // Reset to default snippets on decode failure
@@ -217,13 +307,16 @@ class SnippetManager: ObservableObject {
             return
         }
         
-        snippets.append(snippet)
+        // Create new snippet with current timestamp
+        var newSnippet = snippet
+        newSnippet.lastModified = Date()
+        snippets.append(newSnippet)
         saveSnippets()
         
         // Notify InputMonitor to register the new trigger
-        InputMonitor.shared.registerSnippetTrigger(snippet.trigger)
+        InputMonitor.shared.registerSnippetTrigger(newSnippet.trigger)
         
-        print("✓ Added snippet: '\(snippet.trigger)' → '\(snippet.content.prefix(30))...'")
+        print("✓ Added snippet: '\(newSnippet.trigger)' → '\(newSnippet.content.prefix(30))...'")
     }
     
     func updateSnippet(_ snippet: Snippet) {
@@ -255,16 +348,19 @@ class SnippetManager: ObservableObject {
         let oldSnippet = snippets[index]
         let oldTrigger = oldSnippet.trigger
         
-        snippets[index] = snippet
+        // Create updated snippet with current timestamp
+        var updatedSnippet = snippet
+        updatedSnippet.lastModified = Date()
+        snippets[index] = updatedSnippet
         saveSnippets()
         
         // Update trigger registration if trigger changed
-        if oldTrigger != snippet.trigger {
+        if oldTrigger != updatedSnippet.trigger {
             InputMonitor.shared.unregisterSnippetTrigger(oldTrigger)
-            InputMonitor.shared.registerSnippetTrigger(snippet.trigger)
+            InputMonitor.shared.registerSnippetTrigger(updatedSnippet.trigger)
         }
         
-        print("✓ Updated snippet: '\(snippet.trigger)' → '\(snippet.content.prefix(30))...'")
+        print("✓ Updated snippet: '\(updatedSnippet.trigger)' → '\(updatedSnippet.content.prefix(30))...'")
     }
     
     func removeSnippet(_ snippet: Snippet) {
@@ -282,6 +378,63 @@ class SnippetManager: ObservableObject {
         guard index < snippets.count else { return }
         let snippet = snippets[index]
         removeSnippet(snippet)
+    }
+    
+    /// Atomically replaces all snippets with a new set
+    /// This method validates all snippets before replacing, ensuring data integrity
+    /// - Parameter newSnippets: Array of snippets to replace existing ones
+    /// - Returns: true if replacement was successful, false if validation failed
+    func replaceAllSnippets(_ newSnippets: [Snippet]) -> Bool {
+        // Validate all new snippets before making any changes
+        var validSnippets: [Snippet] = []
+        var seenTriggers = Set<String>()
+        
+        for snippet in newSnippets {
+            // Validate snippet structure
+            let validation = validateSnippet(snippet)
+            guard validation.isValid else {
+                print("❌ Invalid snippet in import: '\(snippet.trigger)' - \(validation.error ?? "Unknown error")")
+                return false
+            }
+            
+            // Check for duplicate triggers
+            let lowercasedTrigger = snippet.trigger.lowercased()
+            guard !seenTriggers.contains(lowercasedTrigger) else {
+                print("❌ Duplicate trigger in import: '\(snippet.trigger)'")
+                return false
+            }
+            
+            validSnippets.append(snippet)
+            seenTriggers.insert(lowercasedTrigger)
+        }
+        
+        // All validation passed - now perform atomic replacement
+        // Update lastModified for all snippets to current time (they're being imported)
+        let now = Date()
+        let snippetsWithTimestamp = validSnippets.map { snippet -> Snippet in
+            var updated = snippet
+            updated.lastModified = now
+            return updated
+        }
+        
+        // Unregister all old triggers
+        for snippet in snippets {
+            InputMonitor.shared.unregisterSnippetTrigger(snippet.trigger)
+        }
+        
+        // Replace the snippets array
+        snippets = snippetsWithTimestamp
+        
+        // Register all new triggers
+        for snippet in snippetsWithTimestamp {
+            InputMonitor.shared.registerSnippetTrigger(snippet.trigger)
+        }
+        
+        // Save once (this also syncs to iCloud)
+        saveSnippets()
+        
+        print("✓ Atomically replaced all snippets: \(snippetsWithTimestamp.count) snippets")
+        return true
     }
     
     // MARK: - Lookup

@@ -21,6 +21,26 @@ class ScreenCaptureManager {
     private var escapeKeyMonitor: Any?
     private var escapeKeyLocalMonitor: Any?
     
+    // OPTIMIZATION: Global mouse tracking for smooth cross-screen dragging
+    private var globalMouseMonitor: Any?
+    private var sharedSelectionState: SharedSelectionState?
+    
+    /// Shared state for cross-screen selection synchronization
+    @MainActor
+    class SharedSelectionState {
+        var startPoint: NSPoint?
+        var currentPoint: NSPoint?
+        var isSelecting: Bool = false
+        var confirmedSelection: NSRect?
+        
+        func reset() {
+            startPoint = nil
+            currentPoint = nil
+            isSelecting = false
+            confirmedSelection = nil
+        }
+    }
+    
     // CRITICAL FIX: Simple flag to prevent concurrent captures
     // MUST be checked FIRST in startScreenCapture
     private var isCapturing = false
@@ -257,9 +277,16 @@ class ScreenCaptureManager {
         }
         overlayWindows.removeAll()
         
+        // OPTIMIZATION: Create shared selection state for cross-screen synchronization
+        sharedSelectionState = SharedSelectionState()
+        
         // Create overlay window for each current screen
         for screen in NSScreen.screens {
             let window = createOverlayWindow(for: screen)
+            // OPTIMIZATION: Share selection state across all windows for smooth cross-screen dragging
+            if let selectionView = window.contentView as? SelectionView {
+                selectionView.sharedState = sharedSelectionState
+            }
             overlayWindows.append(window)
         }
         
@@ -269,6 +296,9 @@ class ScreenCaptureManager {
         // Keep backward compatibility with single overlayWindow reference
         // Use the main screen's window as the primary reference
         overlayWindow = overlayWindows.first(where: { $0.screen == NSScreen.main }) ?? overlayWindows.first
+        
+        // OPTIMIZATION: Add global mouse tracking for smooth cross-screen dragging
+        setupGlobalMouseTracking()
 
         // Change cursor to crosshair
         NSCursor.crosshair.set()
@@ -304,11 +334,51 @@ class ScreenCaptureManager {
         }
     }
 
+    /// Sets up global mouse tracking for smooth cross-screen dragging
+    private func setupGlobalMouseTracking() {
+        // Remove existing monitor if any
+        if let monitor = globalMouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalMouseMonitor = nil
+        }
+        
+        // Add global mouse tracking to synchronize selection across screens
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
+            guard let self = self, self.isCapturing, let sharedState = self.sharedSelectionState else { return }
+            
+            Task { @MainActor in
+                // Update shared state with global mouse position
+                let globalPoint = NSEvent.mouseLocation
+                sharedState.currentPoint = globalPoint
+                
+                // Update all overlay windows to reflect the current selection
+                for window in self.overlayWindows {
+                    if let selectionView = window.contentView as? SelectionView {
+                        // Update the view's display if the point is within this window's bounds
+                        if window.frame.contains(globalPoint) {
+                            selectionView.updateFromSharedState()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     private func hideSelectionOverlay() {
         // Prevent double-cleanup with guard
         guard !overlayWindows.isEmpty || overlayWindow != nil || escapeKeyMonitor != nil || escapeKeyLocalMonitor != nil || cursorPushed else {
             return
         }
+
+        // OPTIMIZATION: Remove global mouse tracking
+        if let monitor = globalMouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalMouseMonitor = nil
+        }
+        
+        // Clear shared selection state
+        sharedSelectionState?.reset()
+        sharedSelectionState = nil
 
         // Store references before clearing to avoid race conditions
         let windows = overlayWindows
@@ -625,11 +695,29 @@ class SelectionOverlayWindow: NSWindow {
 
 class SelectionView: NSView {
     weak var delegate: SelectionOverlayDelegate?
+    
+    // OPTIMIZATION: Shared state for cross-screen synchronization
+    var sharedState: ScreenCaptureManager.SharedSelectionState?
 
-    private var startPoint: NSPoint?
-    private var currentPoint: NSPoint?
-    private var isSelecting = false
-    private var confirmedSelection: NSRect? // Store confirmed selection for ENTER key
+    private var startPoint: NSPoint? {
+        get { sharedState?.startPoint }
+        set { sharedState?.startPoint = newValue }
+    }
+    
+    private var currentPoint: NSPoint? {
+        get { sharedState?.currentPoint }
+        set { sharedState?.currentPoint = newValue }
+    }
+    
+    private var isSelecting: Bool {
+        get { sharedState?.isSelecting ?? false }
+        set { sharedState?.isSelecting = newValue }
+    }
+    
+    private var confirmedSelection: NSRect? {
+        get { sharedState?.confirmedSelection }
+        set { sharedState?.confirmedSelection = newValue }
+    }
     
     // CRASH PREVENTION: Track if view is being deallocated
     private var isValid = true
@@ -655,12 +743,47 @@ class SelectionView: NSView {
         // CRASH PREVENTION: Check validity
         guard isValid else { return }
         
+        // OPTIMIZATION: Convert to global coordinates for cross-screen support
+        guard let window = self.window else { return }
+        // Convert window coordinates to global screen coordinates
+        let windowFrame = window.frame
+        let localPoint = event.locationInWindow
+        let globalPoint = NSPoint(
+            x: windowFrame.origin.x + localPoint.x,
+            y: windowFrame.origin.y + localPoint.y
+        )
+        
         // Clear any previous confirmed selection when starting new selection
         confirmedSelection = nil
         
-        startPoint = event.locationInWindow
-        currentPoint = startPoint
+        // Store in shared state (global coordinates)
+        startPoint = globalPoint
+        currentPoint = globalPoint
         isSelecting = true
+        
+        // Update all views that share this state
+        updateAllSharedViews()
+    }
+    
+    /// Updates all views that share the same selection state
+    private func updateAllSharedViews() {
+        // Trigger redraw on all windows that share this state
+        if let sharedState = sharedState {
+            // Find all windows with views sharing this state
+            for window in NSApplication.shared.windows {
+                if let selectionView = window.contentView as? SelectionView,
+                   selectionView.sharedState === sharedState {
+                    selectionView.needsDisplay = true
+                }
+            }
+        } else {
+            needsDisplay = true
+        }
+    }
+    
+    /// Updates this view from shared state (called by global mouse tracking)
+    func updateFromSharedState() {
+        guard isValid else { return }
         needsDisplay = true
     }
 
@@ -668,8 +791,21 @@ class SelectionView: NSView {
         // CRASH PREVENTION: Check validity
         guard isValid && isSelecting else { return }
         
-        currentPoint = event.locationInWindow
-        needsDisplay = true
+        // OPTIMIZATION: Convert to global coordinates for cross-screen support
+        guard let window = self.window else { return }
+        // Convert window coordinates to global screen coordinates
+        let windowFrame = window.frame
+        let localPoint = event.locationInWindow
+        let globalPoint = NSPoint(
+            x: windowFrame.origin.x + localPoint.x,
+            y: windowFrame.origin.y + localPoint.y
+        )
+        
+        // Update shared state
+        currentPoint = globalPoint
+        
+        // Update all views that share this state
+        updateAllSharedViews()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -684,6 +820,7 @@ class SelectionView: NSView {
             return
         }
 
+        // OPTIMIZATION: Points are already in global coordinates from shared state
         let minX = min(start.x, end.x)
         let minY = min(start.y, end.y)
         let width = abs(end.x - start.x)
@@ -702,32 +839,18 @@ class SelectionView: NSView {
             return
         }
 
-        let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
-
-        // FIX: Convert to global screen coordinates (multi-monitor support)
-        // Convert from window coordinates to global screen coordinates
-        guard let window = self.window else {
-            print("❌ Window not available for coordinate conversion")
-            return
-        }
+        // OPTIMIZATION: Selection rect is already in global coordinates
+        let globalRect = NSRect(x: minX, y: minY, width: width, height: height)
         
-        // Convert the selection rect from window coordinates to global screen coordinates
-        let windowFrame = window.frame
-        let globalRect = NSRect(
-            x: selectionRect.origin.x + windowFrame.origin.x,
-            y: selectionRect.origin.y + windowFrame.origin.y,
-            width: selectionRect.width,
-            height: selectionRect.height
-        )
-        
-        print("📐 Selection rect (local): \(selectionRect)")
-        print("📐 Window frame: \(windowFrame)")
         print("📐 Selection rect (global): \(globalRect)")
         
         // Store the confirmed selection for ENTER key, but don't process it yet
         // User can press ENTER to confirm, or click again to start new selection
         confirmedSelection = globalRect
         isSelecting = false // Stop selecting, but keep the selection for ENTER
+        
+        // Update all views
+        updateAllSharedViews()
         
         print("✓ Selection stored - press ENTER to confirm or click to start new selection")
     }
@@ -756,6 +879,7 @@ class SelectionView: NSView {
             
             // If we're currently selecting, confirm the current selection
             if isSelecting, let start = startPoint, let end = currentPoint {
+                 // OPTIMIZATION: Points are already in global coordinates
                  let minX = min(start.x, end.x)
                  let minY = min(start.y, end.y)
                  let width = abs(end.x - start.x)
@@ -764,24 +888,9 @@ class SelectionView: NSView {
                  if width > 10 && height > 10 {
                      isSelecting = false
                      
-                     let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
+                     // OPTIMIZATION: Selection rect is already in global coordinates
+                     let globalRect = NSRect(x: minX, y: minY, width: width, height: height)
                      
-                     // FIX: Convert to global screen coordinates (multi-monitor support)
-                     guard let window = self.window else {
-                         print("❌ Window not available for coordinate conversion")
-                         return
-                     }
-                     
-                     let windowFrame = window.frame
-                     let globalRect = NSRect(
-                         x: selectionRect.origin.x + windowFrame.origin.x,
-                         y: selectionRect.origin.y + windowFrame.origin.y,
-                         width: selectionRect.width,
-                         height: selectionRect.height
-                     )
-                     
-                     print("📐 ENTER: Selection rect (local): \(selectionRect)")
-                     print("📐 ENTER: Window frame: \(windowFrame)")
                      print("📐 ENTER: Selection rect (global): \(globalRect)")
                      
                      // Call delegate safely
@@ -876,13 +985,30 @@ class SelectionView: NSView {
 
         // Draw selection
         guard let start = startPoint, let current = currentPoint else { return }
+        
+        // OPTIMIZATION: Convert global coordinates to local window coordinates for drawing
+        guard let window = self.window else { return }
+        let windowFrame = window.frame
+        
+        // Convert global points to local window coordinates
+        let localStart = NSPoint(
+            x: start.x - windowFrame.origin.x,
+            y: start.y - windowFrame.origin.y
+        )
+        let localCurrent = NSPoint(
+            x: current.x - windowFrame.origin.x,
+            y: current.y - windowFrame.origin.y
+        )
 
-        let minX = min(start.x, current.x)
-        let minY = min(start.y, current.y)
-        let width = abs(current.x - start.x)
-        let height = abs(current.y - start.y)
+        let minX = min(localStart.x, localCurrent.x)
+        let minY = min(localStart.y, localCurrent.y)
+        let width = abs(localCurrent.x - localStart.x)
+        let height = abs(localCurrent.y - localStart.y)
 
         let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
+        
+        // Only draw if selection intersects with this window's frame
+        guard selectionRect.intersects(bounds) else { return }
 
         NSColor.clear.setFill()
         selectionRect.fill(using: .sourceOver)

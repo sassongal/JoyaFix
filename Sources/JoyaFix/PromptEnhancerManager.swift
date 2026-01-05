@@ -16,20 +16,24 @@ class PromptEnhancerManager {
     
     /// The system prompt used to enhance user input into professional prompts
     private func createMetaPrompt(userText: String) -> String {
+        let role = NSLocalizedString("prompt.enhancer.meta.role", comment: "Meta prompt role")
+        let task = NSLocalizedString("prompt.enhancer.meta.task", comment: "Meta prompt task")
+        let input = NSLocalizedString("prompt.enhancer.meta.input", comment: "Meta prompt input label")
+        let rules = NSLocalizedString("prompt.enhancer.meta.rules", comment: "Meta prompt rules label")
+        let rule1 = NSLocalizedString("prompt.enhancer.meta.rule1", comment: "Meta prompt rule 1")
+        let rule2 = NSLocalizedString("prompt.enhancer.meta.rule2", comment: "Meta prompt rule 2")
+        let rule3 = NSLocalizedString("prompt.enhancer.meta.rule3", comment: "Meta prompt rule 3")
+        let rule4 = NSLocalizedString("prompt.enhancer.meta.rule4", comment: "Meta prompt rule 4")
+        
         return """
-You are an expert Prompt Engineer.
-**Task:** Rewrite the user's raw, amateur input into a highly effective, structured LLM prompt (using frameworks like CO-STAR or CREATE).
-**Input:** "\(userText)"
-**Rules:**
-1. **Detect Language:** If input is Hebrew, output MUST be in Hebrew (but you may use English headers like # Role, # Task). If English, output in English.
-2. **Structure:**
-   # Role: [Assign an expert persona]
-   # Context: [Clarify the situation]
-   # Task: [Define precise goal]
-   # Constraints: [Add limitations/style]
-   # Output Format: [Table/Code/List/etc]
-3. **Refinement:** Fill in missing gaps logically. Make it professional and concise.
-4. **Output:** Return ONLY the refined prompt. No "Here is the prompt" prefixes.
+\(role)
+\(task)
+\(input): "\(userText)"
+\(rules):
+1. \(rule1)
+2. \(rule2)
+3. \(rule3)
+4. \(rule4)
 """
     }
     
@@ -159,17 +163,27 @@ You are an expert Prompt Engineer.
     
     /// Refines the prompt based on user request
     private func refinePrompt(currentPrompt: String, originalText: String, refineRequest: String, completion: @escaping (String?) -> Void) {
+        let role = NSLocalizedString("prompt.enhancer.meta.role", comment: "Meta prompt role")
+        let refineTask = NSLocalizedString("prompt.enhancer.refine.task", comment: "Refine prompt task")
+        let originalInput = NSLocalizedString("prompt.enhancer.refine.original.input", comment: "Refine prompt original input")
+        let currentPromptLabel = NSLocalizedString("prompt.enhancer.refine.current.prompt", comment: "Refine prompt current prompt")
+        let refineRequestLabel = NSLocalizedString("prompt.enhancer.refine.request", comment: "Refine prompt request")
+        let rules = NSLocalizedString("prompt.enhancer.meta.rules", comment: "Meta prompt rules label")
+        let refineRule1 = NSLocalizedString("prompt.enhancer.refine.rule1", comment: "Refine prompt rule 1")
+        let refineRule2 = NSLocalizedString("prompt.enhancer.refine.rule2", comment: "Refine prompt rule 2")
+        let refineRule3 = NSLocalizedString("prompt.enhancer.refine.rule3", comment: "Refine prompt rule 3")
+        
         let refinePrompt = """
-You are an expert Prompt Engineer.
-**Task:** Refine the following enhanced prompt based on the user's refinement request.
-**Original User Input:** "\(originalText)"
-**Current Enhanced Prompt:**
+\(role)
+\(refineTask)
+\(originalInput): "\(originalText)"
+\(currentPromptLabel):
 \(currentPrompt)
-**User's Refinement Request:** "\(refineRequest)"
-**Rules:**
-1. Apply the refinement request to the current enhanced prompt.
-2. Maintain the structured format (Role, Context, Task, Constraints, Output Format).
-3. Return ONLY the refined prompt. No explanations or prefixes.
+\(refineRequestLabel): "\(refineRequest)"
+\(rules):
+1. \(refineRule1)
+2. \(refineRule2)
+3. \(refineRule3)
 """
         
         Task { @MainActor in
