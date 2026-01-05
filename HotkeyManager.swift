@@ -402,11 +402,14 @@ class HotkeyManager {
         // when screencapture command is executed
         
         // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
-        ScreenCaptureManager.shared.startScreenCapture { extractedText in
-            if let text = extractedText, !text.isEmpty {
-                print("✓ OCR completed: \(text.count) characters extracted and saved to OCR history")
-            } else {
-                print("⚠️ OCR was cancelled or failed")
+        // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
+        Task { @MainActor in
+            ScreenCaptureManager.shared.startScreenCapture { extractedText in
+                if let text = extractedText, !text.isEmpty {
+                    print("✓ OCR completed: \(text.count) characters extracted and saved to OCR history")
+                } else {
+                    print("⚠️ OCR was cancelled or failed")
+                }
             }
         }
     }

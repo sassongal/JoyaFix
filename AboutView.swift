@@ -22,9 +22,11 @@ struct AboutView: View {
                         .frame(width: 128, height: 128)
                         .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 } else {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
+                    Image("FLATLOGO")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 128, height: 128)
+                        .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 }
             }
             

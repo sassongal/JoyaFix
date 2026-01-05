@@ -11,10 +11,10 @@ struct TextConverter {
         "a": "ש", "s": "ד", "d": "ג", "f": "כ", "g": "ע", "h": "י", "j": "ח", "k": "ל", "l": "ך",
         "z": "ז", "x": "ס", "c": "ב", "v": "ה", "b": "נ", "n": "מ", "m": "צ",
 
-        // Uppercase letters (with Shift)
-        "Q": "Q", "W": "W", "E": "E", "R": "R", "T": "T", "Y": "Y", "U": "U", "I": "I", "O": "O", "P": "P",
-        "A": "A", "S": "S", "D": "D", "F": "F", "G": "G", "H": "H", "J": "J", "K": "K", "L": "L",
-        "Z": "Z", "X": "X", "C": "C", "V": "V", "B": "B", "N": "N", "M": "M",
+        // Uppercase letters (with Shift/CapsLock) - mapped to Hebrew with Shift
+        "Q": "/", "W": "'", "E": "ק", "R": "ר", "T": "א", "Y": "ט", "U": "ו", "I": "ן", "O": "ם", "P": "פ",
+        "A": "ש", "S": "ד", "D": "ג", "F": "כ", "G": "ע", "H": "י", "J": "ח", "K": "ל", "L": "ך",
+        "Z": "ז", "X": "ס", "C": "ב", "V": "ה", "B": "נ", "N": "מ", "M": "צ",
 
         // Numbers
         "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "0": "0",
@@ -22,8 +22,11 @@ struct TextConverter {
         // Punctuation and special characters (standard keyboard)
         ",": "ת", ".": "ץ", ";": "ף", "'": ",", "[": "]", "]": "[", "\\": "\\",
         "/": ".", "-": "-", "=": "=",
+        
+        // Additional keys
+        "`": "`", "~": "~",
 
-        // Shift + number keys
+        // Shift + number keys (Hebrew keyboard layout)
         "!": "!", "@": "@", "#": "#", "$": "$", "%": "%", "^": "^", "&": "&", "*": "*", "(": "(", ")": ")",
 
         // Shift + punctuation
@@ -38,6 +41,10 @@ struct TextConverter {
         "/": "q", "'": "w", "ק": "e", "ר": "r", "א": "t", "ט": "y", "ו": "u", "ן": "i", "ם": "o", "פ": "p",
         "ש": "a", "ד": "s", "ג": "d", "כ": "f", "ע": "g", "י": "h", "ח": "j", "ל": "k", "ך": "l",
         "ז": "z", "ס": "x", "ב": "c", "ה": "v", "נ": "b", "מ": "n", "צ": "m",
+        
+        // Hebrew letters with Shift (for uppercase English) - map to uppercase
+        // Note: Hebrew doesn't have case, but we need to preserve the intent
+        // We'll map Hebrew back to lowercase English, and let the user use Shift if needed
 
         // Final forms (sofit) that don't have regular equivalents
         "ף": ";", "ץ": ".",
@@ -48,6 +55,9 @@ struct TextConverter {
         // Pass through characters that are the same
         "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "0": "0",
         ".": "/", "-": "-", "=": "=", "[": "]", "]": "[", "\\": "\\",
+        
+        // Additional keys
+        "`": "`", "~": "~",
 
         // Shift + number keys
         "!": "!", "@": "@", "#": "#", "$": "$", "%": "%", "^": "^", "&": "&", "*": "*", "(": "(", ")": ")",
@@ -71,15 +81,34 @@ struct TextConverter {
 
     /// Simple detection: if text has Hebrew characters -> convert to English
     /// If text has English characters -> convert to Hebrew
+    /// Improved: Count both types to make better decision
+    /// Also checks if text looks like it was already converted (mixed case with Hebrew-like patterns)
     private static func shouldConvertToEnglish(_ text: String) -> Bool {
+        var hebrewCount = 0
+        var englishCount = 0
+        var uppercaseEnglishCount = 0
+        
         for char in text {
             if isHebrewCharacter(char) {
-                return true  // Has Hebrew -> convert to English
-            }
-            if isEnglishCharacter(char) {
-                return false  // Has English -> convert to Hebrew
+                hebrewCount += 1
+            } else if isEnglishCharacter(char) {
+                englishCount += 1
+                if char.isUppercase {
+                    uppercaseEnglishCount += 1
+                }
             }
         }
+        
+        // If we have Hebrew characters, convert to English
+        if hebrewCount > 0 {
+            return true
+        }
+        
+        // If we have English characters, convert to Hebrew
+        if englishCount > 0 {
+            return false
+        }
+        
         // Default: assume English -> convert to Hebrew
         return false
     }

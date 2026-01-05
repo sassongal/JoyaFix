@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import Carbon
 
 /// Monitors keyboard input globally and expands snippets
 class InputMonitor {
@@ -91,22 +92,32 @@ class InputMonitor {
             return Unmanaged.passUnretained(event)
         }
         
-        // Get Unicode character from the event
-        // Create a temporary event to get the character
-        if let characters = event.characters, !characters.isEmpty {
-            // Add to buffer
-            keyBuffer.append(characters)
-            
-            // Keep buffer size manageable
-            if keyBuffer.count > maxBufferSize {
-                keyBuffer = String(keyBuffer.suffix(maxBufferSize))
+        // Get key code
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        
+        // Convert CGEvent to NSEvent to get characters
+        if let nsEvent = NSEvent(cgEvent: event) {
+            // Get the character(s) typed
+            if let characters = nsEvent.characters, !characters.isEmpty {
+                // Add to buffer
+                keyBuffer.append(characters)
+                
+                // Keep buffer size manageable
+                if keyBuffer.count > maxBufferSize {
+                    keyBuffer = String(keyBuffer.suffix(maxBufferSize))
+                }
+                
+                // Check for snippet matches
+                checkForSnippetMatch()
+            } else if keyCode == 49 { // Space key
+                keyBuffer.append(" ")
+                if keyBuffer.count > maxBufferSize {
+                    keyBuffer = String(keyBuffer.suffix(maxBufferSize))
+                }
+                checkForSnippetMatch()
             }
-            
-            // Check for snippet matches
-            checkForSnippetMatch()
         } else {
-            // For non-character keys, check if it's a space or other delimiter
-            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            // Fallback: check for space key
             if keyCode == 49 { // Space
                 keyBuffer.append(" ")
                 if keyBuffer.count > maxBufferSize {
@@ -195,11 +206,7 @@ class InputMonitor {
         case 0x33: return "⌫"  // Delete
         case 0x35: return "⎋"  // Escape
         default:
-            // Try to get Unicode character from key code
-            if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(keyCode), keyDown: true) {
-                // This is a simplified approach - for production, use a proper key code to character mapping
-                return nil
-            }
+            // For other keys, we'll rely on NSEvent conversion in handleEvent
             return nil
         }
     }
@@ -246,9 +253,9 @@ class InputMonitor {
             return
         }
         
-        keyDownEvent.post(tap: .cghidEventTap)
+        keyDownEvent.post(tap: CGEventTapLocation.cghidEventTap)
         usleep(5000) // 5ms delay
-        keyUpEvent.post(tap: .cghidEventTap)
+        keyUpEvent.post(tap: CGEventTapLocation.cghidEventTap)
     }
     
     private func pasteText(_ text: String) {
@@ -264,12 +271,12 @@ class InputMonitor {
             return
         }
         
-        keyDownEvent.flags = .maskCommand
-        keyUpEvent.flags = .maskCommand
+        keyDownEvent.flags = CGEventFlags.maskCommand
+        keyUpEvent.flags = CGEventFlags.maskCommand
         
-        keyDownEvent.post(tap: .cghidEventTap)
+        keyDownEvent.post(tap: CGEventTapLocation.cghidEventTap)
         usleep(10000) // 10ms delay
-        keyUpEvent.post(tap: .cghidEventTap)
+        keyUpEvent.post(tap: CGEventTapLocation.cghidEventTap)
     }
 }
 

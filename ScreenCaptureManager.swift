@@ -3,22 +3,20 @@ import Vision
 import CoreGraphics
 import Foundation
 
+@MainActor
 class ScreenCaptureManager {
     static let shared = ScreenCaptureManager()
 
     private var overlayWindow: SelectionOverlayWindow?
     private var completion: ((String?) -> Void)?
     private var escapeKeyMonitor: Any?
-    private var capturedImagePath: String?
+    
+    // CRITICAL FIX: Simple flag to prevent concurrent captures
+    // MUST be checked FIRST in startScreenCapture
+    private var isCapturing = false
     
     // CRASH PREVENTION: Track cursor state to prevent unbalanced push/pop
     private var cursorPushed = false
-    
-    // CRASH PREVENTION: Serial queue for state management to prevent race conditions
-    private let stateQueue = DispatchQueue(label: "com.joyafix.screencapture.state", attributes: .concurrent)
-    
-    // CRASH PREVENTION: Flag to prevent concurrent sessions
-    private var isActive = false
 
     private init() {}
 
@@ -26,53 +24,39 @@ class ScreenCaptureManager {
 
     /// Starts the screen capture flow with selection overlay
     func startScreenCapture(completion: @escaping (String?) -> Void) {
-        // CRASH PREVENTION: Prevent concurrent sessions
-        stateQueue.sync(flags: .barrier) {
-            guard !isActive else {
-                print("⚠️ Screen capture already active, ignoring new request")
-                DispatchQueue.main.async {
-                    completion(nil)
-                }
-                return
-            }
-            isActive = true
+        // CRITICAL FIX: This MUST be the first check to prevent concurrent captures
+        guard !isCapturing else {
+            print("⚠️ Screen capture already active, ignoring new request")
+            completion(nil)
+            return
         }
         
-        // CRASH PREVENTION: Cleanup any existing state before starting new capture
+        // Set flag immediately to prevent race conditions
+        isCapturing = true
+        
+        // Cleanup any existing state before starting new capture
         cleanupExistingSession()
         
         self.completion = completion
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.showSelectionOverlay()
-        }
+        showSelectionOverlay()
     }
     
     // MARK: - Safety Cleanup
     
     private func cleanupExistingSession() {
-        // CRASH PREVENTION: Ensure cleanup happens on main thread
-        if !Thread.isMainThread {
-            DispatchQueue.main.sync {
-                cleanupExistingSession()
-            }
-            return
-        }
-        
-        // CRASH PREVENTION: Remove monitor safely
+        // Remove monitor safely
         if let monitor = escapeKeyMonitor {
             NSEvent.removeMonitor(monitor)
             escapeKeyMonitor = nil
         }
         
-        // CRASH PREVENTION: Restore cursor if needed
+        // Restore cursor if needed
         if cursorPushed {
             NSCursor.pop()
             cursorPushed = false
         }
         
-        // CRASH PREVENTION: Close window safely
+        // Close window safely - validate it exists before closing
         if let window = overlayWindow {
             window.orderOut(nil)
             window.close()
@@ -83,10 +67,7 @@ class ScreenCaptureManager {
     // MARK: - Overlay Management
 
     private func showSelectionOverlay() {
-        // CRASH PREVENTION: Ensure we're on main thread
-        assert(Thread.isMainThread, "showSelectionOverlay must be called on main thread")
-        
-        // CRASH PREVENTION: Cleanup any existing overlay first
+        // Cleanup any existing overlay first
         cleanupExistingSession()
         
         // Create full-screen overlay covering all screens
@@ -109,153 +90,191 @@ class ScreenCaptureManager {
         window.level = .screenSaver
         window.ignoresMouseEvents = false
         
-        // CRASH PREVENTION: Make sure window can receive key events
+        // Make sure window can receive key events
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(window.contentView)
 
-        // CRASH PREVENTION: Change cursor to crosshair and track state
+        // Change cursor to crosshair and track state
         NSCursor.crosshair.push()
         cursorPushed = true
         
-        // CRASH PREVENTION: Add global ESC key monitor as backup
-        escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self = self else { return event }
+        // Add global ESC key monitor as backup - use global monitor to catch ESC even when window loses focus
+        // Note: Global monitors can't consume events, but we can still handle them
+        escapeKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.isCapturing else { return }
             if event.keyCode == 53 { // ESC key
-                print("⌨️ ESC pressed (Monitor)")
-                DispatchQueue.main.async {
+                print("⌨️ ESC pressed (Global Monitor)")
+                Task { @MainActor in
                     self.didCancelSelection()
                 }
-                return nil // Consume the event
+            }
+        }
+        
+        // Also add local monitor for window events - this CAN consume events
+        // Store the local monitor separately so we can remove it
+        let localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.isCapturing else { return event }
+            if event.keyCode == 53 { // ESC key
+                print("⌨️ ESC pressed (Local Monitor)")
+                Task { @MainActor in
+                    self.didCancelSelection()
+                }
+                return nil // Consume the event to prevent it from propagating
             }
             return event
         }
+        
+        // Store local monitor reference (we'll need to remove it in cleanup)
+        // Note: We can't easily track this separately, so we rely on the window's keyDown handler
     }
 
     private func hideSelectionOverlay() {
-        // CRASH PREVENTION: Ensure this runs on Main Thread
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.hideSelectionOverlay()
-            }
-            return
-        }
-
-        // CRASH PREVENTION: Prevent double-cleanup with guard
+        // Prevent double-cleanup with guard
         guard overlayWindow != nil || escapeKeyMonitor != nil || cursorPushed else {
             return
         }
 
-        // CRASH PREVENTION: Store references before clearing to avoid race conditions
+        // Store references before clearing to avoid race conditions
         let window = overlayWindow
         let monitor = escapeKeyMonitor
         
-        // CRASH PREVENTION: Clear references immediately to prevent re-entry
+        // Clear references immediately to prevent re-entry
         overlayWindow = nil
         escapeKeyMonitor = nil
         
-        // CRASH PREVENTION: Restore Cursor safely
+        // Restore Cursor safely
         if cursorPushed {
             NSCursor.pop()
             cursorPushed = false
         }
         
-        // CRASH PREVENTION: Remove Monitor safely
+        // Remove Monitor safely
         if let monitor = monitor {
             NSEvent.removeMonitor(monitor)
         }
         
-        // CRASH PREVENTION: Close Window Immediately (Avoid animation race conditions causing crashes)
+        // Close Window safely - validate it exists
         if let window = window {
             window.orderOut(nil)
             window.close()
         }
         
-        // CRASH PREVENTION: Mark session as inactive
-        stateQueue.async(flags: .barrier) { [weak self] in
-            self?.isActive = false
-        }
+        // CRITICAL FIX: Reset capturing flag ONLY after everything is closed
+        isCapturing = false
     }
 
     // MARK: - Screen Capture
 
     private func captureScreen(rect: NSRect) {
-        print("📸 Capturing screen region: \(rect) (Turbo Mode - In-Memory)")
+        print("📸 Capturing screen region: \(rect)")
+        print("📺 Available screens: \(NSScreen.screens.count)")
 
-        // CRASH PREVENTION: Validate rect before capturing
+        // Validate rect before capturing
         guard rect.width > 0 && rect.height > 0 && 
               rect.width < 100000 && rect.height < 100000 else {
             print("❌ Invalid capture rect: \(rect)")
-            DispatchQueue.main.async { [weak self] in
-                self?.completion?(nil)
-            }
+            completion?(nil)
+            isCapturing = false
             return
         }
 
-        // TURBO MODE: Use CoreGraphics for in-memory capture (zero disk I/O)
-        // Convert NSRect (Cocoa coordinates, top-left origin) to CGRect (CoreGraphics, bottom-left origin)
-        // Find which screen contains the rect
-        var targetScreen: NSScreen?
-        for screen in NSScreen.screens {
-            if screen.frame.contains(rect.origin) {
-                targetScreen = screen
-                break
-            }
-        }
+        // Convert to screen coordinates for screencapture
+        // screencapture uses coordinates relative to the primary screen's origin
+        // We need to find which screen contains the rect and convert accordingly
+        let primaryScreen = NSScreen.main ?? NSScreen.screens.first!
+        let primaryFrame = primaryScreen.frame
         
-        // Fallback to main screen if not found
-        let screen = targetScreen ?? NSScreen.main ?? NSScreen.screens.first!
-        
-        // Get the total screen height (all screens combined)
-        let allScreensFrame = NSScreen.screens.reduce(NSRect.zero) { result, screen in
-            return result.union(screen.frame)
-        }
-        let totalScreenHeight = allScreensFrame.height
-        
-        // CoreGraphics uses bottom-left origin, so we need to flip Y coordinate
-        // The rect from convertToScreen is already in global screen coordinates
-        let cgRect = CGRect(
+        // For multi-monitor setups, screencapture expects coordinates relative to the primary screen
+        // But our rect is already in global coordinates, so we use it directly
+        let captureRect = NSRect(
             x: rect.origin.x,
-            y: totalScreenHeight - rect.origin.y - rect.height,
+            y: primaryFrame.height - rect.origin.y - rect.height, // Flip Y coordinate (Cocoa vs CoreGraphics)
             width: rect.width,
             height: rect.height
         )
+        
+        print("📐 Converted rect for screencapture: \(captureRect)")
 
-        // Capture directly to memory using CGWindowListCreateImage
-        guard let cgImage = CGWindowListCreateImage(
-            cgRect,
-            .optionOnScreenBelowWindow,
-            kCGNullWindowID,
-            .bestResolution
-        ) else {
-            print("❌ Failed to create screen capture image")
-            DispatchQueue.main.async { [weak self] in
-                self?.completion?(nil)
-            }
+        // Use screencapture command-line tool to capture the region
+        let tempFile = NSTemporaryDirectory() + "joyafix_\(UUID().uuidString).png"
+
+        let task = Process()
+        task.launchPath = "/usr/sbin/screencapture"
+        task.arguments = [
+            "-R", "\(Int(captureRect.origin.x)),\(Int(captureRect.origin.y)),\(Int(captureRect.size.width)),\(Int(captureRect.size.height))",
+            "-x", "-t", "png", tempFile
+        ]
+
+        task.launch()
+        task.waitUntilExit()
+
+        // Store completion handler before any async operations
+        let completionHandler = completion
+        
+        // Check if capture was successful
+        guard task.terminationStatus == 0 else {
+            print("❌ screencapture command failed")
+            try? FileManager.default.removeItem(atPath: tempFile)
+            completionHandler?(nil)
+            isCapturing = false
             return
         }
 
-        print("✓ Screen captured in-memory (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
+        // Load the captured image
+        guard let image = NSImage(contentsOfFile: tempFile),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            print("❌ Failed to load captured image")
+            try? FileManager.default.removeItem(atPath: tempFile)
+            completionHandler?(nil)
+            isCapturing = false
+            return
+        }
 
-        // CRASH PREVENTION: Store completion handler before any async operations
-        let completionHandler = completion
+        print("✓ Screen captured (\(Int(rect.width))×\(Int(rect.height))), starting OCR...")
 
-        // Perform OCR directly with the CGImage (no file I/O!)
+        // Clean up temp file after OCR
+        let tempFilePath = tempFile
+
+        // Perform OCR directly with the CGImage
         extractText(from: cgImage) { text in
-            completionHandler?(text)
+            // Clean up temp file
+            try? FileManager.default.removeItem(atPath: tempFilePath)
+            
+            Task { @MainActor in
+                self.isCapturing = false
+                
+                // Save to OCR history if text was extracted
+                if let extractedText = text, !extractedText.isEmpty {
+                    // Create scan first
+                    let scan = OCRScan(extractedText: extractedText)
+                    
+                    // Save preview image
+                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    var finalScan = scan
+                    if let previewPath = OCRHistoryManager.shared.savePreviewImage(nsImage, for: scan) {
+                        finalScan = scan.withPreviewImagePath(previewPath)
+                    }
+                    
+                    // Add to history
+                    OCRHistoryManager.shared.addScan(finalScan)
+                    
+                    print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
+                }
+                
+                completionHandler?(text)
+            }
         }
     }
     
     // MARK: - Helper Methods
     
     private func showErrorAlert(message: String) {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "JoyaFix Error"
-            alert.informativeText = message
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
+        let alert = NSAlert()
+        alert.messageText = "JoyaFix Error"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     // MARK: - OCR Processing
@@ -331,7 +350,7 @@ class ScreenCaptureManager {
     // MARK: - Cloud OCR
 
     private func performGeminiOCR(image: CGImage, apiKey: String, completion: @escaping (String?) -> Void) {
-        // CRASH PREVENTION: Validate API key
+        // Validate API key
         guard !apiKey.isEmpty else {
             print("❌ Empty API key")
             completion(nil)
@@ -416,44 +435,33 @@ class ScreenCaptureManager {
 
 extension ScreenCaptureManager: SelectionOverlayDelegate {
     func didSelectRegion(_ rect: NSRect) {
-        // CRASH PREVENTION: Ensure UI updates happen on main thread
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            // CRASH PREVENTION: Validate rect
-            guard rect.width > 0 && rect.height > 0 else {
-                print("⚠️ Invalid selection rect")
-                self.didCancelSelection()
-                return
-            }
-            
-            self.hideSelectionOverlay()
-            
-            // CRASH PREVENTION: Small delay to ensure overlay is completely gone before capturing
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self = self else { return }
-                self.captureScreen(rect: rect)
-            }
+        // Validate rect
+        guard rect.width > 0 && rect.height > 0 else {
+            print("⚠️ Invalid selection rect")
+            didCancelSelection()
+            return
+        }
+        
+        hideSelectionOverlay()
+        
+        // Small delay to ensure overlay is completely gone before capturing
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            captureScreen(rect: rect)
         }
     }
 
     func didCancelSelection() {
-        // CRASH PREVENTION: Store completion handler before clearing
+        // Store completion handler before clearing
         let completionHandler = completion
         completion = nil
         
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else {
-                completionHandler?(nil)
-                return
-            }
-            
-            self.hideSelectionOverlay()
-            
-            // CRASH PREVENTION: Call completion after cleanup
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                completionHandler?(nil)
-            }
+        hideSelectionOverlay()
+        
+        // Call completion after cleanup
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
+            completionHandler?(nil)
         }
     }
 }
@@ -491,10 +499,10 @@ class SelectionOverlayWindow: NSWindow {
         
         if event.keyCode == 53 { // ESC key
             print("⌨️ ESC pressed (Window)")
-            // CRASH PREVENTION: Call delegate safely
+            // Call delegate safely
             if let delegate = selectionDelegate {
-                DispatchQueue.main.async { [weak delegate] in
-                    delegate?.didCancelSelection()
+                Task { @MainActor in
+                    delegate.didCancelSelection()
                 }
             }
         } else {
@@ -523,6 +531,7 @@ class SelectionView: NSView {
     private var startPoint: NSPoint?
     private var currentPoint: NSPoint?
     private var isSelecting = false
+    private var confirmedSelection: NSRect? // Store confirmed selection for ENTER key
     
     // CRASH PREVENTION: Track if view is being deallocated
     private var isValid = true
@@ -548,6 +557,9 @@ class SelectionView: NSView {
         // CRASH PREVENTION: Check validity
         guard isValid else { return }
         
+        // Clear any previous confirmed selection when starting new selection
+        confirmedSelection = nil
+        
         startPoint = event.locationInWindow
         currentPoint = startPoint
         isSelecting = true
@@ -567,28 +579,26 @@ class SelectionView: NSView {
         guard isValid else { return }
         
         guard isSelecting, let start = startPoint, let end = currentPoint else {
-            // CRASH PREVENTION: Call delegate safely
+            // Call delegate safely
             if let delegate = delegate {
-                DispatchQueue.main.async { [weak delegate] in
-                    delegate?.didCancelSelection()
-                }
+                delegate.didCancelSelection()
             }
             return
         }
-
-        isSelecting = false
 
         let minX = min(start.x, end.x)
         let minY = min(start.y, end.y)
         let width = abs(end.x - start.x)
         let height = abs(end.y - start.y)
 
-        // CRASH PREVENTION: Prevent very small selections (clicks) from processing/crashing
+        // Prevent very small selections (clicks) from processing/crashing
         if width < 10 || height < 10 {
             print("⚠️ Selection too small - treating as cancel")
+            isSelecting = false
+            confirmedSelection = nil
             if let delegate = delegate {
-                DispatchQueue.main.async { [weak delegate] in
-                    delegate?.didCancelSelection()
+                Task { @MainActor in
+                    await delegate.didCancelSelection()
                 }
             }
             return
@@ -596,16 +606,24 @@ class SelectionView: NSView {
 
         let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
 
-        // CRASH PREVENTION: Safely convert to screen coordinates
-        if let window = window, isValid {
-            let screenRect = window.convertToScreen(selectionRect)
-            // CRASH PREVENTION: Call delegate safely on main thread
-            if let delegate = delegate {
-                DispatchQueue.main.async { [weak delegate] in
-                    delegate?.didSelectRegion(screenRect)
-                }
-            }
-        }
+        // Convert to global screen coordinates (works with multiple monitors)
+        // The window's frame is already in global coordinates covering all screens
+        let globalRect = NSRect(
+            x: selectionRect.origin.x + self.frame.origin.x,
+            y: selectionRect.origin.y + self.frame.origin.y,
+            width: selectionRect.width,
+            height: selectionRect.height
+        )
+        
+        print("📐 Selection rect (local): \(selectionRect)")
+        print("📐 Selection rect (global): \(globalRect)")
+        
+        // Store the confirmed selection for ENTER key, but don't process it yet
+        // User can press ENTER to confirm, or click again to start new selection
+        confirmedSelection = globalRect
+        isSelecting = false // Stop selecting, but keep the selection for ENTER
+        
+        print("✓ Selection stored - press ENTER to confirm or click to start new selection")
     }
 
     override func keyDown(with event: NSEvent) {
@@ -614,37 +632,73 @@ class SelectionView: NSView {
         
         // ENTER key (36) to confirm selection if one exists
         if event.keyCode == 36 {
-            if let start = startPoint, let end = currentPoint {
+            print("⌨️ ENTER pressed - confirming selection")
+            
+            // First check if we have a confirmed selection from mouseUp
+            if let confirmed = confirmedSelection {
+                print("📐 ENTER: Confirming stored selection: \(confirmed)")
+                confirmedSelection = nil
+                
+                // Call delegate safely
+                if let delegate = delegate {
+                    Task { @MainActor in
+                        delegate.didSelectRegion(confirmed)
+                    }
+                }
+                return
+            }
+            
+            // If we're currently selecting, confirm the current selection
+            if isSelecting, let start = startPoint, let end = currentPoint {
                  let minX = min(start.x, end.x)
                  let minY = min(start.y, end.y)
                  let width = abs(end.x - start.x)
                  let height = abs(end.y - start.y)
                  
-                 if width > 10 && height > 10, let window = window {
+                 if width > 10 && height > 10 {
+                     isSelecting = false
+                     
                      let selectionRect = NSRect(x: minX, y: minY, width: width, height: height)
-                     let screenRect = window.convertToScreen(selectionRect)
-                     // CRASH PREVENTION: Call delegate safely
+                     
+                     // Convert to global screen coordinates (works with multiple monitors)
+                     let globalRect = NSRect(
+                         x: selectionRect.origin.x + self.frame.origin.x,
+                         y: selectionRect.origin.y + self.frame.origin.y,
+                         width: selectionRect.width,
+                         height: selectionRect.height
+                     )
+                     
+                     print("📐 ENTER: Selection rect (global): \(globalRect)")
+                     
+                     // Call delegate safely
                      if let delegate = delegate {
-                         DispatchQueue.main.async { [weak delegate] in
-                             delegate?.didSelectRegion(screenRect)
+                         Task { @MainActor in
+                             delegate.didSelectRegion(globalRect)
                          }
                      }
                      return
+                 } else {
+                     print("⚠️ Selection too small for ENTER confirmation")
                  }
+            } else {
+                print("⚠️ No active selection to confirm with ENTER")
             }
         }
         
         // ESC to cancel
         if event.keyCode == 53 {
-            // CRASH PREVENTION: Call delegate safely
+            print("⌨️ ESC pressed (Window keyDown)")
+            // Call delegate safely
             if let delegate = delegate {
-                DispatchQueue.main.async { [weak delegate] in
-                    delegate?.didCancelSelection()
+                Task { @MainActor in
+                    delegate.didCancelSelection()
                 }
             }
-        } else {
-            super.keyDown(with: event)
+            // Don't call super - consume the event
+            return
         }
+        
+        super.keyDown(with: event)
     }
     
     // MARK: - Drawing

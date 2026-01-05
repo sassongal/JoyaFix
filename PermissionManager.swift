@@ -17,11 +17,42 @@ class PermissionManager {
     
     /// Checks if Screen Recording permissions are granted
     func isScreenRecordingTrusted() -> Bool {
-        // On macOS, we can't directly check screen recording permissions
-        // We'll attempt to capture and check if it fails
-        // For now, we'll return true and let the system prompt when needed
-        // A better approach is to check if we can create a screen capture
-        return true // System will prompt automatically when screencapture is called
+        // On macOS, we check screen recording permissions by attempting a test capture
+        // We use screencapture CLI to test if we have permission
+        
+        let testFile = NSTemporaryDirectory() + "joyafix_permission_test_\(UUID().uuidString).png"
+        defer {
+            // Clean up test file
+            try? FileManager.default.removeItem(atPath: testFile)
+        }
+        
+        // Try to capture a 1x1 pixel area - this requires screen recording permission
+        let task = Process()
+        task.launchPath = "/usr/sbin/screencapture"
+        task.arguments = [
+            "-R", "0,0,1,1",  // Capture 1x1 pixel at top-left
+            "-x",  // No sound
+            "-t", "png",
+            testFile
+        ]
+        
+        // Suppress output
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        
+        task.launch()
+        task.waitUntilExit()
+        
+        // Check if capture succeeded and file was created
+        if task.terminationStatus == 0 {
+            // Check if file actually exists and has content
+            if FileManager.default.fileExists(atPath: testFile) {
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: testFile)[.size] as? Int) ?? 0
+                return fileSize > 0
+            }
+        }
+        
+        return false
     }
     
     // MARK: - Permission Requests

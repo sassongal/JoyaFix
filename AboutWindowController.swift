@@ -41,7 +41,7 @@ class AboutWindowController {
                 forName: NSWindow.willCloseNotification,
                 object: window,
                 queue: .main
-            ) { [weak self] _ in
+            ) { _ in
                 // Window closed, but keep reference for reuse
             }
             

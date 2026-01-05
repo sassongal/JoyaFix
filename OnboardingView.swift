@@ -5,44 +5,116 @@ struct OnboardingView: View {
     @State private var currentPage = 0
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
+    @State private var permissionCheckTimer: Timer?
     
     let onComplete: () -> Void
     
     var body: some View {
-        TabView(selection: $currentPage) {
-            // Slide 1: Welcome
-            WelcomeSlide()
-                .tag(0)
+        VStack(spacing: 0) {
+            // Current slide content
+            Group {
+                switch currentPage {
+                case 0:
+                    WelcomeSlide()
+                case 1:
+                    FeaturesSlide()
+                case 2:
+                    PermissionsSlide(
+                        accessibilityGranted: $accessibilityGranted,
+                        screenRecordingGranted: $screenRecordingGranted
+                    )
+                case 3:
+                    ReadySlide(onComplete: {
+                        hasCompletedOnboarding = true
+                        onComplete()
+                    })
+                default:
+                    WelcomeSlide()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
             
-            // Slide 2: Features
-            FeaturesSlide()
-                .tag(1)
-            
-            // Slide 3: Permissions
-            PermissionsSlide(
-                accessibilityGranted: $accessibilityGranted,
-                screenRecordingGranted: $screenRecordingGranted
-            )
-            .tag(2)
-            
-            // Slide 4: Ready
-            ReadySlide(onComplete: {
-                hasCompletedOnboarding = true
-                onComplete()
-            })
-            .tag(3)
+            // Navigation controls
+            HStack {
+                // Back button
+                if currentPage > 0 {
+                    Button(action: {
+                        withAnimation {
+                            currentPage -= 1
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                
+                Spacer()
+                
+                // Page indicators
+                HStack(spacing: 8) {
+                    ForEach(0..<4) { index in
+                        Circle()
+                            .fill(index == currentPage ? Color.accentColor : Color.gray.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                
+                Spacer()
+                
+                // Next/Get Started button
+                if currentPage < 3 {
+                    Button(action: {
+                        withAnimation {
+                            currentPage += 1
+                        }
+                    }) {
+                        HStack {
+                            Text("Next")
+                            Image(systemName: "chevron.right")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
         }
-        .tabViewStyle(.page)
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
         .frame(width: 600, height: 500)
         .onAppear {
             checkPermissions()
+            startPermissionPolling()
+        }
+        .onDisappear {
+            stopPermissionPolling()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Refresh permissions immediately when app becomes active (user returns from Settings)
+            // Small delay to ensure system has updated permission status
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                checkPermissions()
+            }
         }
     }
     
     private func checkPermissions() {
         accessibilityGranted = PermissionManager.shared.isAccessibilityTrusted()
         screenRecordingGranted = PermissionManager.shared.isScreenRecordingTrusted()
+    }
+    
+    private func startPermissionPolling() {
+        // Poll permissions every 0.5 seconds to detect changes quickly
+        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in
+            checkPermissions()
+        }
+    }
+    
+    private func stopPermissionPolling() {
+        permissionCheckTimer?.invalidate()
+        permissionCheckTimer = nil
     }
 }
 
@@ -68,9 +140,11 @@ struct WelcomeSlide: View {
                         .frame(width: 120, height: 120)
                         .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 } else {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
+                    Image("FLATLOGO")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 120, height: 120)
+                        .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 }
             }
             
@@ -175,10 +249,7 @@ struct PermissionsSlide: View {
                     isGranted: accessibilityGranted,
                     onGrant: {
                         PermissionManager.shared.openAccessibilitySettings()
-                        // Recheck after a delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            accessibilityGranted = PermissionManager.shared.isAccessibilityTrusted()
-                        }
+                        // Polling will automatically detect the change
                     }
                 )
                 
@@ -188,10 +259,7 @@ struct PermissionsSlide: View {
                     isGranted: screenRecordingGranted,
                     onGrant: {
                         PermissionManager.shared.openScreenRecordingSettings()
-                        // Recheck after a delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            screenRecordingGranted = PermissionManager.shared.isScreenRecordingTrusted()
-                        }
+                        // Polling will automatically detect the change
                     }
                 )
             }
