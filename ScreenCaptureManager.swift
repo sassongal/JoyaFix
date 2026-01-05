@@ -1,5 +1,5 @@
 import Cocoa
-import Vision
+@preconcurrency import Vision
 import CoreGraphics
 import Foundation
 
@@ -405,9 +405,10 @@ class ScreenCaptureManager {
         request.usesLanguageCorrection = true
         request.recognitionLanguages = ["en-US", "he-IL"]
 
-        let requestHandler = VNImageRequestHandler(cgImage: image, options: [:])
-
         DispatchQueue.global(qos: .userInitiated).async {
+            // Create requestHandler inside the async block to avoid Sendable warnings
+            let requestHandler = VNImageRequestHandler(cgImage: image, options: [:])
+            
             do {
                 try requestHandler.perform([request])
             } catch {
@@ -622,6 +623,7 @@ extension ScreenCaptureManager: SelectionOverlayDelegate {
 
 // MARK: - Selection Overlay Window
 
+@MainActor
 protocol SelectionOverlayDelegate: AnyObject {
     func didSelectRegion(_ rect: NSRect)
     func didCancelSelection()

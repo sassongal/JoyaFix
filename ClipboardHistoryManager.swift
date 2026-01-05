@@ -435,7 +435,6 @@ class ClipboardHistoryManager: ObservableObject {
         
         for item in history {
             var updatedItem = item
-            var needsUpdate = false
             
             // Migrate RTF data if present
             if let rtfData = item.rtfData, item.rtfDataPath == nil {
@@ -450,7 +449,6 @@ class ClipboardHistoryManager: ObservableObject {
                         rtfDataPath: rtfPath,
                         htmlDataPath: item.htmlDataPath
                     )
-                    needsUpdate = true
                     migratedCount += 1
                 }
             }
@@ -468,7 +466,6 @@ class ClipboardHistoryManager: ObservableObject {
                         rtfDataPath: updatedItem.rtfDataPath,
                         htmlDataPath: htmlPath
                     )
-                    needsUpdate = true
                     if updatedItem.rtfDataPath == nil {
                         migratedCount += 1
                     }

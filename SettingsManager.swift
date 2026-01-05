@@ -53,9 +53,9 @@ class SettingsManager: ObservableObject {
         didSet {
             // Store securely in Keychain instead of UserDefaults
             if !geminiKey.isEmpty {
-                KeychainHelper.storeGeminiKey(geminiKey)
+                _ = KeychainHelper.storeGeminiKey(geminiKey)
             } else {
-                KeychainHelper.deleteGeminiKey()
+                _ = KeychainHelper.deleteGeminiKey()
             }
         }
     }
@@ -99,7 +99,7 @@ class SettingsManager: ObservableObject {
         } else if let userDefaultsKey = UserDefaults.standard.string(forKey: Keys.geminiKey), !userDefaultsKey.isEmpty {
             // Migrate from UserDefaults to Keychain
             self.geminiKey = userDefaultsKey
-            KeychainHelper.storeGeminiKey(userDefaultsKey)
+            _ = KeychainHelper.storeGeminiKey(userDefaultsKey)
             // Remove from UserDefaults after migration
             UserDefaults.standard.removeObject(forKey: Keys.geminiKey)
         } else {
