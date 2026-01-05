@@ -150,6 +150,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ","
         )
         settingsItem.target = self
+        settingsItem.isEnabled = true
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -196,8 +197,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Opens the settings window
     @objc func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        // Activate the app first to bring it to front
         NSApp.activate(ignoringOtherApps: true)
+        
+        // Close popover if open
+        if let popover = popover, popover.isShown {
+            closePopover()
+        }
+        
+        // Dispatch to main queue to ensure UI is ready
+        DispatchQueue.main.async {
+            // Try the modern SwiftUI Settings selector first (macOS 13+)
+            let showSettingsSelector = Selector(("showSettingsWindow:"))
+            if NSApp.responds(to: showSettingsSelector) {
+                NSApp.sendAction(showSettingsSelector, to: nil, from: nil)
+                return
+            }
+            
+            // Fallback to Preferences selector (older macOS)
+            let showPrefsSelector = Selector(("showPreferencesWindow:"))
+            if NSApp.responds(to: showPrefsSelector) {
+                NSApp.sendAction(showPrefsSelector, to: nil, from: nil)
+                return
+            }
+            
+            // Last resort: find and show settings window manually
+            for window in NSApp.windows {
+                if let identifier = window.identifier?.rawValue,
+                   identifier.contains("Settings") || identifier.contains("Preferences") {
+                    window.makeKeyAndOrderFront(nil)
+                    return
+                }
+            }
+        }
     }
 
     /// Quits the application

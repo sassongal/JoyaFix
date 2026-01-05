@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var localMaxHistoryCount: Int
     @State private var localPlaySound: Bool
     @State private var localAutoPaste: Bool
+    @State private var localGeminiKey: String
+    @State private var localUseCloudOCR: Bool
 
     @State private var isRecordingConvertHotkey = false
     @State private var isRecordingOCRHotkey = false
@@ -28,6 +30,8 @@ struct SettingsView: View {
         _localMaxHistoryCount = State(initialValue: settings.maxHistoryCount)
         _localPlaySound = State(initialValue: settings.playSoundOnConvert)
         _localAutoPaste = State(initialValue: settings.autoPasteAfterConvert)
+        _localGeminiKey = State(initialValue: settings.geminiKey)
+        _localUseCloudOCR = State(initialValue: settings.useCloudOCR)
     }
 
     var body: some View {
@@ -122,6 +126,43 @@ struct SettingsView: View {
                         .padding(8)
                     }
 
+                    // OCR Configuration Section
+                    GroupBox(label: Label("OCR Configuration", systemImage: "cloud.fill")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Toggle("Use Cloud OCR (Gemini 1.5 Flash)", isOn: $localUseCloudOCR)
+                                .onChange(of: localUseCloudOCR) { _, _ in
+                                    hasUnsavedChanges = true
+                                }
+
+                            if localUseCloudOCR {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Gemini API Key:")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    SecureField("Enter your API key...", text: $localGeminiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .onChange(of: localGeminiKey) { _, _ in
+                                            hasUnsavedChanges = true
+                                        }
+
+                                    Text("Get your free key at aistudio.google.com")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    
+                                    Text("Your API key is stored securely and only used for OCR requests.")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                Text("Cloud OCR uses Google's Gemini 1.5 Flash for improved accuracy, especially for Hebrew text.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(8)
+                    }
+
                     Spacer(minLength: 20)
                 }
                 .padding()
@@ -197,6 +238,8 @@ struct SettingsView: View {
         settings.maxHistoryCount = localMaxHistoryCount
         settings.playSoundOnConvert = localPlaySound
         settings.autoPasteAfterConvert = localAutoPaste
+        settings.geminiKey = localGeminiKey
+        settings.useCloudOCR = localUseCloudOCR
 
         // Rebind hotkeys immediately
         let result = HotkeyManager.shared.rebindHotkeys()
@@ -231,6 +274,8 @@ struct SettingsView: View {
         localMaxHistoryCount = 20
         localPlaySound = true
         localAutoPaste = true
+        localGeminiKey = ""
+        localUseCloudOCR = false
 
         hasUnsavedChanges = true
     }

@@ -49,6 +49,23 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    @Published var geminiKey: String {
+        didSet {
+            // Store securely in Keychain instead of UserDefaults
+            if !geminiKey.isEmpty {
+                KeychainHelper.storeGeminiKey(geminiKey)
+            } else {
+                KeychainHelper.deleteGeminiKey()
+            }
+        }
+    }
+
+    @Published var useCloudOCR: Bool {
+        didSet {
+            UserDefaults.standard.set(useCloudOCR, forKey: Keys.useCloudOCR)
+        }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -59,6 +76,8 @@ class SettingsManager: ObservableObject {
         static let autoPasteAfterConvert = "autoPasteAfterConvert"
         static let ocrHotkeyKeyCode = "ocrHotkeyKeyCode"
         static let ocrHotkeyModifiers = "ocrHotkeyModifiers"
+        static let geminiKey = "geminiKey"
+        static let useCloudOCR = "useCloudOCR"
     }
 
     // MARK: - Initialization
@@ -72,6 +91,24 @@ class SettingsManager: ObservableObject {
         self.autoPasteAfterConvert = UserDefaults.standard.object(forKey: Keys.autoPasteAfterConvert) as? Bool ?? true
         self.ocrHotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.ocrHotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_X)
         self.ocrHotkeyModifiers = UserDefaults.standard.object(forKey: Keys.ocrHotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
+        
+        // Load Gemini key from Keychain (secure storage)
+        // First try Keychain, then fallback to UserDefaults for migration
+        if let keychainKey = KeychainHelper.retrieveGeminiKey() {
+            self.geminiKey = keychainKey
+        } else if let userDefaultsKey = UserDefaults.standard.string(forKey: Keys.geminiKey), !userDefaultsKey.isEmpty {
+            // Migrate from UserDefaults to Keychain
+            self.geminiKey = userDefaultsKey
+            KeychainHelper.storeGeminiKey(userDefaultsKey)
+            // Remove from UserDefaults after migration
+            UserDefaults.standard.removeObject(forKey: Keys.geminiKey)
+        } else {
+            self.geminiKey = ""
+        }
+        
+        self.useCloudOCR = UserDefaults.standard.object(forKey: Keys.useCloudOCR) as? Bool ?? false
+        
+        }
     }
 
     // MARK: - Hotkey Helpers
