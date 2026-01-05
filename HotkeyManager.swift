@@ -1,0 +1,412 @@
+import Cocoa
+import Carbon
+import ApplicationServices
+
+class HotkeyManager {
+    static let shared = HotkeyManager()
+
+    private var eventHotKeyRef: EventHotKeyRef?
+    private var ocrHotKeyRef: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+
+    // Hotkey signatures
+    private let hotkeyID = EventHotKeyID(signature: OSType(0x4A4F5941), id: 1) // 'JOYA'
+    private let ocrHotkeyID = EventHotKeyID(signature: OSType(0x4F435231), id: 2) // 'OCR1'
+
+    private let settings = SettingsManager.shared
+
+    private init() {}
+
+    // MARK: - Rebind Hotkeys
+
+    /// Rebinds all hotkeys with current settings from UserDefaults
+    /// Call this after saving new hotkey settings to apply changes immediately
+    @discardableResult
+    func rebindHotkeys() -> (convertSuccess: Bool, ocrSuccess: Bool) {
+        print("🔄 Rebinding hotkeys...")
+
+        // Step 1: Unregister all existing hotkeys
+        unregisterHotkey()
+
+        // Step 2: Small delay to ensure system processes the unregistration
+        usleep(50000) // 50ms
+
+        // Step 3: Register hotkeys with new settings from UserDefaults
+        let convertSuccess = registerHotkey()
+        let ocrSuccess = registerOCRHotkey()
+
+        // Step 4: Report results
+        if convertSuccess && ocrSuccess {
+            print("✓ All hotkeys rebound successfully")
+            SoundManager.shared.playSuccess()
+        } else {
+            print("⚠️ Some hotkeys failed to rebind")
+            if !convertSuccess {
+                print("  - Text conversion hotkey failed")
+            }
+            if !ocrSuccess {
+                print("  - OCR hotkey failed")
+            }
+        }
+
+        return (convertSuccess, ocrSuccess)
+    }
+
+    // MARK: - Registration
+
+    /// Registers the global hotkey using settings
+    func registerHotkey() -> Bool {
+        // Get hotkey from settings
+        let keyCode = settings.hotkeyKeyCode
+        let modifiers = settings.hotkeyModifiers
+
+        print("🔧 Registering hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
+
+        // Create event type spec for hotkey
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                       eventKind: UInt32(kEventHotKeyPressed))
+
+        // Install shared event handler if not already installed
+        if eventHandler == nil {
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                { (nextHandler, event, userData) -> OSStatus in
+                    var hotkeyID = EventHotKeyID()
+                    GetEventParameter(
+                        event,
+                        EventParamName(kEventParamDirectObject),
+                        EventParamType(typeEventHotKeyID),
+                        nil,
+                        MemoryLayout<EventHotKeyID>.size,
+                        nil,
+                        &hotkeyID
+                    )
+
+                    // Check which hotkey was pressed
+                    if hotkeyID.id == 1 {
+                        HotkeyManager.shared.hotkeyPressed()
+                    } else if hotkeyID.id == 2 {
+                        HotkeyManager.shared.ocrHotkeyPressed()
+                    }
+
+                    return noErr
+                },
+                1,
+                &eventType,
+                nil,
+                &eventHandler
+            )
+
+            guard status == noErr else {
+                print("Failed to install event handler: \(status)")
+                return false
+            }
+        }
+
+        // Register the hotkey
+        let registerStatus = RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            hotkeyID,
+            GetApplicationEventTarget(),
+            0,
+            &eventHotKeyRef
+        )
+
+        guard registerStatus == noErr else {
+            let errorMessage = getErrorMessage(for: registerStatus)
+            print("❌ Failed to register conversion hotkey: \(errorMessage)")
+            print("   Attempted: \(settings.hotkeyDisplayString)")
+            print("   This key combination may be reserved by the system or another app")
+            return false
+        }
+
+        print("✓ Conversion hotkey registered: \(settings.hotkeyDisplayString)")
+        return true
+    }
+
+    /// Registers the OCR hotkey using settings
+    func registerOCRHotkey() -> Bool {
+        // Get OCR hotkey from settings
+        let keyCode = settings.ocrHotkeyKeyCode
+        let modifiers = settings.ocrHotkeyModifiers
+
+        print("🔧 Registering OCR hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
+
+        // Create event type spec for hotkey
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                       eventKind: UInt32(kEventHotKeyPressed))
+
+        // Use existing event handler
+        if eventHandler == nil {
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                { (nextHandler, event, userData) -> OSStatus in
+                    var hotkeyID = EventHotKeyID()
+                    GetEventParameter(
+                        event,
+                        EventParamName(kEventParamDirectObject),
+                        EventParamType(typeEventHotKeyID),
+                        nil,
+                        MemoryLayout<EventHotKeyID>.size,
+                        nil,
+                        &hotkeyID
+                    )
+
+                    // Check which hotkey was pressed
+                    if hotkeyID.id == 1 {
+                        HotkeyManager.shared.hotkeyPressed()
+                    } else if hotkeyID.id == 2 {
+                        HotkeyManager.shared.ocrHotkeyPressed()
+                    }
+
+                    return noErr
+                },
+                1,
+                &eventType,
+                nil,
+                &eventHandler
+            )
+
+            guard status == noErr else {
+                print("Failed to install event handler: \(status)")
+                return false
+            }
+        }
+
+        // Register the OCR hotkey
+        let registerStatus = RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            ocrHotkeyID,
+            GetApplicationEventTarget(),
+            0,
+            &ocrHotKeyRef
+        )
+
+        guard registerStatus == noErr else {
+            let errorMessage = getErrorMessage(for: registerStatus)
+            let ocrHotkeyDisplay = hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
+            print("❌ Failed to register OCR hotkey: \(errorMessage)")
+            print("   Attempted: \(ocrHotkeyDisplay)")
+            print("   This key combination may be reserved by the system or another app")
+            return false
+        }
+
+        let ocrHotkeyDisplay = hotkeyDisplayString(keyCode: keyCode, modifiers: modifiers)
+        print("✓ OCR hotkey registered: \(ocrHotkeyDisplay)")
+        return true
+    }
+
+    /// Unregisters all global hotkeys
+    func unregisterHotkey() {
+        if let eventHotKeyRef = eventHotKeyRef {
+            UnregisterEventHotKey(eventHotKeyRef)
+            self.eventHotKeyRef = nil
+        }
+
+        if let ocrHotKeyRef = ocrHotKeyRef {
+            UnregisterEventHotKey(ocrHotKeyRef)
+            self.ocrHotKeyRef = nil
+        }
+
+        if let eventHandler = eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
+        }
+    }
+
+    /// Returns a human-readable string for any hotkey combination
+    private func hotkeyDisplayString(keyCode: UInt32, modifiers: UInt32) -> String {
+        var modifierString = ""
+
+        if modifiers & UInt32(controlKey) != 0 {
+            modifierString += "⌃"
+        }
+        if modifiers & UInt32(optionKey) != 0 {
+            modifierString += "⌥"
+        }
+        if modifiers & UInt32(shiftKey) != 0 {
+            modifierString += "⇧"
+        }
+        if modifiers & UInt32(cmdKey) != 0 {
+            modifierString += "⌘"
+        }
+
+        let keyString = settings.keyCodeToString(Int(keyCode))
+        return modifierString + keyString
+    }
+
+    // MARK: - Hotkey Action
+
+    /// Called when the global hotkey is pressed
+    private func hotkeyPressed() {
+        print("🔥 Hotkey pressed! Converting text...")
+
+        // Step 1: Simulate Cmd+C to copy selected text
+        simulateCopy()
+
+        // Step 2: Wait for clipboard to update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            // Step 3: Read from clipboard
+            guard let copiedText = self.readFromClipboard() else {
+                print("❌ No text in clipboard")
+                return
+            }
+
+            print("📋 Original: '\(copiedText)'")
+
+            // Step 4: Convert the text
+            let convertedText = TextConverter.convert(copiedText)
+            print("✅ Converted: '\(convertedText)'")
+
+            // Step 5: Notify clipboard manager to ignore this write
+            ClipboardHistoryManager.shared.notifyInternalWrite()
+
+            // Step 6: Write back to clipboard
+            self.writeToClipboard(convertedText)
+            print("📋 Converted text written to clipboard")
+
+            // Step 7: Delete selected text, then paste (if enabled in settings)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                if self.settings.autoPasteAfterConvert {
+                    // Delete the selected text first
+                    print("🗑️ Deleting selected text...")
+                    self.simulateDelete()
+                    
+                    // Wait a bit before pasting
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        print("📋 Simulating paste...")
+                        self.simulatePaste()
+                        
+                        // Step 8: Play success sound (if enabled in settings)
+                        if self.settings.playSoundOnConvert {
+                            SoundManager.shared.playSuccess()
+                        }
+                    }
+                } else {
+                    print("⚠️ Auto-paste is disabled in settings")
+                    // Still play sound even if not pasting
+                    if self.settings.playSoundOnConvert {
+                        SoundManager.shared.playSuccess()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Called when the OCR hotkey is pressed
+    private func ocrHotkeyPressed() {
+        print("📸 OCR Hotkey pressed! Starting screen capture...")
+
+        ScreenCaptureManager.shared.startScreenCapture { [weak self] extractedText in
+            guard let text = extractedText, !text.isEmpty else {
+                print("⚠️ No text extracted")
+                return
+            }
+
+            print("✓ OCR completed: \(text.count) characters extracted")
+
+            // Notify clipboard manager to ignore this write
+            ClipboardHistoryManager.shared.notifyInternalWrite()
+
+            // Write to clipboard
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+
+            // Play success sound
+            if self?.settings.playSoundOnConvert == true {
+                SoundManager.shared.playSuccess()
+            }
+
+            print("📋 Text copied to clipboard and added to history")
+        }
+    }
+
+    // MARK: - Clipboard Operations
+
+    /// Reads string from the system clipboard
+    private func readFromClipboard() -> String? {
+        let pasteboard = NSPasteboard.general
+        return pasteboard.string(forType: .string)
+    }
+
+    /// Writes string to the system clipboard
+    private func writeToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    // MARK: - Key Simulation
+
+    /// Simulates Cmd+C key press (Copy)
+    private func simulateCopy() {
+        simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
+    }
+
+    /// Simulates Cmd+V key press (Paste)
+    private func simulatePaste() {
+        simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+    }
+
+    /// Simulates Delete/ForwardDelete key press
+    private func simulateDelete() {
+        simulateKeyPress(keyCode: CGKeyCode(kVK_ForwardDelete), flags: [])
+    }
+
+    /// Simulates a key press with modifier keys
+    private func simulateKeyPress(keyCode: CGKeyCode, flags: CGEventFlags) {
+        // Key down event
+        guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else {
+            print("Failed to create key down event")
+            return
+        }
+        keyDownEvent.flags = flags
+
+        // Key up event
+        guard let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+            print("Failed to create key up event")
+            return
+        }
+        keyUpEvent.flags = flags
+
+        // Post events
+        let location = CGEventTapLocation.cghidEventTap
+        keyDownEvent.post(tap: location)
+
+        // Small delay between key down and up
+        usleep(10000) // 10ms
+
+        keyUpEvent.post(tap: location)
+    }
+
+    // MARK: - Accessibility Check
+
+    /// Checks if the app has accessibility permissions (required for key simulation)
+    static func checkAccessibilityPermissions() -> Bool {
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        let accessEnabled = AXIsProcessTrustedWithOptions(options)
+
+        if !accessEnabled {
+            print("⚠️ Accessibility permissions required!")
+            print("Go to: System Preferences → Security & Privacy → Privacy → Accessibility")
+            print("Enable access for this app to simulate key presses.")
+        }
+
+        return accessEnabled
+    }
+
+    // MARK: - Error Handling
+
+    /// Converts Carbon error code to readable message
+    private func getErrorMessage(for status: OSStatus) -> String {
+        switch status {
+        case -9850: return "Hotkey already registered (duplicate)"
+        case -9879: return "Invalid hotkey parameters"
+        case -50: return "Parameter error"
+        default: return "Error code \(status)"
+        }
+    }
+}
