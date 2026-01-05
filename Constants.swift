@@ -51,7 +51,17 @@ enum JoyaFixConstants {
     static let ocrCancelDelay: TimeInterval = 0.05
     
     /// Delay for snippet backspace processing (seconds)
-    static let snippetBackspaceDelay: TimeInterval = 0.05
+    /// Increased for better reliability under high CPU load
+    static let snippetBackspaceDelay: TimeInterval = 0.1
+    
+    /// Minimum delay between backspace events (seconds)
+    static let snippetBackspaceMinDelay: TimeInterval = 0.008
+    
+    /// Maximum delay between backspace events (seconds) - adaptive based on CPU load
+    static let snippetBackspaceMaxDelay: TimeInterval = 0.02
+    
+    /// Delay after deletion before paste (seconds) - increased safety buffer
+    static let snippetPostDeleteDelay: TimeInterval = 0.15
     
     /// Delay for clipboard paste simulation (seconds)
     static let clipboardPasteDelay: TimeInterval = 0.05

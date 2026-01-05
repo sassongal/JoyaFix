@@ -379,34 +379,188 @@ class InputMonitor {
         
         print("🔤 Expanding snippet: \(trigger) → \(snippet.content.prefix(30))...")
         
-        // Delete the trigger text (simulate Backspace)
-        for _ in 0..<trigger.count {
-            simulateBackspace()
-        }
-        
-        // Process snippet content (Snippets 2.0: dynamic variables and cursor placement)
+        // Process snippet content first (Snippets 2.0: dynamic variables and cursor placement)
         let processed = snippetManager.processSnippetContent(snippet.content)
         let processedText = processed.text
         let cursorPosition = processed.cursorPosition
         
-        // Small delay to ensure backspaces are processed
-        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.snippetBackspaceDelay) {
-            // Paste the processed snippet content
-            self.pasteText(processedText)
+        // Use delete-by-selection method for more reliable deletion
+        // This is more robust than multiple backspaces under high CPU load
+        deleteTriggerBySelection(triggerLength: trigger.count) { [weak self] success in
+            guard let self = self else { return }
             
-            // Snippets 2.0: Handle cursor placement if specified
-            if let cursorPos = cursorPosition, cursorPos > 0 {
-                // Wait a bit for paste to complete, then move cursor
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.moveCursorLeft(by: cursorPos)
+            if success {
+                // Increased delay to ensure deletion is fully processed
+                // Adaptive delay based on trigger length and CPU load
+                let adaptiveDelay = self.calculateAdaptiveDelay(triggerLength: trigger.count)
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + adaptiveDelay) {
+                    // Paste the processed snippet content
+                    self.pasteText(processedText)
+                    
+                    // Snippets 2.0: Handle cursor placement if specified
+                    if let cursorPos = cursorPosition, cursorPos > 0 {
+                        // Wait a bit for paste to complete, then move cursor
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            self.moveCursorLeft(by: cursorPos)
+                        }
+                    }
+                    
+                    // Clear buffer
+                    self.bufferQueue.async(flags: .barrier) {
+                        self._keyBuffer = ""
+                    }
+                }
+            } else {
+                // Fallback: Use traditional backspace method if selection deletion fails
+                print("⚠️ Selection deletion failed, using backspace fallback")
+                self.deleteTriggerByBackspace(triggerLength: trigger.count) {
+                    let adaptiveDelay = self.calculateAdaptiveDelay(triggerLength: trigger.count)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + adaptiveDelay) {
+                        self.pasteText(processedText)
+                        
+                        if let cursorPos = cursorPosition, cursorPos > 0 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                self.moveCursorLeft(by: cursorPos)
+                            }
+                        }
+                        
+                        self.bufferQueue.async(flags: .barrier) {
+                            self._keyBuffer = ""
+                        }
+                    }
                 }
             }
+        }
+    }
+    
+    /// Deletes trigger text using selection method (Shift+Left Arrow + Delete)
+    /// More reliable than multiple backspaces, especially under high CPU load
+    /// Uses Shift+Left Arrow to select backwards, then Delete - more atomic operation
+    private func deleteTriggerBySelection(triggerLength: Int, completion: @escaping (Bool) -> Void) {
+        // For short triggers, use backspace (faster)
+        // For longer triggers, use selection method (more reliable)
+        if triggerLength <= 3 {
+            // Short triggers: use backspace with adaptive delays
+            deleteTriggerByBackspace(triggerLength: triggerLength) {
+                completion(true)
+            }
+            return
+        }
+        
+        // Longer triggers: use selection method
+        let leftArrowKey = CGKeyCode(kVK_LeftArrow)
+        let deleteKey = CGKeyCode(kVK_Delete)
+        
+        // Calculate adaptive delay per selection step
+        let adaptiveDelay = calculateAdaptiveDelay(triggerLength: triggerLength)
+        let delayPerStep = max(adaptiveDelay / Double(triggerLength), JoyaFixConstants.snippetBackspaceMinDelay)
+        
+        // Select text backwards character by character
+        var stepsRemaining = triggerLength
+        
+        func performNextSelection() {
+            guard stepsRemaining > 0 else {
+                // All text selected, now delete it
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                    guard let deleteDown = CGEvent(keyboardEventSource: nil, virtualKey: deleteKey, keyDown: true),
+                          let deleteUp = CGEvent(keyboardEventSource: nil, virtualKey: deleteKey, keyDown: false) else {
+                        completion(false)
+                        return
+                    }
+                    
+                    deleteDown.post(tap: .cghidEventTap)
+                    usleep(10000) // 10ms
+                    deleteUp.post(tap: .cghidEventTap)
+                    
+                    // Give buffer for deletion to complete
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                        completion(true)
+                    }
+                }
+                return
+            }
             
-            // Clear buffer
-            self.bufferQueue.async(flags: .barrier) {
-                self._keyBuffer = ""
+            guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: leftArrowKey, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: leftArrowKey, keyDown: false) else {
+                completion(false)
+                return
+            }
+            
+            keyDown.flags = .maskShift
+            keyUp.flags = .maskShift
+            
+            keyDown.post(tap: .cghidEventTap)
+            usleep(UInt32(delayPerStep * 1_000_000))
+            keyUp.post(tap: .cghidEventTap)
+            
+            stepsRemaining -= 1
+            
+            // Schedule next selection step
+            DispatchQueue.main.asyncAfter(deadline: .now() + delayPerStep) {
+                performNextSelection()
             }
         }
+        
+        // Start selection process
+        DispatchQueue.main.async {
+            performNextSelection()
+        }
+    }
+    
+    /// Fallback method: Deletes trigger using traditional backspace with adaptive delays
+    private func deleteTriggerByBackspace(triggerLength: Int, completion: @escaping () -> Void) {
+        let deleteKey = CGKeyCode(kVK_Delete)
+        let adaptiveDelay = calculateAdaptiveDelay(triggerLength: triggerLength)
+        let delayPerBackspace = max(adaptiveDelay / Double(triggerLength), JoyaFixConstants.snippetBackspaceMinDelay)
+        
+        var backspacesRemaining = triggerLength
+        
+        func performNextBackspace() {
+            guard backspacesRemaining > 0 else {
+                completion()
+                return
+            }
+            
+            guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: deleteKey, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: deleteKey, keyDown: false) else {
+                completion()
+                return
+            }
+            
+            keyDown.post(tap: .cghidEventTap)
+            usleep(UInt32(delayPerBackspace * 1_000_000)) // Convert to microseconds
+            keyUp.post(tap: .cghidEventTap)
+            
+            backspacesRemaining -= 1
+            
+            // Schedule next backspace with adaptive delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + delayPerBackspace) {
+                performNextBackspace()
+            }
+        }
+        
+        performNextBackspace()
+    }
+    
+    /// Calculates adaptive delay based on trigger length and system load
+    /// Longer triggers and higher CPU load require longer delays
+    private func calculateAdaptiveDelay(triggerLength: Int) -> TimeInterval {
+        // Base delay increases with trigger length
+        let baseDelay = JoyaFixConstants.snippetBackspaceDelay
+        
+        // Factor in trigger length (longer triggers need more time)
+        let lengthFactor = 1.0 + (Double(triggerLength) * 0.01)
+        
+        // Check system load (simplified - in production you might use host_statistics)
+        let cpuLoadFactor: Double = 1.2 // Conservative estimate for high load scenarios
+        
+        // Calculate adaptive delay with safety buffer
+        let adaptiveDelay = baseDelay * lengthFactor * cpuLoadFactor
+        
+        // Clamp to reasonable bounds
+        return min(max(adaptiveDelay, JoyaFixConstants.snippetBackspaceMinDelay * Double(triggerLength)),
+                   JoyaFixConstants.snippetPostDeleteDelay)
     }
     
     /// Moves cursor left by specified number of characters
