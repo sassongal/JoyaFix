@@ -27,9 +27,21 @@ class ScreenCaptureManager {
     
     // CRASH PREVENTION: Track cursor state to prevent unbalanced push/pop
     private var cursorPushed = false
+    
+    // Multi-monitor lifecycle: Track screen configuration to detect changes
+    private var screenConfigurationObserver: NSObjectProtocol?
+    private var lastKnownScreenCount: Int = 0
 
     private init(ocrService: OCRService) {
         self.ocrService = ocrService
+        setupScreenConfigurationObserver()
+    }
+    
+    deinit {
+        // Remove observer on deallocation
+        if let observer = screenConfigurationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - Public Interface
@@ -87,6 +99,144 @@ class ScreenCaptureManager {
         }
     }
 
+    // MARK: - Screen Configuration Monitoring
+    
+    /// Sets up observer for screen configuration changes (monitor connect/disconnect)
+    private func setupScreenConfigurationObserver() {
+        screenConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenConfigurationChange()
+        }
+        
+        // Store initial screen count
+        lastKnownScreenCount = NSScreen.screens.count
+    }
+    
+    /// Handles screen configuration changes (monitor connect/disconnect)
+    /// Cleans up orphaned windows and recreates overlay if needed
+    private func handleScreenConfigurationChange() {
+        guard isCapturing else { return }
+        
+        let currentScreenCount = NSScreen.screens.count
+        let screenCountChanged = currentScreenCount != lastKnownScreenCount
+        
+        print("📺 Screen configuration changed: \(lastKnownScreenCount) → \(currentScreenCount) screens")
+        
+        // Update stored screen count
+        lastKnownScreenCount = currentScreenCount
+        
+        // Clean up orphaned windows (windows whose screen no longer exists)
+        cleanupOrphanedWindows()
+        
+        // If screen count changed and we're still capturing, recreate overlay
+        if screenCountChanged {
+            print("🔄 Recreating overlay windows due to screen configuration change")
+            // Recreate overlay to match new screen configuration
+            showSelectionOverlay()
+        } else {
+            // Screen count unchanged but configuration might have changed (resolution, position, etc.)
+            // Validate and update existing windows
+            validateAndUpdateOverlayWindows()
+        }
+    }
+    
+    /// Removes overlay windows whose screen no longer exists
+    private func cleanupOrphanedWindows() {
+        let validScreens = Set(NSScreen.screens)
+        var orphanedWindows: [SelectionOverlayWindow] = []
+        
+        // Find windows whose screen is no longer valid
+        for window in overlayWindows {
+            // Check if window's screen still exists
+            if let windowScreen = window.screen {
+                if !validScreens.contains(windowScreen) {
+                    orphanedWindows.append(window)
+                }
+            } else {
+                // Window has no screen - it's orphaned
+                orphanedWindows.append(window)
+            }
+        }
+        
+        // Close and remove orphaned windows
+        for orphanedWindow in orphanedWindows {
+            print("🗑️ Removing orphaned overlay window")
+            orphanedWindow.orderOut(nil)
+            orphanedWindow.close()
+            overlayWindows.removeAll { $0 === orphanedWindow }
+        }
+        
+        // Update single window reference if it was orphaned
+        if let window = overlayWindow, orphanedWindows.contains(where: { $0 === window }) {
+            overlayWindow = overlayWindows.first(where: { $0.screen == NSScreen.main }) ?? overlayWindows.first
+        }
+    }
+    
+    /// Validates existing overlay windows and updates them if needed
+    private func validateAndUpdateOverlayWindows() {
+        let currentScreens = NSScreen.screens
+        var windowsToKeep: [SelectionOverlayWindow] = []
+        
+        // Keep only windows that match current screens
+        for screen in currentScreens {
+            // Find window for this screen
+            if let existingWindow = overlayWindows.first(where: { $0.screen == screen }) {
+                // Validate window frame matches screen frame
+                let screenFrame = screen.frame
+                if existingWindow.frame != screenFrame {
+                    print("🔄 Updating overlay window frame for screen: \(screenFrame)")
+                    existingWindow.setFrame(screenFrame, display: true)
+                }
+                windowsToKeep.append(existingWindow)
+            } else {
+                // Missing window for this screen - create it
+                print("➕ Creating missing overlay window for screen")
+                let window = createOverlayWindow(for: screen)
+                windowsToKeep.append(window)
+            }
+        }
+        
+        // Replace overlay windows array
+        overlayWindows = windowsToKeep
+        
+        // Update single window reference
+        overlayWindow = overlayWindows.first(where: { $0.screen == NSScreen.main }) ?? overlayWindows.first
+    }
+    
+    /// Creates an overlay window for a specific screen
+    private func createOverlayWindow(for screen: NSScreen) -> SelectionOverlayWindow {
+        let screenFrame = screen.frame
+        
+        let window = SelectionOverlayWindow(
+            contentRect: screenFrame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.selectionDelegate = self
+        window.backgroundColor = NSColor.clear
+        window.isOpaque = false
+        window.level = .screenSaver
+        window.ignoresMouseEvents = false
+        
+        // Position window on the correct screen
+        window.setFrameOrigin(screenFrame.origin)
+        
+        // Make sure window can receive key events
+        window.makeKeyAndOrderFront(nil)
+        
+        // Set first responder only for main screen
+        if screen == NSScreen.main {
+            window.makeFirstResponder(window.contentView)
+        }
+        
+        return window
+    }
+
     // MARK: - Overlay Management
 
     private func showSelectionOverlay() {
@@ -96,37 +246,25 @@ class ScreenCaptureManager {
         // FIX: Create separate overlay window for each screen (multi-monitor support)
         // This fixes the issue where macOS "Displays have separate Spaces" prevents
         // a single window from spanning multiple screens properly
+        
+        // Clean up any orphaned windows first
+        cleanupOrphanedWindows()
+        
+        // Remove existing windows (will be recreated)
+        for window in overlayWindows {
+            window.orderOut(nil)
+            window.close()
+        }
         overlayWindows.removeAll()
         
+        // Create overlay window for each current screen
         for screen in NSScreen.screens {
-            let screenFrame = screen.frame
-            
-            let window = SelectionOverlayWindow(
-                contentRect: screenFrame,
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-            
-            window.selectionDelegate = self
-            window.backgroundColor = NSColor.clear
-            window.isOpaque = false
-            window.level = .screenSaver
-            window.ignoresMouseEvents = false
-            
-            // Position window on the correct screen
-            window.setFrameOrigin(screenFrame.origin)
-            
+            let window = createOverlayWindow(for: screen)
             overlayWindows.append(window)
-            
-            // Make sure window can receive key events
-            window.makeKeyAndOrderFront(nil)
-            
-            // Only set first responder on the primary screen's window
-            if screen == NSScreen.main {
-                window.makeFirstResponder(window.contentView)
-            }
         }
+        
+        // Update stored screen count
+        lastKnownScreenCount = NSScreen.screens.count
         
         // Keep backward compatibility with single overlayWindow reference
         // Use the main screen's window as the primary reference
