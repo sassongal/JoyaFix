@@ -220,8 +220,9 @@ class ScreenCaptureManager {
             DispatchQueue.main.async {
                 self.showScreenRecordingPermissionAlert()
             }
+            // FIX: Clean up monitors and overlay in all error paths
+            hideSelectionOverlay()
             completion?(nil)
-            isCapturing = false
             return
         }
 
@@ -229,8 +230,9 @@ class ScreenCaptureManager {
         guard rect.width > 0 && rect.height > 0 && 
               rect.width < 100000 && rect.height < 100000 else {
             print("❌ Invalid capture rect: \(rect)")
+            // FIX: Clean up monitors and overlay in all error paths
+            hideSelectionOverlay()
             completion?(nil)
-            isCapturing = false
             return
         }
 
@@ -238,8 +240,9 @@ class ScreenCaptureManager {
         guard rect.origin.x >= 0 && rect.origin.y >= 0 &&
               rect.width > 0 && rect.height > 0 else {
             print("❌ Invalid capture rect: \(rect)")
+            // FIX: Clean up monitors and overlay in all error paths
+            hideSelectionOverlay()
             completion?(nil)
-            isCapturing = false
             return
         }
         
@@ -451,8 +454,9 @@ class ScreenCaptureManager {
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 print("❌ CLI screen capture failed")
                 DispatchQueue.main.async {
+                    // FIX: Clean up monitors and overlay in all error paths
+                    self.hideSelectionOverlay()
                     completion?(nil)
-                    self.isCapturing = false
                 }
                 // Clean up temp file
                 try? FileManager.default.removeItem(atPath: tempFile)

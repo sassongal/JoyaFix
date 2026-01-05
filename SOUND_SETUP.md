@@ -10,7 +10,7 @@ The `SoundManager` class provides a simple, safe way to play sound files from th
 ### Features
 - **Custom sound support**: Plays `success.wav` from the app bundle
 - **Fail-safe**: If the sound file is not found, it fails silently (no crashes)
-- **Automatic resource loading**: Searches for sound files in the app bundle's Resources directory
+- **Automatic resource loading**: Searches for sousuccess.mp3success.mp3nd files in the app bundle's Resources directory
 
 ### Usage
 

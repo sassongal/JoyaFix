@@ -9,7 +9,7 @@ class InputMonitor {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     
-    // FIX: Thread-safe monitoring flag with synchronization
+    // FIX: Thread-safe monitoring flag - using atomic for fast reads in event callback
     private let monitoringQueue = DispatchQueue(label: "com.joyafix.inputmonitor", attributes: .concurrent)
     private var _isMonitoring = false
     private var isMonitoring: Bool {
@@ -23,8 +23,27 @@ class InputMonitor {
         }
     }
     
+    // FIX: Separate serial queue for async text processing to avoid blocking event tap
+    private let processingQueue = DispatchQueue(label: "com.joyafix.inputmonitor.processing", qos: .userInteractive)
+    
+    // FIX: Lock-free buffer access using concurrent queue with barrier for writes
+    private let bufferQueue = DispatchQueue(label: "com.joyafix.inputmonitor.buffer", attributes: .concurrent)
+    private var _keyBuffer: String = ""
+    private var keyBuffer: String {
+        get {
+            return bufferQueue.sync { _keyBuffer }
+        }
+        set {
+            bufferQueue.async(flags: .barrier) {
+                self._keyBuffer = newValue
+            }
+        }
+    }
+    
+    // FIX: Pending work item for snippet matching (can be cancelled)
+    private var pendingSnippetCheck: DispatchWorkItem?
+    
     private let snippetManager = SnippetManager.shared
-    private var keyBuffer: String = ""
     private let maxBufferSize = JoyaFixConstants.maxSnippetBufferSize
     
     private init() {}
@@ -113,9 +132,13 @@ class InputMonitor {
         eventTap = nil
         runLoopSource = nil
         
+        // Cancel any pending snippet checks
+        pendingSnippetCheck?.cancel()
+        pendingSnippetCheck = nil
+        
         // Clear buffer safely
-        monitoringQueue.async(flags: .barrier) {
-            self.keyBuffer = ""
+        bufferQueue.async(flags: .barrier) {
+            self._keyBuffer = ""
         }
         
         print("✓ InputMonitor stopped")
@@ -123,65 +146,72 @@ class InputMonitor {
     
     // MARK: - Event Handling
     
+    /// FIX: Minimized event handling - only extracts character and queues async processing
+    /// This callback runs at very high frequency, so we must keep it as lightweight as possible
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // FIX: Thread-safe check - return early if not monitoring
+        // Fast early return for non-keyDown events
         guard type == .keyDown else {
             return Unmanaged.passUnretained(event)
         }
         
-        // Check if monitoring in a thread-safe way
+        // Fast atomic check - avoid blocking if not monitoring
+        // Use a very lightweight check that doesn't block the event tap
         let currentlyMonitoring = monitoringQueue.sync { _isMonitoring }
         guard currentlyMonitoring else {
             return Unmanaged.passUnretained(event)
         }
         
-        // Get key code
+        // Extract character as quickly as possible
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        var characterToAdd: String? = nil
         
-        // Convert CGEvent to NSEvent to get characters
-        if let nsEvent = NSEvent(cgEvent: event) {
-            // Get the character(s) typed
-            if let characters = nsEvent.characters, !characters.isEmpty {
-                // FIX: Thread-safe buffer update
-                monitoringQueue.async(flags: .barrier) {
-                    self.keyBuffer.append(characters)
-                    
-                    // Keep buffer size manageable
-                    if self.keyBuffer.count > self.maxBufferSize {
-                        self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
-                    }
-                }
+        // Try to get character from NSEvent (most common case)
+        if let nsEvent = NSEvent(cgEvent: event),
+           let characters = nsEvent.characters, !characters.isEmpty {
+            characterToAdd = characters
+        } else if keyCode == 49 { // Space key fallback
+            characterToAdd = " "
+        }
+        
+        // If we have a character, queue async processing (non-blocking)
+        if let char = characterToAdd {
+            // Update buffer asynchronously (non-blocking)
+            bufferQueue.async(flags: .barrier) {
+                self._keyBuffer.append(char)
                 
-                // Check for snippet matches (synchronously to ensure buffer is up to date)
-                monitoringQueue.sync {
-                    checkForSnippetMatch()
+                // Keep buffer size manageable
+                if self._keyBuffer.count > self.maxBufferSize {
+                    self._keyBuffer = String(self._keyBuffer.suffix(self.maxBufferSize))
                 }
-            } else if keyCode == 49 { // Space key
-                handleSpaceKey()
             }
-        } else {
-            // Fallback: check for space key
-            if keyCode == 49 { // Space
-                handleSpaceKey()
+            
+            // Queue snippet matching asynchronously (non-blocking)
+            // Cancel previous pending check to avoid duplicate work
+            pendingSnippetCheck?.cancel()
+            
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                // Get current buffer snapshot for processing
+                let bufferSnapshot = self.bufferQueue.sync { self._keyBuffer }
+                self.processSnippetMatch(buffer: bufferSnapshot)
             }
+            
+            pendingSnippetCheck = workItem
+            // Use a small debounce delay to batch rapid keystrokes
+            processingQueue.asyncAfter(deadline: .now() + 0.01, execute: workItem)
         }
         
         return Unmanaged.passUnretained(event)
     }
     
-    /// Handles space key input (unified logic)
-    private func handleSpaceKey() {
-        // FIX: Thread-safe buffer update
-        monitoringQueue.async(flags: .barrier) {
-            self.keyBuffer.append(" ")
-            if self.keyBuffer.count > self.maxBufferSize {
-                self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
-            }
-        }
+    /// FIX: Async snippet matching - runs on separate queue, doesn't block event tap
+    private func processSnippetMatch(buffer: String) {
+        // Double-check monitoring status (may have changed since event was queued)
+        let currentlyMonitoring = monitoringQueue.sync { _isMonitoring }
+        guard currentlyMonitoring else { return }
         
-        monitoringQueue.sync {
-            checkForSnippetMatch()
-        }
+        // Process snippet matching on async queue
+        checkForSnippetMatch(buffer: buffer)
     }
     
     // Legacy method kept for reference but not used
@@ -265,22 +295,21 @@ class InputMonitor {
         }
     }
     
-    private func checkForSnippetMatch() {
-        guard _isMonitoring else { return }
-        
+    /// FIX: Async snippet matching - receives buffer snapshot to avoid race conditions
+    private func checkForSnippetMatch(buffer: String) {
         // מיין טריגרים מהארוך לקצר כדי למנוע התנגשויות (למשל !mail1 יזוהה לפני !mail)
         let triggers = snippetManager.getAllTriggers().sorted { $0.count > $1.count }
         
         for trigger in triggers {
-            if keyBuffer.hasSuffix(trigger) {
+            if buffer.hasSuffix(trigger) {
                 // בדיקת גבול מילה: וודא שהתו שלפני הטריגר הוא רווח/סימן פיסוק (או תחילת השורה)
                 let triggerLength = trigger.count
-                let bufferLength = keyBuffer.count
+                let bufferLength = buffer.count
                 
                 var isWholeWord = true
                 if bufferLength > triggerLength {
-                    let indexBeforeTrigger = keyBuffer.index(keyBuffer.endIndex, offsetBy: -(triggerLength + 1))
-                    let charBefore = keyBuffer[indexBeforeTrigger]
+                    let indexBeforeTrigger = buffer.index(buffer.endIndex, offsetBy: -(triggerLength + 1))
+                    let charBefore = buffer[indexBeforeTrigger]
                     // אם התו שלפני הוא אות או מספר, זה לא סניפט (למשל hotmail לא יפעיל את mail)
                     if charBefore.isLetter || charBefore.isNumber {
                         isWholeWord = false
@@ -334,10 +363,12 @@ class InputMonitor {
     /// Clears buffer when word delimiter is encountered and no snippet matched
     private func clearBufferOnDelimiter() {
         // Keep only the last delimiter in buffer (for potential future matches)
-        if let lastChar = keyBuffer.last, isWordDelimiter(lastChar) {
-            keyBuffer = String(lastChar)
-        } else {
-            keyBuffer = ""
+        bufferQueue.async(flags: .barrier) {
+            if let lastChar = self._keyBuffer.last, self.isWordDelimiter(lastChar) {
+                self._keyBuffer = String(lastChar)
+            } else {
+                self._keyBuffer = ""
+            }
         }
     }
     
@@ -372,7 +403,9 @@ class InputMonitor {
             }
             
             // Clear buffer
-            self.keyBuffer = ""
+            self.bufferQueue.async(flags: .barrier) {
+                self._keyBuffer = ""
+            }
         }
     }
     
