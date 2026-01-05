@@ -85,42 +85,46 @@ class ClipboardHistoryManager: ObservableObject {
             return
         }
 
-        // Capture clipboard content (RTF + plain text)
-        guard let item = captureClipboardContent() else { return }
+        // Capture clipboard content asynchronously (RTF + plain text)
+        captureClipboardContent { [weak self] item in
+            guard let self = self, let item = item else { return }
+            
+            // Ignore empty strings
+            guard !item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        // Ignore empty strings
-        guard !item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            // Get full text for comparison (handles both preview and full text)
+            let itemFullText = item.textForPasting
 
-        // Get full text for comparison (handles both preview and full text)
-        let itemFullText = item.textForPasting
+            // Strict deduplication: Check against all items in history
+            let isDuplicate = self.history.contains { historyItem in
+                historyItem.textForPasting == itemFullText
+            }
 
-        // Strict deduplication: Check against all items in history
-        let isDuplicate = history.contains { historyItem in
-            historyItem.textForPasting == itemFullText
+            if isDuplicate {
+                print("📝 Skipping duplicate: \(item.plainTextPreview.prefix(30))...")
+                return
+            }
+
+            // Add to history
+            self.addToHistory(item)
+            self.lastCopiedText = itemFullText
         }
-
-        if isDuplicate {
-            print("📝 Skipping duplicate: \(item.plainTextPreview.prefix(30))...")
-            return
-        }
-
-        // Add to history
-        addToHistory(item)
-        lastCopiedText = itemFullText
     }
 
-    /// Captures the current clipboard content including RTF data and images
-    private func captureClipboardContent() -> ClipboardItem? {
+    /// Captures the current clipboard content including RTF data and images (async)
+    private func captureClipboardContent(completion: @escaping (ClipboardItem?) -> Void) {
         let pasteboard = NSPasteboard.general
 
         // Check for images first (TIFF or PNG)
         if let imageData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png) {
-            return captureImageContent(imageData: imageData, pasteboard: pasteboard)
+            captureImageContent(imageData: imageData, pasteboard: pasteboard, completion: completion)
+            return
         }
 
         // Try to get plain text (required for text items)
         guard let plainText = pasteboard.string(forType: .string) else {
-            return nil
+            completion(nil)
+            return
         }
 
         // Try to get RTF data (optional, preserves formatting)
@@ -144,51 +148,68 @@ class ClipboardHistoryManager: ObservableObject {
             print("🌐 Captured HTML data (\(htmlDataFound.count) bytes)")
         }
 
-        // Save RTF/HTML to disk and get paths
+        // Save RTF/HTML to disk asynchronously and chain completions
+        let group = DispatchGroup()
         var rtfDataPath: String? = nil
         var htmlDataPath: String? = nil
         
         if let rtf = rtfData {
-            rtfDataPath = saveRichData(rtf, type: .rtf)
+            group.enter()
+            saveRichData(rtf, type: .rtf) { path in
+                rtfDataPath = path
+                group.leave()
+            }
         }
         
         if let html = htmlData {
-            htmlDataPath = saveRichData(html, type: .html)
+            group.enter()
+            saveRichData(html, type: .html) { path in
+                htmlDataPath = path
+                group.leave()
+            }
         }
-
-        return ClipboardItem(
-            plainTextPreview: plainText,
-            rtfData: nil,  // Don't store in struct, only on disk
-            htmlData: nil,  // Don't store in struct, only on disk
-            timestamp: Date(),
-            isPinned: false,
-            rtfDataPath: rtfDataPath,
-            htmlDataPath: htmlDataPath,
-            imagePath: nil
-        )
+        
+        // Wait for all file saves to complete, then create item
+        group.notify(queue: .main) {
+            let item = ClipboardItem(
+                plainTextPreview: plainText,
+                rtfData: nil,  // Don't store in struct, only on disk
+                htmlData: nil,  // Don't store in struct, only on disk
+                timestamp: Date(),
+                isPinned: false,
+                rtfDataPath: rtfDataPath,
+                htmlDataPath: htmlDataPath,
+                imagePath: nil
+            )
+            completion(item)
+        }
     }
     
-    /// Captures image content from clipboard
-    private func captureImageContent(imageData: Data, pasteboard: NSPasteboard) -> ClipboardItem? {
-        // Save image to disk
-        guard let imagePath = saveImageData(imageData) else {
-            print("❌ Failed to save image to disk")
-            return nil
+    /// Captures image content from clipboard (async)
+    private func captureImageContent(imageData: Data, pasteboard: NSPasteboard, completion: @escaping (ClipboardItem?) -> Void) {
+        // Save image to disk asynchronously
+        saveImageData(imageData) { imagePath in
+            guard let imagePath = imagePath else {
+                print("❌ Failed to save image to disk")
+                completion(nil)
+                return
+            }
+            
+            // Try to get text representation if available (for image descriptions)
+            let textPreview = pasteboard.string(forType: .string) ?? "Image"
+            
+            let item = ClipboardItem(
+                plainTextPreview: textPreview,
+                rtfData: nil,
+                htmlData: nil,
+                timestamp: Date(),
+                isPinned: false,
+                rtfDataPath: nil,
+                htmlDataPath: nil,
+                imagePath: imagePath
+            )
+            completion(item)
         }
-        
-        // Try to get text representation if available (for image descriptions)
-        let textPreview = pasteboard.string(forType: .string) ?? "Image"
-        
-        return ClipboardItem(
-            plainTextPreview: textPreview,
-            rtfData: nil,
-            htmlData: nil,
-            timestamp: Date(),
-            isPinned: false,
-            rtfDataPath: nil,
-            htmlDataPath: nil,
-            imagePath: imagePath
-        )
     }
     
     // MARK: - File Storage
@@ -208,19 +229,25 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
-    /// Saves RTF/HTML data to disk and returns the file path
-    private func saveRichData(_ data: Data, type: RichDataType) -> String? {
-        let fileName = "\(UUID().uuidString).\(type.fileExtension)"
-        let fileURL = dataDirectory.appendingPathComponent(fileName)
-        
-        do {
-            try data.write(to: fileURL)
-            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-            print("✓ Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)")
-            return fileURL.path
-        } catch {
-            print("❌ Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)")
-            return nil
+    /// Saves RTF/HTML data to disk asynchronously and returns the file path via completion handler
+    private func saveRichData(_ data: Data, type: RichDataType, completion: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let fileName = "\(UUID().uuidString).\(type.fileExtension)"
+            let fileURL = self.dataDirectory.appendingPathComponent(fileName)
+            
+            do {
+                try data.write(to: fileURL)
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+                print("✓ Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)")
+                Task { @MainActor in
+                    completion(fileURL.path)
+                }
+            } catch {
+                print("❌ Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)")
+                Task { @MainActor in
+                    completion(nil)
+                }
+            }
         }
     }
     
@@ -241,19 +268,25 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
-    /// Saves image data to disk and returns the file path
-    private func saveImageData(_ data: Data) -> String? {
-        let fileName = "\(UUID().uuidString).png"
-        let fileURL = dataDirectory.appendingPathComponent(fileName)
-        
-        do {
-            try data.write(to: fileURL)
-            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-            print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
-            return fileURL.path
-        } catch {
-            print("❌ Failed to save image data to disk: \(error.localizedDescription)")
-            return nil
+    /// Saves image data to disk asynchronously and returns the file path via completion handler
+    private func saveImageData(_ data: Data, completion: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let fileName = "\(UUID().uuidString).png"
+            let fileURL = self.dataDirectory.appendingPathComponent(fileName)
+            
+            do {
+                try data.write(to: fileURL)
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+                print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
+                Task { @MainActor in
+                    completion(fileURL.path)
+                }
+            } catch {
+                print("❌ Failed to save image data to disk: \(error.localizedDescription)")
+                Task { @MainActor in
+                    completion(nil)
+                }
+            }
         }
     }
 
@@ -507,48 +540,76 @@ class ClipboardHistoryManager: ObservableObject {
     private func migrateOldHistory() {
         print("🔄 Starting clipboard history migration...")
         
+        let group = DispatchGroup()
         var migratedCount = 0
         var migratedItems: [ClipboardItem] = []
+        let itemsToMigrate = history
         
-        for item in history {
+        for item in itemsToMigrate {
             var updatedItem = item
+            var needsRTFMigration = false
+            var needsHTMLMigration = false
             
-            // Migrate RTF data if present
+            // Check what needs migration
             if let rtfData = item.rtfData, item.rtfDataPath == nil {
-                if let rtfPath = saveRichData(rtfData, type: .rtf) {
-                    // Create new item with path instead of data
-                    updatedItem = ClipboardItem(
-                        plainTextPreview: item.plainTextPreview,
-                        rtfData: nil,
-                        htmlData: item.htmlData,  // Keep for now, migrate below
-                        timestamp: item.timestamp,
-                        isPinned: item.isPinned,
-                        rtfDataPath: rtfPath,
-                        htmlDataPath: item.htmlDataPath
-                    )
-                    migratedCount += 1
+                needsRTFMigration = true
+            }
+            if let htmlData = item.htmlData, item.htmlDataPath == nil {
+                needsHTMLMigration = true
+            }
+            
+            // If no migration needed, just add the item
+            if !needsRTFMigration && !needsHTMLMigration {
+                migratedItems.append(updatedItem)
+                continue
+            }
+            
+            // Migrate RTF data if present (synchronous for migration)
+            if needsRTFMigration, let rtfData = item.rtfData {
+                group.enter()
+                saveRichData(rtfData, type: .rtf) { rtfPath in
+                    if let rtfPath = rtfPath {
+                        updatedItem = ClipboardItem(
+                            plainTextPreview: item.plainTextPreview,
+                            rtfData: nil,
+                            htmlData: item.htmlData,
+                            timestamp: item.timestamp,
+                            isPinned: item.isPinned,
+                            rtfDataPath: rtfPath,
+                            htmlDataPath: item.htmlDataPath,
+                            imagePath: item.imagePath
+                        )
+                        migratedCount += 1
+                    }
+                    group.leave()
                 }
             }
             
             // Migrate HTML data if present
-            if let htmlData = item.htmlData, item.htmlDataPath == nil {
-                if let htmlPath = saveRichData(htmlData, type: .html) {
-                    // Create new item with path instead of data
-                    updatedItem = ClipboardItem(
-                        plainTextPreview: updatedItem.plainTextPreview,
-                        rtfData: nil,
-                        htmlData: nil,  // Clear legacy data
-                        timestamp: updatedItem.timestamp,
-                        isPinned: updatedItem.isPinned,
-                        rtfDataPath: updatedItem.rtfDataPath,
-                        htmlDataPath: htmlPath
-                    )
-                    if updatedItem.rtfDataPath == nil {
-                        migratedCount += 1
+            if needsHTMLMigration, let htmlData = item.htmlData {
+                group.enter()
+                saveRichData(htmlData, type: .html) { htmlPath in
+                    if let htmlPath = htmlPath {
+                        updatedItem = ClipboardItem(
+                            plainTextPreview: updatedItem.plainTextPreview,
+                            rtfData: nil,
+                            htmlData: nil,
+                            timestamp: updatedItem.timestamp,
+                            isPinned: updatedItem.isPinned,
+                            rtfDataPath: updatedItem.rtfDataPath,
+                            htmlDataPath: htmlPath,
+                            imagePath: updatedItem.imagePath
+                        )
+                        if updatedItem.rtfDataPath == nil {
+                            migratedCount += 1
+                        }
                     }
+                    group.leave()
                 }
             }
             
+            // Wait for migrations to complete before adding item
+            group.wait()
             migratedItems.append(updatedItem)
         }
         

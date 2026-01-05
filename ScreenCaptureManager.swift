@@ -385,10 +385,18 @@ class ScreenCaptureManager {
                     let scan = OCRScan(extractedText: extractedText)
                     let nsImage = NSImage(contentsOfFile: tempFile)
                     var finalScan = scan
-                    if let previewImage = nsImage, let previewPath = OCRHistoryManager.shared.savePreviewImage(previewImage, for: scan) {
-                        finalScan = scan.withPreviewImagePath(previewPath)
+                    if let previewImage = nsImage {
+                        OCRHistoryManager.shared.savePreviewImage(previewImage, for: scan) { previewPath in
+                            if let previewPath = previewPath {
+                                let scanWithImage = scan.withPreviewImagePath(previewPath)
+                                OCRHistoryManager.shared.addScan(scanWithImage)
+                            } else {
+                                OCRHistoryManager.shared.addScan(scan)
+                            }
+                        }
+                    } else {
+                        OCRHistoryManager.shared.addScan(scan)
                     }
-                    OCRHistoryManager.shared.addScan(finalScan)
                     print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
                 }
                 

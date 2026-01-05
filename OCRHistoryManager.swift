@@ -74,58 +74,92 @@ class OCRHistoryManager: ObservableObject {
         }
     }
     
-    /// Saves a preview image and returns the path
-    func savePreviewImage(_ image: NSImage, for scan: OCRScan) -> String? {
-        // FIX: Enhanced error handling with detailed logging
-        
-        // Step 1: Validate image
-        guard image.size.width > 0 && image.size.height > 0 else {
-            print("❌ Invalid image size: \(image.size)")
-            return nil
-        }
-        
-        // Step 2: Convert to TIFF representation
-        guard let imageData = image.tiffRepresentation else {
-            print("❌ Failed to convert image to TIFF representation")
-            return nil
-        }
-        
-        // Step 3: Create bitmap representation
-        guard let bitmapRep = NSBitmapImageRep(data: imageData) else {
-            print("❌ Failed to create bitmap representation from TIFF data (\(imageData.count) bytes)")
-            return nil
-        }
-        
-        // Step 4: Convert to PNG
-        guard let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
-            print("❌ Failed to convert bitmap to PNG representation")
-            return nil
-        }
-        
-        // Step 5: Ensure directory exists
-        do {
-            try FileManager.default.createDirectory(at: previewImageDirectory, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print("❌ Failed to create preview image directory: \(error.localizedDescription)")
-            print("   Directory path: \(previewImageDirectory.path)")
-            return nil
-        }
-        
-        // Step 6: Write PNG data to file
-        let fileName = "\(scan.id.uuidString).png"
-        let fileURL = previewImageDirectory.appendingPathComponent(fileName)
-        
-        do {
-            try pngData.write(to: fileURL)
-            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-            print("✓ Preview image saved successfully: \(fileURL.path) (\(fileSize) bytes)")
-            return fileURL.path
-        } catch {
-            print("❌ Failed to write preview image to file: \(error.localizedDescription)")
-            print("   File path: \(fileURL.path)")
-            print("   PNG data size: \(pngData.count) bytes")
-            print("   Error details: \(error)")
-            return nil
+    /// Saves a preview image asynchronously (resized and compressed) and returns the path via completion
+    func savePreviewImage(_ image: NSImage, for scan: OCRScan, completion: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            // Step 1: Validate image
+            guard image.size.width > 0 && image.size.height > 0 else {
+                print("❌ Invalid image size: \(image.size)")
+                Task { @MainActor in
+                    completion(nil)
+                }
+                return
+            }
+            
+            // Step 2: Resize to thumbnail (max 300px, maintain aspect ratio)
+            let maxDimension: CGFloat = 300
+            let aspectRatio = image.size.width / image.size.height
+            let newSize: NSSize
+            if image.size.width > image.size.height {
+                newSize = NSSize(width: maxDimension, height: maxDimension / aspectRatio)
+            } else {
+                newSize = NSSize(width: maxDimension * aspectRatio, height: maxDimension)
+            }
+            
+            let resizedImage = NSImage(size: newSize)
+            resizedImage.lockFocus()
+            image.draw(in: NSRect(origin: .zero, size: newSize), from: NSRect(origin: .zero, size: image.size), operation: .sourceOver, fraction: 1.0)
+            resizedImage.unlockFocus()
+            
+            // Step 3: Convert to TIFF representation
+            guard let tiffData = resizedImage.tiffRepresentation else {
+                print("❌ Failed to convert resized image to TIFF representation")
+                Task { @MainActor in
+                    completion(nil)
+                }
+                return
+            }
+            
+            // Step 4: Create bitmap representation
+            guard let bitmapRep = NSBitmapImageRep(data: tiffData) else {
+                print("❌ Failed to create bitmap representation from TIFF data (\(tiffData.count) bytes)")
+                Task { @MainActor in
+                    completion(nil)
+                }
+                return
+            }
+            
+            // Step 5: Convert to JPEG with compression (0.7 quality)
+            guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else {
+                print("❌ Failed to convert bitmap to JPEG representation")
+                Task { @MainActor in
+                    completion(nil)
+                }
+                return
+            }
+            
+            // Step 6: Ensure directory exists
+            do {
+                try FileManager.default.createDirectory(at: self.previewImageDirectory, withIntermediateDirectories: true, attributes: nil)
+            } catch {
+                print("❌ Failed to create preview image directory: \(error.localizedDescription)")
+                print("   Directory path: \(self.previewImageDirectory.path)")
+                Task { @MainActor in
+                    completion(nil)
+                }
+                return
+            }
+            
+            // Step 7: Write JPEG data to file
+            let fileName = "\(scan.id.uuidString).jpg"
+            let fileURL = self.previewImageDirectory.appendingPathComponent(fileName)
+            
+            do {
+                try jpegData.write(to: fileURL)
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+                print("✓ Preview image saved successfully (resized & compressed): \(fileURL.path) (\(fileSize) bytes)")
+                Task { @MainActor in
+                    completion(fileURL.path)
+                }
+            } catch {
+                print("❌ Failed to write preview image to file: \(error.localizedDescription)")
+                print("   File path: \(fileURL.path)")
+                print("   JPEG data size: \(jpegData.count) bytes")
+                print("   Error details: \(error)")
+                Task { @MainActor in
+                    completion(nil)
+                }
+            }
         }
     }
     

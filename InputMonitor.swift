@@ -103,6 +103,7 @@ class InputMonitor {
         
         if let eventTap = eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
         }
         
         if let runLoopSource = runLoopSource {
@@ -156,36 +157,31 @@ class InputMonitor {
                     checkForSnippetMatch()
                 }
             } else if keyCode == 49 { // Space key
-                // FIX: Thread-safe buffer update
-                monitoringQueue.async(flags: .barrier) {
-                    self.keyBuffer.append(" ")
-                    if self.keyBuffer.count > self.maxBufferSize {
-                        self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
-                    }
-                }
-                
-                monitoringQueue.sync {
-                    checkForSnippetMatch()
-                }
+                handleSpaceKey()
             }
         } else {
             // Fallback: check for space key
             if keyCode == 49 { // Space
-                // FIX: Thread-safe buffer update
-                monitoringQueue.async(flags: .barrier) {
-                    self.keyBuffer.append(" ")
-                    if self.keyBuffer.count > self.maxBufferSize {
-                        self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
-                    }
-                }
-                
-                monitoringQueue.sync {
-                    checkForSnippetMatch()
-                }
+                handleSpaceKey()
             }
         }
         
         return Unmanaged.passUnretained(event)
+    }
+    
+    /// Handles space key input (unified logic)
+    private func handleSpaceKey() {
+        // FIX: Thread-safe buffer update
+        monitoringQueue.async(flags: .barrier) {
+            self.keyBuffer.append(" ")
+            if self.keyBuffer.count > self.maxBufferSize {
+                self.keyBuffer = String(self.keyBuffer.suffix(self.maxBufferSize))
+            }
+        }
+        
+        monitoringQueue.sync {
+            checkForSnippetMatch()
+        }
     }
     
     // Legacy method kept for reference but not used
@@ -273,15 +269,55 @@ class InputMonitor {
         // FIX: Thread-safe - check monitoring state and buffer
         guard _isMonitoring else { return }
         
-        // Check if buffer ends with any snippet trigger
+        // Get triggers sorted by length (longest first) for priority matching
         let triggers = snippetManager.getAllTriggers()
+            .sorted { $0.count > $1.count }
         
+        // Check for whole-word matches
         for trigger in triggers {
-            if keyBuffer.hasSuffix(trigger) {
+            if isWholeWordMatch(trigger: trigger, in: keyBuffer) {
                 // Found a match!
                 expandSnippet(trigger: trigger)
                 return
             }
+        }
+        
+        // Clear buffer on word boundaries if no match found
+        if let lastChar = keyBuffer.last, isWordDelimiter(lastChar) {
+            clearBufferOnDelimiter()
+        }
+    }
+    
+    /// Checks if trigger matches as a whole word (preceded by delimiter or start of buffer)
+    private func isWholeWordMatch(trigger: String, in buffer: String) -> Bool {
+        guard buffer.hasSuffix(trigger) else { return false }
+        
+        // If buffer equals trigger exactly, it's a match
+        if buffer == trigger {
+            return true
+        }
+        
+        // Check character before trigger
+        let prefixIndex = buffer.index(buffer.endIndex, offsetBy: -trigger.count)
+        let prefix = buffer[..<prefixIndex]
+        
+        // Must be at start or preceded by word delimiter
+        return prefix.isEmpty || (prefix.last.map { isWordDelimiter($0) } ?? false)
+    }
+    
+    /// Determines if a character is a word delimiter
+    private func isWordDelimiter(_ char: Character) -> Bool {
+        return char.isWhitespace || char.isNewline || 
+               [".", ",", ";", ":", "!", "?", "-", "_", "(", ")", "[", "]", "{", "}", "/", "\\"].contains(char)
+    }
+    
+    /// Clears buffer when word delimiter is encountered and no snippet matched
+    private func clearBufferOnDelimiter() {
+        // Keep only the last delimiter in buffer (for potential future matches)
+        if let lastChar = keyBuffer.last, isWordDelimiter(lastChar) {
+            keyBuffer = String(lastChar)
+        } else {
+            keyBuffer = ""
         }
     }
     

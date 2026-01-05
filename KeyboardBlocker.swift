@@ -110,6 +110,7 @@ class KeyboardBlocker {
     private func removeEventTap() {
         if let eventTap = eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
             self.eventTap = nil
         }
         

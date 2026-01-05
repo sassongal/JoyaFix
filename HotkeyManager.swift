@@ -65,6 +65,57 @@ class HotkeyManager {
     }
 
     // MARK: - Registration
+    
+    /// Installs the shared event handler if not already installed
+    private func installSharedEventHandlerIfNeeded() -> Bool {
+        guard eventHandler == nil else { return true }
+        
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                       eventKind: UInt32(kEventHotKeyPressed))
+        
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { (nextHandler, event, userData) -> OSStatus in
+                var hotkeyID = EventHotKeyID()
+                GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotkeyID
+                )
+                
+                // Check which hotkey was pressed
+                switch hotkeyID.id {
+                case 1:
+                    HotkeyManager.shared.hotkeyPressed()
+                case 2:
+                    HotkeyManager.shared.ocrHotkeyPressed()
+                case 3:
+                    HotkeyManager.shared.keyboardLockHotkeyPressed()
+                case 4:
+                    HotkeyManager.shared.promptHotkeyPressed()
+                default:
+                    break
+                }
+                
+                return noErr
+            },
+            1,
+            &eventType,
+            nil,
+            &eventHandler
+        )
+        
+        guard status == noErr else {
+            print("Failed to install event handler: \(status)")
+            return false
+        }
+        
+        return true
+    }
 
     /// Registers the global hotkey using settings
     func registerHotkey() -> Bool {
@@ -74,49 +125,9 @@ class HotkeyManager {
 
         print("🔧 Registering hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
 
-        // Create event type spec for hotkey
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                       eventKind: UInt32(kEventHotKeyPressed))
-
         // Install shared event handler if not already installed
-        if eventHandler == nil {
-            let status = InstallEventHandler(
-                GetApplicationEventTarget(),
-                { (nextHandler, event, userData) -> OSStatus in
-                    var hotkeyID = EventHotKeyID()
-                    GetEventParameter(
-                        event,
-                        EventParamName(kEventParamDirectObject),
-                        EventParamType(typeEventHotKeyID),
-                        nil,
-                        MemoryLayout<EventHotKeyID>.size,
-                        nil,
-                        &hotkeyID
-                    )
-
-                    // Check which hotkey was pressed
-                    if hotkeyID.id == 1 {
-                        HotkeyManager.shared.hotkeyPressed()
-                    } else if hotkeyID.id == 2 {
-                        HotkeyManager.shared.ocrHotkeyPressed()
-                    } else if hotkeyID.id == 3 {
-                        HotkeyManager.shared.keyboardLockHotkeyPressed()
-                    } else if hotkeyID.id == 4 {
-                        HotkeyManager.shared.promptHotkeyPressed()
-                    }
-
-                    return noErr
-                },
-                1,
-                &eventType,
-                nil,
-                &eventHandler
-            )
-
-            guard status == noErr else {
-                print("Failed to install event handler: \(status)")
-                return false
-            }
+        guard installSharedEventHandlerIfNeeded() else {
+            return false
         }
 
         // Register the hotkey
@@ -149,49 +160,9 @@ class HotkeyManager {
 
         print("🔧 Registering OCR hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
 
-        // Create event type spec for hotkey
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                       eventKind: UInt32(kEventHotKeyPressed))
-
-        // Use existing event handler
-        if eventHandler == nil {
-            let status = InstallEventHandler(
-                GetApplicationEventTarget(),
-                { (nextHandler, event, userData) -> OSStatus in
-                    var hotkeyID = EventHotKeyID()
-                    GetEventParameter(
-                        event,
-                        EventParamName(kEventParamDirectObject),
-                        EventParamType(typeEventHotKeyID),
-                        nil,
-                        MemoryLayout<EventHotKeyID>.size,
-                        nil,
-                        &hotkeyID
-                    )
-
-                    // Check which hotkey was pressed
-                    if hotkeyID.id == 1 {
-                        HotkeyManager.shared.hotkeyPressed()
-                    } else if hotkeyID.id == 2 {
-                        HotkeyManager.shared.ocrHotkeyPressed()
-                    } else if hotkeyID.id == 3 {
-                        HotkeyManager.shared.keyboardLockHotkeyPressed()
-                    } else if hotkeyID.id == 4 {
-                        HotkeyManager.shared.promptHotkeyPressed()
-                    }
-
-                    return noErr
-                },
-                1,
-                &eventType,
-                nil,
-                &eventHandler
-            )
-
-            guard status == noErr else {
-                print("Failed to install event handler: \(status)")
-                return false
-            }
+        // Install shared event handler if not already installed
+        guard installSharedEventHandlerIfNeeded() else {
+            return false
         }
 
         // Register the OCR hotkey
@@ -225,47 +196,9 @@ class HotkeyManager {
         
         print("🔧 Registering keyboard lock hotkey: Cmd+Option+L")
         
-        // Create event type spec for hotkey
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                       eventKind: UInt32(kEventHotKeyPressed))
-        
-        // Use existing event handler
-        if eventHandler == nil {
-            let status = InstallEventHandler(
-                GetApplicationEventTarget(),
-                { (nextHandler, event, userData) -> OSStatus in
-                    var hotkeyID = EventHotKeyID()
-                    GetEventParameter(
-                        event,
-                        EventParamName(kEventParamDirectObject),
-                        EventParamType(typeEventHotKeyID),
-                        nil,
-                        MemoryLayout<EventHotKeyID>.size,
-                        nil,
-                        &hotkeyID
-                    )
-                    
-                    // Check which hotkey was pressed
-                    if hotkeyID.id == 1 {
-                        HotkeyManager.shared.hotkeyPressed()
-                    } else if hotkeyID.id == 2 {
-                        HotkeyManager.shared.ocrHotkeyPressed()
-                    } else if hotkeyID.id == 3 {
-                        HotkeyManager.shared.keyboardLockHotkeyPressed()
-                    }
-                    
-                    return noErr
-                },
-                1,
-                &eventType,
-                nil,
-                &eventHandler
-            )
-            
-            guard status == noErr else {
-                print("Failed to install event handler")
-                return false
-            }
+        // Install shared event handler if not already installed
+        guard installSharedEventHandlerIfNeeded() else {
+            return false
         }
         
         // Register the keyboard lock hotkey
@@ -296,49 +229,9 @@ class HotkeyManager {
         
         print("🔧 Registering prompt enhancer hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
         
-        // Create event type spec for hotkey
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                       eventKind: UInt32(kEventHotKeyPressed))
-        
-        // Use existing event handler
-        if eventHandler == nil {
-            let status = InstallEventHandler(
-                GetApplicationEventTarget(),
-                { (nextHandler, event, userData) -> OSStatus in
-                    var hotkeyID = EventHotKeyID()
-                    GetEventParameter(
-                        event,
-                        EventParamName(kEventParamDirectObject),
-                        EventParamType(typeEventHotKeyID),
-                        nil,
-                        MemoryLayout<EventHotKeyID>.size,
-                        nil,
-                        &hotkeyID
-                    )
-                    
-                    // Check which hotkey was pressed
-                    if hotkeyID.id == 1 {
-                        HotkeyManager.shared.hotkeyPressed()
-                    } else if hotkeyID.id == 2 {
-                        HotkeyManager.shared.ocrHotkeyPressed()
-                    } else if hotkeyID.id == 3 {
-                        HotkeyManager.shared.keyboardLockHotkeyPressed()
-                    } else if hotkeyID.id == 4 {
-                        HotkeyManager.shared.promptHotkeyPressed()
-                    }
-                    
-                    return noErr
-                },
-                1,
-                &eventType,
-                nil,
-                &eventHandler
-            )
-            
-            guard status == noErr else {
-                print("Failed to install event handler")
-                return false
-            }
+        // Install shared event handler if not already installed
+        guard installSharedEventHandlerIfNeeded() else {
+            return false
         }
         
         // Register the prompt hotkey
