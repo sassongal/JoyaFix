@@ -319,7 +319,7 @@ class ScreenCaptureManager {
         // Also add local monitor for window events - this CAN consume events
         // FIX: Store the local monitor so we can remove it in cleanup
         // Add monitor once (it will catch events from all windows)
-        if let primaryWindow = overlayWindows.first {
+        if !overlayWindows.isEmpty {
             escapeKeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self = self, self.isCapturing else { return event }
                 if event.keyCode == 53 { // ESC key
@@ -474,10 +474,12 @@ class ScreenCaptureManager {
         overlayWindow?.orderOut(nil)
         
         // Small delay to ensure overlay is hidden
+        // Store completion handler before async operation for safe access
+        let completionHandler = self.completion
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self = self else { return }
             // Use screencapture CLI for screen capture
-            self.captureScreenWithCLI(rect: rect, completion: self.completion)
+            self.captureScreenWithCLI(rect: rect, completion: completionHandler)
         }
     }
     
@@ -570,7 +572,6 @@ class ScreenCaptureManager {
                     if let extractedText = text, !extractedText.isEmpty {
                         let scan = OCRScan(extractedText: extractedText)
                         let nsImage = NSImage(contentsOfFile: tempFile)
-                        var finalScan = scan
                         if let previewImage = nsImage {
                             OCRHistoryManager.shared.savePreviewImage(previewImage, for: scan) { previewPath in
                                 if let previewPath = previewPath {

@@ -66,15 +66,13 @@ class UpdateManager {
             do {
                 let updateInfo = try JSONDecoder().decode(UpdateInfo.self, from: data)
                 
-                // Compare versions
-                if self.isUpdateAvailable(localVersion: self.currentVersion, remoteVersion: updateInfo.version) {
-                    print("✓ Update available: \(updateInfo.version)")
-                    DispatchQueue.main.async {
+                // Compare versions - wrap in Task to safely access MainActor methods
+                Task { @MainActor in
+                    if self.isUpdateAvailable(localVersion: self.currentVersion, remoteVersion: updateInfo.version) {
+                        print("✓ Update available: \(updateInfo.version)")
                         completion(updateInfo)
-                    }
-                } else {
-                    print("ℹ️ App is up to date (current: \(self.currentVersion))")
-                    DispatchQueue.main.async {
+                    } else {
+                        print("ℹ️ App is up to date (current: \(self.currentVersion))")
                         completion(nil)
                     }
                 }

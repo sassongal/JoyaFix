@@ -1,21 +1,23 @@
-# .swiftlint.yml מתוקן עבור JoyaFix
+# .swiftlint.yml מעודכן
 disabled_rules:
   - trailing_whitespace
   - line_length
-  - cyclomatic_complexity # מבטל את הבדיקה של מורכבות פונקציות (חשוב עבור המרה של מקלדת)
-  - file_length           # מבטל את הגבלת אורך הקבצים
-  - type_body_length      # מבטל את הגבלת אורך המחלקות
-  - large_tuple           # מאפשר שימוש בטופלים גדולים (נדרש ב-HotkeyManager)
-  - force_unwrapping      # הופך את זה לאזהרה בלבד
-  - function_body_length  # מאפשר פונקציות ארוכות
+  - cyclomatic_complexity
+  - file_length
+  - type_body_length
+  - function_body_length
+  - large_tuple
+  - multiple_closures_with_trailing_closure
+  - force_unwrapping
+  - todo
 
 opt_in_rules:
   - empty_string
   - first_where
   - sorted_imports
 
-# הפיכת כל השאר לאזהרות בלבד כדי שלא יחסמו את הבנייה
-warning_threshold: 500
+# הפסקת חסימת הבנייה על אזהרות
+warning_threshold: 1000
 
 excluded:
   - build

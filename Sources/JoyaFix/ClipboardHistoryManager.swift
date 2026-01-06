@@ -89,7 +89,9 @@ class ClipboardHistoryManager: ObservableObject {
     /// Starts monitoring the clipboard for changes
     func startMonitoring() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            self?.checkForClipboardChanges()
+            Task { @MainActor in
+                self?.checkForClipboardChanges()
+            }
         }
         print("✓ Clipboard monitoring started")
         

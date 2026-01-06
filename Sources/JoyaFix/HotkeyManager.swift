@@ -156,7 +156,7 @@ class HotkeyManager: NSObject {
             print("❌ Failed to register conversion hotkey (Error: \(registerStatus))")
             return false
         }
-        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: convertShortcutID)
+        _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: convertShortcutID)
         print("✓ Conversion hotkey registered: \(settings.hotkeyDisplayString)")
         return true
     }
@@ -171,7 +171,7 @@ class HotkeyManager: NSObject {
             print("❌ Failed to register OCR hotkey (Error: \(registerStatus))")
             return false
         }
-        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: ocrShortcutID)
+        _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: ocrShortcutID)
         print("✓ OCR hotkey registered")
         return true
     }
@@ -184,7 +184,7 @@ class HotkeyManager: NSObject {
         let registerStatus = RegisterEventHotKey(keyCode, modifiers, keyboardLockHotkeyID, GetApplicationEventTarget(), 0, &keyboardLockHotKeyRef)
         guard registerStatus == noErr else { return false }
         
-        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: keyboardLockShortcutID)
+        _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: keyboardLockShortcutID)
         print("✓ Keyboard lock hotkey registered")
         return true
     }
@@ -197,7 +197,7 @@ class HotkeyManager: NSObject {
         let registerStatus = RegisterEventHotKey(keyCode, modifiers, promptHotkeyID, GetApplicationEventTarget(), 0, &promptHotKeyRef)
         guard registerStatus == noErr else { return false }
         
-        shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: promptShortcutID)
+        _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: promptShortcutID)
         print("✓ Prompt hotkey registered")
         return true
     }
