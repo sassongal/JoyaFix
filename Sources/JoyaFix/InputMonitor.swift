@@ -494,7 +494,7 @@ class InputMonitor {
             if success {
                 // Increased delay to ensure deletion is fully processed
                 // Adaptive delay based on trigger length and CPU load
-                let adaptiveDelay = self.calculateAdaptiveDelay(triggerLength: trigger.count)
+                let adaptiveDelay = self.calculateAdaptiveDelay(triggerLength: triggerLength)
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + adaptiveDelay) {
                     // Paste the processed snippet content
@@ -516,8 +516,8 @@ class InputMonitor {
             } else {
                 // Fallback: Use traditional backspace method if selection deletion fails
                 print("⚠️ Selection deletion failed, using backspace fallback")
-                self.deleteTriggerByBackspace(triggerLength: trigger.count) {
-                    let adaptiveDelay = self.calculateAdaptiveDelay(triggerLength: trigger.count)
+                self.deleteTriggerByBackspace(triggerLength: triggerLength) {
+                    let adaptiveDelay = self.calculateAdaptiveDelay(triggerLength: triggerLength)
                     DispatchQueue.main.asyncAfter(deadline: .now() + adaptiveDelay) {
                         self.pasteText(processedText)
                         

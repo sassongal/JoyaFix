@@ -95,7 +95,7 @@ class KeyboardShortcutService {
     /// Unregisters a shortcut
     func unregisterShortcut(identifier: String) {
         shortcutQueue.async(flags: .barrier) {
-            self.registeredShortcuts.removeAll { $0.identifier == identifier }
+            self.registeredShortcuts = self.registeredShortcuts.filter { $0.identifier != identifier }
             print("✓ Unregistered shortcut: \(identifier)")
         }
     }
@@ -104,7 +104,7 @@ class KeyboardShortcutService {
     func unregisterAllShortcuts(ofType type: RegisteredShortcut.ShortcutType) {
         shortcutQueue.async(flags: .barrier) {
             let count = self.registeredShortcuts.count
-            self.registeredShortcuts.removeAll { $0.type == type }
+            self.registeredShortcuts = self.registeredShortcuts.filter { $0.type != type }
             let removed = count - self.registeredShortcuts.count
             print("✓ Unregistered \(removed) shortcuts of type: \(type)")
         }
@@ -190,7 +190,7 @@ class KeyboardShortcutService {
             (UInt32(kVK_ANSI_W), UInt32(cmdKey), "Cmd+W (Close Window)"),
             (UInt32(kVK_ANSI_M), UInt32(cmdKey), "Cmd+M (Minimize)"),
             (UInt32(kVK_ANSI_H), UInt32(cmdKey), "Cmd+H (Hide)"),
-            (UInt32(kVK_ANSI_TAB), UInt32(cmdKey), "Cmd+Tab (App Switcher)"),
+            (UInt32(kVK_Tab), UInt32(cmdKey), "Cmd+Tab (App Switcher)"),
             (UInt32(kVK_Space), UInt32(cmdKey), "Cmd+Space (Spotlight)"),
         ]
         

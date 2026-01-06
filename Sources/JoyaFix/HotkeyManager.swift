@@ -1,9 +1,17 @@
 import Cocoa
 import Carbon
 import ApplicationServices
+import CoreFoundation
 
-class HotkeyManager {
-    static let shared = HotkeyManager()
+// Global pointer for C callback access
+private var globalHotkeyManagerInstance: HotkeyManager?
+
+class HotkeyManager: NSObject {
+    static let shared: HotkeyManager = {
+        let instance = HotkeyManager()
+        globalHotkeyManagerInstance = instance
+        return instance
+    }()
 
     private var eventHotKeyRef: EventHotKeyRef?
     private var ocrHotKeyRef: EventHotKeyRef?
@@ -26,7 +34,10 @@ class HotkeyManager {
     private let settings = SettingsManager.shared
     private let shortcutService = KeyboardShortcutService.shared
 
-    private init() {}
+    override private init() {
+        super.init()
+        globalHotkeyManagerInstance = self
+    }
 
     // MARK: - Rebind Hotkeys
 
@@ -80,36 +91,52 @@ class HotkeyManager {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                        eventKind: UInt32(kEventHotKeyPressed))
         
+        // Use C-compatible function pointer for event handler
+        // This avoids Swift closure capture issues in C callbacks
+        func hotkeyEventHandler(nextHandler: EventHandlerCallRef?, event: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus {
+            var hotkeyID = EventHotKeyID()
+            let size = MemoryLayout<EventHotKeyID>.size
+            GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                size,
+                nil,
+                &hotkeyID
+            )
+            
+            // Post notification using CFRunLoop (safe from C callbacks)
+            let notificationNameString: String
+            switch hotkeyID.id {
+            case 1:
+                notificationNameString = "HotkeyManager.hotkeyPressed"
+            case 2:
+                notificationNameString = "HotkeyManager.ocrHotkeyPressed"
+            case 3:
+                notificationNameString = "HotkeyManager.keyboardLockHotkeyPressed"
+            case 4:
+                notificationNameString = "HotkeyManager.promptHotkeyPressed"
+            default:
+                return noErr
+            }
+            
+            // Use NSObject.performSelectorOnMainThread which is safe from C callbacks
+            // We need to use NSString because performSelector requires Objective-C types
+            if let manager = globalHotkeyManagerInstance {
+                let notificationNameObj = NSString(string: notificationNameString)
+                manager.performSelector(onMainThread: #selector(HotkeyManager.postHotkeyNotificationObj(_:)), with: notificationNameObj, waitUntilDone: false)
+            }
+            
+            return noErr
+        }
+        
+        // Create C function pointer
+        let handler: EventHandlerUPP = hotkeyEventHandler
+        
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
-            { (nextHandler, event, userData) -> OSStatus in
-                var hotkeyID = EventHotKeyID()
-                GetEventParameter(
-                    event,
-                    EventParamName(kEventParamDirectObject),
-                    EventParamType(typeEventHotKeyID),
-                    nil,
-                    MemoryLayout<EventHotKeyID>.size,
-                    nil,
-                    &hotkeyID
-                )
-                
-                // Check which hotkey was pressed
-                switch hotkeyID.id {
-                case 1:
-                    HotkeyManager.shared.hotkeyPressed()
-                case 2:
-                    HotkeyManager.shared.ocrHotkeyPressed()
-                case 3:
-                    HotkeyManager.shared.keyboardLockHotkeyPressed()
-                case 4:
-                    HotkeyManager.shared.promptHotkeyPressed()
-                default:
-                    break
-                }
-                
-                return noErr
-            },
+            handler,
             1,
             &eventType,
             nil,
@@ -121,7 +148,63 @@ class HotkeyManager {
             return false
         }
         
+        // Set up notification observers
+        setupNotificationObservers()
+        
         return true
+    }
+    
+    /// Sets up notification observers for hotkey events
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleHotkeyPressed),
+            name: Notification.Name("HotkeyManager.hotkeyPressed"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOCRHotkeyPressed),
+            name: Notification.Name("HotkeyManager.ocrHotkeyPressed"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardLockHotkeyPressed),
+            name: Notification.Name("HotkeyManager.keyboardLockHotkeyPressed"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePromptHotkeyPressed),
+            name: Notification.Name("HotkeyManager.promptHotkeyPressed"),
+            object: nil
+        )
+    }
+    
+    @objc private func handleHotkeyPressed() {
+        hotkeyPressed()
+    }
+    
+    @objc private func handleOCRHotkeyPressed() {
+        ocrHotkeyPressed()
+    }
+    
+    @objc private func handleKeyboardLockHotkeyPressed() {
+        keyboardLockHotkeyPressed()
+    }
+    
+    @objc private func handlePromptHotkeyPressed() {
+        promptHotkeyPressed()
+    }
+    
+    func postHotkeyNotification(_ notificationNameString: String) {
+        let notificationName = Notification.Name(notificationNameString)
+        NotificationCenter.default.post(name: notificationName, object: nil)
+    }
+    
+    @objc func postHotkeyNotificationObj(_ notificationNameString: NSString) {
+        postHotkeyNotification(notificationNameString as String)
     }
 
     /// Registers the global hotkey using settings

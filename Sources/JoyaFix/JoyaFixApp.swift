@@ -14,6 +14,7 @@ struct JoyaFixApp: App {
     }
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
@@ -50,16 +51,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        print("🚀 applicationDidFinishLaunching called")
         // Initialize Pulse logging system for network request logging
         // Pulse automatically intercepts URLSession requests when imported
         // For full UI integration, import PulseUI and add PulseView to your settings
         
         // Create the status bar item
+        print("📊 Creating status bar item...")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        print("✓ Status bar item created: \(statusItem != nil)")
 
         if let button = statusItem?.button {
+            print("✓ Status bar button exists")
             // Fail-safe logo loading for menubar icon
             if let logoImage = loadMenubarLogo() {
+                print("✓ Logo loaded successfully")
                 // Resize logo to menubar size (22px)
                 let resizedLogo = NSImage(size: NSSize(width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize))
                 resizedLogo.lockFocus()
@@ -70,17 +76,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 resizedLogo.unlockFocus()
                 resizedLogo.isTemplate = true  // Enable template mode for Dark Mode support
                 button.image = resizedLogo
+                print("✓ Logo set on button")
             } else {
                 // Fallback to text icon if logo not found
                 button.title = "א/A"
-                print("⚠️ Logo not found - using text fallback")
+                print("⚠️ Logo not found - using text fallback: 'א/A'")
             }
 
             // Set up button action
             button.action = #selector(statusBarButtonClicked)
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            print("✓ Button actions configured")
+        } else {
+            print("❌ Status bar button is nil!")
         }
+        
+        print("✅ Status bar setup complete")
 
         // Create popover
         setupPopover()
@@ -136,8 +148,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let historyView = HistoryView(
             onPasteItem: { [weak self] item, plainTextOnly in
-                self?.clipboardManager.pasteItem(item, simulatePaste: true, plainTextOnly: plainTextOnly)
-                self?.closePopover()
+                Task { @MainActor in
+                    self?.clipboardManager.pasteItem(item, simulatePaste: true, plainTextOnly: plainTextOnly)
+                    self?.closePopover()
+                }
             },
             onClose: { [weak self] in
                 self?.closePopover()

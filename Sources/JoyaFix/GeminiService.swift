@@ -224,10 +224,10 @@ class GeminiService {
                 // Handle rate limit (429)
                 if httpResponse.statusCode == 429 {
                     print("⚠️ Cloud OCR rate limit exceeded (HTTP 429)")
-                    let waitTime = OCRRateLimiter.shared.timeUntilNextRequest()
-                    let requestCount = OCRRateLimiter.shared.currentRequestCount
-                    Task { @MainActor in
-                        self.showRateLimitAlert(waitTime: Int(waitTime), requestCount: requestCount)
+                    Task { @MainActor [weak self] in
+                        let waitTime = OCRRateLimiter.shared.timeUntilNextRequest()
+                        let requestCount = OCRRateLimiter.shared.currentRequestCount
+                        self?.showRateLimitAlert(waitTime: Int(waitTime), requestCount: requestCount)
                     }
                     completion(nil)
                     return

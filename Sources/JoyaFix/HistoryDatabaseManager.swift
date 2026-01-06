@@ -249,8 +249,7 @@ class HistoryDatabaseManager {
                 print("⚠️ Could not recover OCR history: \(error.localizedDescription)")
             }
             
-            // Close the corrupted database
-            tempQueue = nil
+            // Close the corrupted database (DatabaseQueue automatically closes when deallocated)
             
             // Reset database
             resetDatabase()

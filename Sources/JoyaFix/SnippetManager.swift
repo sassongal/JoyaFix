@@ -276,7 +276,7 @@ class SnippetManager: ObservableObject {
         }
         
         // Validate trigger doesn't contain only whitespace
-        guard snippet.trigger.trimmingCharacters(in: .whitespacesAndNewlines).count > 0 else {
+        guard !snippet.trigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return (false, "Snippet trigger cannot be only whitespace")
         }
         
