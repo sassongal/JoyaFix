@@ -37,11 +37,12 @@ struct KeyboardShortcutsView: View {
                                 shortcut: settings.hotkeyDisplayString,
                                 description: "Convert selected text between Hebrew and English keyboard layouts"
                             ),
-                            ShortcutItem(
-                                name: "OCR Screen Capture",
-                                shortcut: hotkeyDisplayString(keyCode: settings.ocrHotkeyKeyCode, modifiers: settings.ocrHotkeyModifiers),
-                                description: "Capture screen region and extract text using OCR"
-                            ),
+                            // TEMPORARILY DISABLED: OCR feature is not working yet
+                            // ShortcutItem(
+                            //     name: "OCR Screen Capture",
+                            //     shortcut: hotkeyDisplayString(keyCode: settings.ocrHotkeyKeyCode, modifiers: settings.ocrHotkeyModifiers),
+                            //     description: "Capture screen region and extract text using OCR"
+                            // ),
                             ShortcutItem(
                                 name: "Keyboard Cleaner",
                                 shortcut: "⌘⌥L",
@@ -78,23 +79,24 @@ struct KeyboardShortcutsView: View {
                         ]
                     )
                     
+                    // TEMPORARILY DISABLED: OCR feature is not working yet
                     // OCR Section
-                    ShortcutSection(
-                        title: "OCR Screen Capture",
-                        description: "Shortcuts available during OCR screen selection",
-                        shortcuts: [
-                            ShortcutItem(
-                                name: "Confirm Selection",
-                                shortcut: "↩ (Enter)",
-                                description: "Press Enter after selecting a region to start OCR"
-                            ),
-                            ShortcutItem(
-                                name: "Cancel Selection",
-                                shortcut: "⎋ (ESC)",
-                                description: "Press ESC to cancel OCR screen capture"
-                            )
-                        ]
-                    )
+                    // ShortcutSection(
+                    //     title: "OCR Screen Capture",
+                    //     description: "Shortcuts available during OCR screen selection",
+                    //     shortcuts: [
+                    //         ShortcutItem(
+                    //             name: "Confirm Selection",
+                    //             shortcut: "↩ (Enter)",
+                    //             description: "Press Enter after selecting a region to start OCR"
+                    //         ),
+                    //         ShortcutItem(
+                    //             name: "Cancel Selection",
+                    //             shortcut: "⎋ (ESC)",
+                    //             description: "Press ESC to cancel OCR screen capture"
+                    //         )
+                    //     ]
+                    // )
                     
                     // Tips Section
                     VStack(alignment: .leading, spacing: 12) {

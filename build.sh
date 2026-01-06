@@ -44,8 +44,9 @@ cp "$SPM_BINARY" "$MACOS_DIR/$APP_NAME"
 # הוספת הרשאות הרצה (חיוני להפעלת האפליקציה)
 chmod +x "$MACOS_DIR/$APP_NAME"
 
-# העתקת משאבים (לוגו, סאונד, תרגום)
+# העתקת משאבים (לוגו, סאונד, תרגום, אייקון)
 # מעתיק גם מהתיקייה החדשה וגם מהישנה ליתר ביטחון
+[ -f "Sources/JoyaFix/Resources/JoyaFix.icns" ] && cp "Sources/JoyaFix/Resources/JoyaFix.icns" "$RESOURCES_DIR/"
 [ -f "Sources/JoyaFix/Resources/FLATLOGO.png" ] && cp "Sources/JoyaFix/Resources/FLATLOGO.png" "$RESOURCES_DIR/"
 [ -f "FLATLOGO.png" ] && cp "FLATLOGO.png" "$RESOURCES_DIR/"
 [ -f "Sources/JoyaFix/Resources/success.wav" ] && cp "Sources/JoyaFix/Resources/success.wav" "$RESOURCES_DIR/"

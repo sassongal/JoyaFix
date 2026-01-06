@@ -64,7 +64,9 @@ class PromptEnhancerManager {
             // Step 5: Read from clipboard
             guard let selectedText = self.readFromClipboard(), !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 print("❌ No text selected or clipboard is empty")
-                self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
+                Task { @MainActor in
+                    self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
+                }
                 return
             }
             
@@ -77,7 +79,10 @@ class PromptEnhancerManager {
                 GeminiService.shared.sendPrompt(metaPrompt) { enhancedPrompt in
                     guard let enhancedPrompt = enhancedPrompt, !enhancedPrompt.isEmpty else {
                         print("❌ Failed to enhance prompt")
-                        self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.api.failed", comment: "API request failed"))
+                        // Ensure alert is shown on Main Thread
+                        Task { @MainActor in
+                            self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.api.failed", comment: "API request failed"))
+                        }
                         return
                     }
                     

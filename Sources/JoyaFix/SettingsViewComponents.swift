@@ -55,12 +55,19 @@ struct GeneralSettingsTab: View {
                         .padding(8)
                     }
 
+                    // TEMPORARILY DISABLED: OCR feature is not working yet
                     // OCR Hotkey Section
-                    GroupBox(label: Label(NSLocalizedString("settings.ocr.hotkey", comment: "OCR hotkey"), systemImage: "viewfinder")) {
+                    GroupBox(label: Label(NSLocalizedString("settings.ocr.hotkey", comment: "OCR hotkey") + " (בקרוב)", systemImage: "viewfinder")) {
                         VStack(alignment: .leading, spacing: 12) {
+                            Text("פונקציית OCR זמינה בקרוב")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.bottom, 4)
+                            
                             Text(NSLocalizedString("settings.ocr.hotkey.description", comment: "OCR hotkey description"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                                .opacity(0.6)
 
                             HotkeyRecorderButton(
                                 isRecording: $isRecordingOCRHotkey,
@@ -70,6 +77,8 @@ struct GeneralSettingsTab: View {
                                 localOCRModifiers = modifiers
                                 hasUnsavedChanges = true
                             }
+                            .disabled(true)
+                            .opacity(0.6)
                         }
                         .padding(8)
                     }
@@ -192,10 +201,18 @@ struct GeneralSettingsTab: View {
                         .padding(8)
                     }
 
+                    // TEMPORARILY DISABLED: OCR feature is not working yet
                     // OCR Configuration Section
-                    GroupBox(label: Label(NSLocalizedString("settings.ocr.configuration", comment: "OCR configuration"), systemImage: "cloud.fill")) {
+                    GroupBox(label: Label(NSLocalizedString("settings.ocr.configuration", comment: "OCR configuration") + " (בקרוב)", systemImage: "cloud.fill")) {
                         VStack(alignment: .leading, spacing: 12) {
+                            Text("פונקציית OCR זמינה בקרוב")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.bottom, 4)
+                            
                             Toggle(NSLocalizedString("settings.ocr.use.cloud", comment: "Use cloud OCR"), isOn: $localUseCloudOCR)
+                                .disabled(true)
+                                .opacity(0.6)
                                 .onChange(of: localUseCloudOCR) { _, _ in
                                     hasUnsavedChanges = true
                                 }

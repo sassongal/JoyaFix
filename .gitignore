@@ -136,3 +136,6 @@ build/
 *~
 .DS_Store
 
+# Icon generation temporary files
+*.iconset/
+

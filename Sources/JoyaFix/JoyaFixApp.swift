@@ -52,6 +52,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🚀 applicationDidFinishLaunching called")
+        
+        // CRITICAL: Synchronize permissions with system on startup
+        // This ensures we have the latest permission status and clears any stale cache
+        PermissionManager.shared.synchronizePermissions()
+        print("✓ Permissions synchronized with system")
+        
         // Initialize Pulse logging system for network request logging
         // Pulse automatically intercepts URLSession requests when imported
         // For full UI integration, import PulseUI and add PulseView to your settings
@@ -109,23 +115,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // CRITICAL FIX: Always register hotkeys, regardless of permission status
         // Permissions will be checked when hotkeys are actually pressed
         let convertSuccess = HotkeyManager.shared.registerHotkey()
-        let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
+        // TEMPORARILY DISABLED: OCR feature is not working yet
+        // let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
         let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
         let promptSuccess = HotkeyManager.shared.registerPromptHotkey()
 
+        // TEMPORARILY DISABLED: OCR feature is not working yet
+        let ocrSuccess = true // Placeholder since OCR is disabled
         if convertSuccess && ocrSuccess && keyboardLockSuccess && promptSuccess {
             print("✓ Hotkeys registered successfully")
             print("  - Text conversion hotkey registered")
-            print("  - OCR hotkey registered")
+            // print("  - OCR hotkey registered") // TEMPORARILY DISABLED
             print("  - Keyboard lock hotkey registered")
             print("  - Prompt enhancer hotkey registered")
         } else {
             if !convertSuccess {
                 print("✗ Failed to register conversion hotkey")
             }
-            if !ocrSuccess {
-                print("✗ Failed to register OCR hotkey")
-            }
+            // if !ocrSuccess { // TEMPORARILY DISABLED
+            //     print("✗ Failed to register OCR hotkey")
+            // }
             if !keyboardLockSuccess {
                 print("✗ Failed to register keyboard lock hotkey")
             }
@@ -213,15 +222,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        // Add OCR menu item
-        let ocrItem = NSMenuItem(
-            title: NSLocalizedString("menu.extract.text", comment: "Extract text"),
-            action: #selector(extractTextFromScreen),
-            keyEquivalent: "x"
-        )
-        ocrItem.keyEquivalentModifierMask = [.command, .option]
-        ocrItem.target = self
-        menu.addItem(ocrItem)
+        // TEMPORARILY DISABLED: OCR feature is not working yet
+        // Add OCR menu item (disabled)
+        // let ocrItem = NSMenuItem(
+        //     title: NSLocalizedString("menu.extract.text", comment: "Extract text") + " (בקרוב)",
+        //     action: #selector(extractTextFromScreen),
+        //     keyEquivalent: "x"
+        // )
+        // ocrItem.keyEquivalentModifierMask = [.command, .option]
+        // ocrItem.target = self
+        // ocrItem.isEnabled = false
+        // menu.addItem(ocrItem)
         
         // Add Prompt Enhancer menu item
         let promptItem = NSMenuItem(
@@ -329,18 +340,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Extracts text from screen using OCR
+    /// TEMPORARILY DISABLED: OCR feature is not working yet
     @objc func extractTextFromScreen() {
-        // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
-        // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
-        Task { @MainActor in
-            ScreenCaptureManager.shared.startScreenCapture { extractedText in
-                if let text = extractedText, !text.isEmpty {
-                    print("✓ OCR completed: \(text.count) characters extracted and saved to history")
-                } else {
-                    print("⚠️ OCR was cancelled or failed")
-                }
-            }
-        }
+        // Show "coming soon" message
+        let alert = NSAlert()
+        alert.messageText = "OCR זמין בקרוב"
+        alert.informativeText = "פונקציית OCR נמצאת בפיתוח ותהיה זמינה בקרוב."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+        alert.runModal()
+        
+        // TEMPORARILY DISABLED CODE:
+        // // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
+        // // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
+        // Task { @MainActor in
+        //     ScreenCaptureManager.shared.startScreenCapture { extractedText in
+        //         if let text = extractedText, !text.isEmpty {
+        //             print("✓ OCR completed: \(text.count) characters extracted and saved to history")
+        //         } else {
+        //             print("⚠️ OCR was cancelled or failed")
+        //         }
+        //     }
+        // }
     }
     
     /// Enhances selected text prompt
@@ -436,6 +457,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         } else {
+            // Synchronize permissions before checking (ensure fresh status)
+            PermissionManager.shared.synchronizePermissions()
             // Start InputMonitor if permissions are granted
             if PermissionManager.shared.isAccessibilityTrusted() {
                 InputMonitor.shared.startMonitoring()

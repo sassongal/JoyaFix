@@ -101,7 +101,8 @@ struct OnboardingView: View {
     }
     
     private func checkPermissions() {
-        accessibilityGranted = PermissionManager.shared.isAccessibilityTrusted()
+        // Use refreshAccessibilityStatus to force fresh check (bypass cache)
+        accessibilityGranted = PermissionManager.shared.refreshAccessibilityStatus()
         screenRecordingGranted = PermissionManager.shared.isScreenRecordingTrusted()
     }
     
