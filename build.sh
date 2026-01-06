@@ -132,25 +132,48 @@ fi
 # Create PkgInfo
 echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
-# Clean bundle before signing (THIS FIXES THE ERROR)
-echo "🧹 Cleaning bundle metadata..."
-# Remove all extended attributes
-xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-# Remove .DS_Store files
-find "$APP_BUNDLE" -name ".DS_Store" -delete 2>/dev/null || true
-# Remove AppleDouble files (._*)
-find "$APP_BUNDLE" -name "._*" -delete 2>/dev/null || true
-# Use dot_clean to remove resource forks and Finder metadata (macOS specific)
-if command -v dot_clean &> /dev/null; then
-    dot_clean -m "$APP_BUNDLE" 2>/dev/null || true
+# ---------------------------------------------------------
+# SIGNING SECTION (Replace from here to end of file)
+# ---------------------------------------------------------
+
+echo "🧹 Preparing for signing..."
+# Ensure we have write permissions to clean files
+chmod -R u+w "$APP_BUNDLE"
+
+# 1. Clean and Sign Frameworks First (Inside-Out)
+if [ -d "$FRAMEWORKS_DIR" ]; then
+    echo "🔗 Signing frameworks..."
+    find "$FRAMEWORKS_DIR" -name "*.framework" -depth | while read framework; do
+        # Clean specific framework before signing
+        xattr -cr "$framework"
+        # Sign with --deep for the framework itself to handle its internal versioning
+        codesign --force --deep --sign - "$framework"
+    done
 fi
 
-# Add Ad-Hoc Code Signature (CRITICAL FOR RUNNING)
-echo "🔏 Signing app bundle..."
-codesign --force --deep --sign - "$APP_BUNDLE"
+# 2. Clean Main App Bundle
+echo "🧹 Final cleanup of app bundle..."
+# Delete metadata files
+find "$APP_BUNDLE" -name ".DS_Store" -delete
+find "$APP_BUNDLE" -name "._*" -delete
+# Strip attributes from the entire bundle one last time
+xattr -cr "$APP_BUNDLE"
 
-echo "✅ Build complete!"
-echo "📂 App bundle created at: $APP_BUNDLE"
-echo ""
-echo "To run the app:"
-echo "  open $APP_BUNDLE"
+# 3. Sign Main App Bundle (WITHOUT --deep)
+echo "🔏 Signing app bundle..."
+# Note: We do NOT use --deep here because we manually signed frameworks above.
+# Using --deep on the main bundle often causes the "detritus" error.
+codesign --force --sign - "$APP_BUNDLE"
+
+# Verify signature
+echo "🔍 Verifying signature..."
+if codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"; then
+    echo "✅ Build complete and signed!"
+    echo "📂 App bundle created at: $APP_BUNDLE"
+    echo ""
+    echo "To run the app:"
+    echo "  open $APP_BUNDLE"
+else
+    echo "❌ Signature verification failed."
+    exit 1
+fi
