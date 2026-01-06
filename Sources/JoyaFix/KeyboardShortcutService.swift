@@ -55,8 +55,8 @@ class KeyboardShortcutService {
         return shortcutQueue.sync(flags: .barrier) {
             let shortcut = RegisteredShortcut(keyCode: keyCode, modifiers: modifiers, type: .globalHotkey, identifier: identifier)
             
-            // Check for conflicts
-            if hasConflict(with: shortcut) {
+            // Check for conflicts (use unsafe version since we're already in sync context)
+            if hasConflictUnsafe(with: shortcut) {
                 print("⚠️ Shortcut conflict detected for \(identifier): keyCode=\(keyCode), modifiers=\(modifiers)")
                 return false
             }
@@ -124,28 +124,36 @@ class KeyboardShortcutService {
     /// Checks if a shortcut conflicts with existing registered shortcuts
     /// - Parameter shortcut: The shortcut to check
     /// - Returns: true if conflict exists, false otherwise
-    func hasConflict(with shortcut: RegisteredShortcut) -> Bool {
-        return shortcutQueue.sync {
-            // Check for exact match (same keyCode + modifiers)
-            let hasExactMatch = registeredShortcuts.contains { existing in
+    /// Note: This method assumes it's called from within shortcutQueue context
+    private func hasConflictUnsafe(with shortcut: RegisteredShortcut) -> Bool {
+        // Check for exact match (same keyCode + modifiers)
+        let hasExactMatch = registeredShortcuts.contains { existing in
+            existing.keyCode == shortcut.keyCode &&
+            existing.modifiers == shortcut.modifiers &&
+            existing.identifier != shortcut.identifier
+        }
+        
+        if hasExactMatch {
+            let conflicting = registeredShortcuts.first { existing in
                 existing.keyCode == shortcut.keyCode &&
                 existing.modifiers == shortcut.modifiers &&
                 existing.identifier != shortcut.identifier
             }
-            
-            if hasExactMatch {
-                let conflicting = registeredShortcuts.first { existing in
-                    existing.keyCode == shortcut.keyCode &&
-                    existing.modifiers == shortcut.modifiers &&
-                    existing.identifier != shortcut.identifier
-                }
-                if let conflicting = conflicting {
-                    print("⚠️ Conflict: \(shortcut.identifier) conflicts with \(conflicting.identifier)")
-                }
-                return true
+            if let conflicting = conflicting {
+                print("⚠️ Conflict: \(shortcut.identifier) conflicts with \(conflicting.identifier)")
             }
-            
-            return false
+            return true
+        }
+        
+        return false
+    }
+    
+    /// Checks if a shortcut conflicts with existing registered shortcuts (public API with sync)
+    /// - Parameter shortcut: The shortcut to check
+    /// - Returns: true if conflict exists, false otherwise
+    func hasConflict(with shortcut: RegisteredShortcut) -> Bool {
+        return shortcutQueue.sync {
+            hasConflictUnsafe(with: shortcut)
         }
     }
     
@@ -157,7 +165,7 @@ class KeyboardShortcutService {
     func isKeyCombinationAvailable(keyCode: UInt32, modifiers: UInt32) -> Bool {
         return shortcutQueue.sync {
             let shortcut = RegisteredShortcut(keyCode: keyCode, modifiers: modifiers, type: .globalHotkey, identifier: "check")
-            return !hasConflict(with: shortcut)
+            return !hasConflictUnsafe(with: shortcut)
         }
     }
     
