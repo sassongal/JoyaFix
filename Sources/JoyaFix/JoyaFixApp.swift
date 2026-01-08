@@ -51,12 +51,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("🚀 applicationDidFinishLaunching called")
+        // Setup crash reporting first
+        CrashReporter.setup()
+        
+        Logger.info("🚀 applicationDidFinishLaunching called")
         
         // CRITICAL: Synchronize permissions with system on startup
         // This ensures we have the latest permission status and clears any stale cache
         PermissionManager.shared.synchronizePermissions()
-        print("✓ Permissions synchronized with system")
+        Logger.info("✓ Permissions synchronized with system")
         
         // Initialize Pulse logging system for network request logging
         // Pulse automatically intercepts URLSession requests when imported
@@ -115,26 +118,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // CRITICAL FIX: Always register hotkeys, regardless of permission status
         // Permissions will be checked when hotkeys are actually pressed
         let convertSuccess = HotkeyManager.shared.registerHotkey()
-        // TEMPORARILY DISABLED: OCR feature is not working yet
-        // let ocrSuccess = HotkeyManager.shared.registerOCRHotkey()
+        // let ocrSuccess = HotkeyManager.shared.registerOCRHotkey() // Disabled
         let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
         let promptSuccess = HotkeyManager.shared.registerPromptHotkey()
 
-        // TEMPORARILY DISABLED: OCR feature is not working yet
-        let ocrSuccess = true // Placeholder since OCR is disabled
-        if convertSuccess && ocrSuccess && keyboardLockSuccess && promptSuccess {
+        if convertSuccess && keyboardLockSuccess && promptSuccess {
             print("✓ Hotkeys registered successfully")
             print("  - Text conversion hotkey registered")
-            // print("  - OCR hotkey registered") // TEMPORARILY DISABLED
             print("  - Keyboard lock hotkey registered")
             print("  - Prompt enhancer hotkey registered")
         } else {
             if !convertSuccess {
                 print("✗ Failed to register conversion hotkey")
             }
-            // if !ocrSuccess { // TEMPORARILY DISABLED
-            //     print("✗ Failed to register OCR hotkey")
-            // }
+            if !convertSuccess {
+                print("✗ Failed to register conversion hotkey")
+            }
+            // if !ocrSuccess { print("✗ Failed to register OCR hotkey") }
             if !keyboardLockSuccess {
                 print("✗ Failed to register keyboard lock hotkey")
             }
@@ -142,6 +142,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("✗ Failed to register prompt enhancer hotkey")
             }
         }
+        
+        // OCR Hotkey disabled for now (feature refactored to upcoming)
+        // HotkeyManager.shared.registerOCRHotkey()
         
         // Check if this is first run and show onboarding
         checkAndShowOnboarding()
@@ -195,13 +198,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showPopover(relativeTo view: NSView) {
-        // Recreate the popover content to refresh the view
+        // Recreate the popover content to refresh the view state
         setupPopover()
-
+        
+        Logger.info("📂 Showing History Popover")
+        
+        // Show immediately without delay
         popover?.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
-
-        // Activate the app to ensure keyboard input works
         NSApp.activate(ignoringOtherApps: true)
+        
+        // Refresh history in background just in case
+        Task { @MainActor in
+            // Trigger property access to ensure latest data
+            if !clipboardManager.history.isEmpty {
+                Logger.info("📚 History contains \(clipboardManager.history.count) items")
+            } else {
+                Logger.info("⚠️ History is empty")
+            }
+        }
     }
 
     private func closePopover() {
@@ -222,17 +236,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        // TEMPORARILY DISABLED: OCR feature is not working yet
-        // Add OCR menu item (disabled)
-        // let ocrItem = NSMenuItem(
-        //     title: NSLocalizedString("menu.extract.text", comment: "Extract text") + " (בקרוב)",
-        //     action: #selector(extractTextFromScreen),
-        //     keyEquivalent: "x"
-        // )
+#if false
+        // Add OCR menu item
+        // Add OCR menu item (Disabled)
+        let ocrItem = NSMenuItem(
+            title: NSLocalizedString("menu.extract.text", comment: "Extract text") + " (" + NSLocalizedString("menu.coming.soon", comment: "Coming Soon") + ")",
+            action: nil, // Non-interactive
+            keyEquivalent: ""
+        )
         // ocrItem.keyEquivalentModifierMask = [.command, .option]
-        // ocrItem.target = self
-        // ocrItem.isEnabled = false
-        // menu.addItem(ocrItem)
+        ocrItem.target = self
+        ocrItem.isEnabled = false // Non-interactive
+        menu.addItem(ocrItem)
+#endif
+
         
         // Add Prompt Enhancer menu item
         let promptItem = NSMenuItem(
@@ -243,6 +260,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         promptItem.keyEquivalentModifierMask = [.command, .option]
         promptItem.target = self
         menu.addItem(promptItem)
+        
+        // Add Smart Translate menu item (New Feature)
+        let translateItem = NSMenuItem(
+            title: "Smart Translate (AI)",
+            action: #selector(smartTranslate),
+            keyEquivalent: "t"
+        )
+        translateItem.keyEquivalentModifierMask = [.command, .shift] 
+        translateItem.target = self
+        menu.addItem(translateItem)
         
         // Add Keyboard Cleaner menu item
         let keyboardCleanerItem = NSMenuItem(
@@ -339,29 +366,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyManager.shared.performTextConversion()
     }
 
+#if false
     /// Extracts text from screen using OCR
-    /// TEMPORARILY DISABLED: OCR feature is not working yet
     @objc func extractTextFromScreen() {
-        // Show "coming soon" message
-        let alert = NSAlert()
-        alert.messageText = "OCR זמין בקרוב"
-        alert.informativeText = "פונקציית OCR נמצאת בפיתוח ותהיה זמינה בקרוב."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
-        alert.runModal()
+        // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
+        // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
+        Task { @MainActor in
+            ScreenCaptureManager.shared.startScreenCapture { extractedText in
+                if let text = extractedText, !text.isEmpty {
+                    print("✓ OCR completed: \(text.count) characters extracted and saved to history")
+                } else {
+                    print("⚠️ OCR was cancelled or failed")
+                }
+            }
+        }
+    }
+#endif
+
+    
+    /// Translates selected text using AI Context-Aware Translation
+    @objc func smartTranslate() {
+        // Check permissions first
+        guard PermissionManager.shared.isAccessibilityTrusted() else {
+             PermissionManager.shared.openAccessibilitySettings()
+             return
+        }
         
-        // TEMPORARILY DISABLED CODE:
-        // // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
-        // // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
-        // Task { @MainActor in
-        //     ScreenCaptureManager.shared.startScreenCapture { extractedText in
-        //         if let text = extractedText, !text.isEmpty {
-        //             print("✓ OCR completed: \(text.count) characters extracted and saved to history")
-        //         } else {
-        //             print("⚠️ OCR was cancelled or failed")
-        //         }
-        //     }
-        // }
+        Task { @MainActor in
+            TranslationManager.shared.translateSelectedText()
+        }
     }
     
     /// Enhances selected text prompt

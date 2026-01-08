@@ -12,11 +12,24 @@
 "about.feature.snippets" = "Text Snippets & Auto-Expansion";
 "about.feature.clipboard" = "Advanced Clipboard History";
 
+/* Hotkey Duplicate Errors */
+"hotkey.duplicate.title" = "Duplicate Hotkey";
+"hotkey.duplicate.message" = "This hotkey is already in use. Please choose a different one.";
+"hotkey.duplicate.between" = "Hotkeys %@ and %@ use the same shortcut. Please change one of them.";
+
+/* Settings - Show Onboarding */
+"settings.show.onboarding" = "Show Onboarding Again";
+"settings.show.onboarding.button" = "Show Again";
+
+/* About - What's New */
+"about.whats.new" = "What's New";
+
 /* Onboarding */
 "onboarding.welcome.title" = "Welcome to JoyaFix";
 "onboarding.welcome.subtitle" = "Your Ultimate Mac Utility";
 "onboarding.welcome.description" = "Transform your workflow with smart text conversion,\nOCR, snippets, and more.";
 "onboarding.features.title" = "Powerful Features";
+"onboarding.features.subtitle" = "Discover what makes JoyaFix special";
 "onboarding.feature.convert.title" = "Fix Hebrew/English";
 "onboarding.feature.convert.description" = "Instantly convert between Hebrew and English keyboard layouts";
 "onboarding.feature.ocr.title" = "Smart OCR";
@@ -25,6 +38,22 @@
 "onboarding.feature.snippets.description" = "Create shortcuts that expand into full text automatically";
 "onboarding.feature.snippets.example" = "Example: Type '!mail' → expands to 'gal@joyatech.com'";
 "onboarding.ai.features.note" = "AI features (Prompt Enhancer) require a free Gemini API Key. Get yours from Google AI Studio.";
+
+/* Detailed Features */
+"onboarding.detailed.features.title" = "Complete Feature Guide";
+"onboarding.detailed.features.subtitle" = "Everything you need to know about JoyaFix";
+"onboarding.detailed.convert.title" = "Smart Text Conversion";
+"onboarding.detailed.convert.description" = "Automatically detect and convert text between Hebrew and English keyboard layouts. Preserves formatting, handles uppercase, and works with rich text.";
+"onboarding.detailed.ocr.title" = "Advanced OCR";
+"onboarding.detailed.ocr.description" = "Extract text from any screen region using cloud AI (Gemini) or local Vision framework. Supports multiple monitors and preserves text formatting.";
+"onboarding.detailed.snippets.title" = "Text Snippets & Auto-Expansion";
+"onboarding.detailed.snippets.description" = "Create custom shortcuts that automatically expand into full text. Supports variables, conditionals, and dynamic content like dates and clipboard.";
+"onboarding.detailed.clipboard.title" = "Advanced Clipboard History";
+"onboarding.detailed.clipboard.description" = "Rich clipboard history with search, pinning, and paste as plain text. Supports RTF, HTML, and plain text with smart categorization.";
+"onboarding.detailed.keyboard.title" = "Keyboard Cleaner Mode";
+"onboarding.detailed.keyboard.description" = "Lock your keyboard to prevent accidental input while cleaning. Visual overlay shows lock status. Unlock with hotkey or hold ESC for 3 seconds.";
+"onboarding.detailed.ai.title" = "AI Prompt Enhancer";
+"onboarding.detailed.ai.description" = "Transform raw text into professional, structured LLM prompts using Google Gemini AI. Review and refine prompts before use.";
 "onboarding.permissions.title" = "Permissions Required";
 "onboarding.permissions.description" = "JoyaFix needs the following permissions to work properly:";
 "onboarding.permissions.accessibility.title" = "Accessibility";
@@ -52,6 +81,12 @@
 "settings.behavior" = "Behavior";
 "settings.behavior.play.sound" = "Play sound on text conversion";
 "settings.behavior.auto.paste" = "Auto-paste after conversion";
+"settings.api.configuration" = "API Configuration";
+"settings.api.configuration.description" = "Configure your Google Gemini API key for AI features (Prompt Enhancer and Cloud OCR).";
+"settings.api.gemini.key" = "Gemini API Key";
+"settings.api.gemini.key.placeholder" = "Enter your Gemini API key";
+"settings.api.gemini.key.description" = "Get your free API key from Google AI Studio: https://aistudio.google.com/app/apikey";
+"settings.api.key.secure.storage" = "Your API key is stored securely in the macOS Keychain.";
 "settings.ocr.configuration" = "OCR Configuration";
 "settings.ocr.use.cloud" = "Use Cloud OCR (Gemini API)";
 "settings.ocr.gemini.key" = "Gemini API Key";
@@ -110,6 +145,18 @@
 "shortcuts.ocr.title" = "OCR Shortcuts";
 "shortcuts.tips.title" = "Tips";
 
+/* Permissions */
+"settings.permissions.title" = "Permissions";
+"settings.permissions.description" = "JoyaFix requires the following permissions to function properly:";
+"settings.permissions.accessibility.title" = "Accessibility";
+"settings.permissions.accessibility.description" = "Required to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete) for text conversion, snippet expansion, and keyboard cleaner mode.";
+"settings.permissions.screen.recording.title" = "Screen Recording";
+"settings.permissions.screen.recording.description" = "Required to capture screen regions for OCR feature.";
+"settings.permissions.granted" = "Granted";
+"settings.permissions.not.granted" = "Not Granted";
+"settings.permissions.open.settings" = "Open Settings";
+"settings.permissions.refresh" = "Refresh";
+
 /* System Integration */
 "settings.system.integration" = "System Integration";
 "settings.launch.at.login" = "Launch at Login";
@@ -138,6 +185,19 @@
 "prompt.enhancer.error.api.failed" = "Failed to enhance text. Please check your API key and internet connection.";
 "prompt.enhancer.error.api.key.title" = "Gemini API Key Required";
 "prompt.enhancer.error.api.key.message" = "To use AI features, please enter your Google Gemini API Key in Settings.";
+
+/* Enhanced Error Messages */
+"prompt.enhancer.error.title" = "Prompt Enhancement Error";
+"prompt.enhancer.error.api.key.detailed" = "Gemini API key not found. Please configure your API key in Settings → General → API Configuration.\n\nGet your free API key from: https://aistudio.google.com/app/apikey";
+"prompt.enhancer.error.api.key.invalid" = "The API key is invalid or has been revoked. Please check your API key in Settings and make sure it's correct.\n\nGet a new API key from: https://aistudio.google.com/app/apikey";
+"prompt.enhancer.error.api.key.forbidden" = "The API key doesn't have permission to access Gemini API. Please check your API key permissions or get a new key from: https://aistudio.google.com/app/apikey";
+"prompt.enhancer.error.invalid.url" = "Invalid API configuration. Please check your internet connection and try again.";
+"prompt.enhancer.error.network.detailed" = "Network error occurred: %@\n\nPlease check your internet connection and try again.";
+"prompt.enhancer.error.http" = "Server error (HTTP %d): %@\n\nPlease try again in a few moments.";
+"prompt.enhancer.error.rate.limit" = "Rate limit exceeded. You've made too many requests. Please wait a moment and try again.";
+"prompt.enhancer.error.rate.limit.wait" = "Rate limit exceeded. Please wait %d seconds before trying again.";
+"prompt.enhancer.error.invalid.response" = "Received an invalid response from the API. Please try again.";
+"prompt.enhancer.error.max.retries" = "Maximum retry attempts reached. Please check your internet connection and try again later.";
 
 /* Prompt Library */
 "library.tab.title" = "Library";

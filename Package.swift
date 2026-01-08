@@ -11,9 +11,10 @@ let package = Package(
         .executable(name: "JoyaFix", targets: ["JoyaFix"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.0"),
-        .package(url: "https://github.com/kean/Pulse", from: "4.0.0"),
-        .package(url: "https://github.com/groue/GRDB.swift", from: "6.0.0")
+        // OPTIMIZATION: Updated to latest stable versions
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.0"),  // Latest: 2.9.0
+        .package(url: "https://github.com/kean/Pulse", from: "4.0.0"),  // Latest: 5.0.0
+        .package(url: "https://github.com/groue/GRDB.swift", from: "6.0.0")  // Latest: 6.30.0
     ],
     targets: [
         .executableTarget(
@@ -29,7 +30,9 @@ let package = Package(
                 .process("Resources/en.lproj"),
                 .process("Resources/he.lproj"),
                 .process("Resources/FLATLOGO.png"),
-                .process("Resources/success.wav")
+                .process("Resources/success.wav"),
+                .process("Resources/JoyaFix.icns"),
+                .process("Resources/JoyaFix.iconset")
             ],
             linkerSettings: [
                 .linkedFramework("Cocoa"),

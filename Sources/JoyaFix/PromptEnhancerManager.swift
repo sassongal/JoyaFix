@@ -1,6 +1,6 @@
 import Foundation
 import Cocoa
-import Carbon
+import Cocoa
 
 /// Manages AI-powered prompt enhancement
 /// Converts user's raw input into professional, structured LLM prompts
@@ -15,25 +15,36 @@ class PromptEnhancerManager {
     // MARK: - Meta-Prompt Template
     
     /// The system prompt used to enhance user input into professional prompts
+    /// Enhanced with more detailed instructions for better results
     private func createMetaPrompt(userText: String) -> String {
-        let role = NSLocalizedString("prompt.enhancer.meta.role", comment: "Meta prompt role")
-        let task = NSLocalizedString("prompt.enhancer.meta.task", comment: "Meta prompt task")
-        let input = NSLocalizedString("prompt.enhancer.meta.input", comment: "Meta prompt input label")
-        let rules = NSLocalizedString("prompt.enhancer.meta.rules", comment: "Meta prompt rules label")
-        let rule1 = NSLocalizedString("prompt.enhancer.meta.rule1", comment: "Meta prompt rule 1")
-        let rule2 = NSLocalizedString("prompt.enhancer.meta.rule2", comment: "Meta prompt rule 2")
-        let rule3 = NSLocalizedString("prompt.enhancer.meta.rule3", comment: "Meta prompt rule 3")
-        let rule4 = NSLocalizedString("prompt.enhancer.meta.rule4", comment: "Meta prompt rule 4")
+        // "Prompt Cowboy" Level - CO-STAR Framework Implementation
+        // This structural approach ensures maximum quality from the LLM.
         
         return """
-\(role)
-\(task)
-\(input): "\(userText)"
-\(rules):
-1. \(rule1)
-2. \(rule2)
-3. \(rule3)
-4. \(rule4)
+You are an elite Prompt Engineer specializing in the CO-STAR framework. Your mission is to transform raw, potentially vague inputs into high-performance, structured prompts for LLMs.
+
+**INPUT DATA:**
+"\(userText)"
+
+**INSTRUCTIONS:**
+Analyze the input above and rewrite it into a powerful, structured prompt using the CO-STAR framework.
+
+**CO-STAR FRAMEWORK:**
+1. **C - Context:** Provide background information or setting. (Who is the user? What is the scenario?)
+2. **O - Objective:** Define the task clearly. (What exactly do you want the AI to do?)
+3. **S - Style:** Specify the writing style. (e.g., Professional, Academic, Creative, Concise).
+4. **T - Tone:** Set the emotional tone. (e.g., Authoritative, Friendly, Empathetic).
+5. **A - Audience:** Identify who the response is for. (e.g., Developers, Customers, Executives).
+6. **R - Response:** Define the output format. (e.g., JSON, Markdown list, Boolean).
+
+**CRITICAL RULES:**
+1. **Language Preservation:** If the INPUT DATA is in Hebrew (or mostly Hebrew), the generated prompt MUST be in Hebrew (Context, Objective, etc. should be written in Hebrew). If English, use English.
+2. **Expansion:** Infer missing details to make the prompt robust. Don't just copy the input; enhance it.
+3. **No Meta-Talk:** Do NOT output "Here is your prompt". Output ONLY the structured prompt.
+4. **Formatting:** Use Markdown headers for each section (# Context, # Objective, etc.).
+
+**OUTPUT:**
+Generate the CO-STAR prompt now.
 """
     }
     
@@ -42,6 +53,9 @@ class PromptEnhancerManager {
     /// Enhances selected text by converting it to a professional prompt
     /// Flow: Copy → Enhance → Paste
     func enhanceSelectedText() {
+        // Step 0: Ensure app is hidden to capture correct selection
+        NSApp.hide(nil)
+        
         // Step 1: Check Accessibility permissions
         guard PermissionManager.shared.isAccessibilityTrusted() else {
             print("⚠️ Accessibility permission missing for prompt enhancement")
@@ -50,21 +64,28 @@ class PromptEnhancerManager {
         }
         
         // Step 2: Check if API key is available
-        guard hasAPIKey() else {
+        if hasAPIKey() {
+            Logger.info("✅ Gemini API Key verified. Starting enhancement process.")
+        } else {
+            Logger.error("❌ Gemini API Key NOT found in Settings or Keychain.")
             print("⚠️ Gemini API key not found")
             showAPIKeyRequiredAlert()
             return
         }
         
-        // Step 3: Simulate Cmd+C to copy selected text
-        simulateCopy()
-        
-        // Step 4: Wait for clipboard to update
-        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.textConversionClipboardDelay) {
-            // Step 5: Read from clipboard
-            guard let selectedText = self.readFromClipboard(), !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        Task {
+            // Step 3 & 4 & 5: Copy and Read (Async)
+            guard let selectedText = await ClipboardHelper.getSelectedText() else {
                 print("❌ No text selected or clipboard is empty")
                 Task { @MainActor in
+                    self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
+                }
+                return
+            }
+            
+            if selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("❌ Text is empty")
+                 Task { @MainActor in
                     self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
                 }
                 return
@@ -76,21 +97,24 @@ class PromptEnhancerManager {
             let metaPrompt = self.createMetaPrompt(userText: selectedText)
             
             Task { @MainActor in
-                GeminiService.shared.sendPrompt(metaPrompt) { enhancedPrompt in
-                    guard let enhancedPrompt = enhancedPrompt, !enhancedPrompt.isEmpty else {
-                        print("❌ Failed to enhance prompt")
-                        // Ensure alert is shown on Main Thread
+                GeminiService.shared.sendPrompt(metaPrompt) { result in
+                    switch result {
+                    case .success(let enhancedPrompt):
+                        Logger.info("Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
+                        
+                        // Play success sound when enhancement succeeds
+                        SoundManager.shared.playSuccess()
+                        
+                        // Step 7: Show review window instead of pasting immediately
                         Task { @MainActor in
-                            self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.api.failed", comment: "API request failed"))
+                            self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
                         }
-                        return
-                    }
-                    
-                    print("✅ Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
-                    
-                    // Step 7: Show review window instead of pasting immediately
-                    Task { @MainActor in
-                        self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
+                    case .failure(let error):
+                        Logger.network("Failed to enhance prompt: \(error.localizedDescription)", level: .error)
+                        // Ensure alert is shown on Main Thread with user-friendly message
+                        Task { @MainActor in
+                            self.showErrorAlertWithDetails(error: error)
+                        }
                     }
                 }
             }
@@ -145,24 +169,28 @@ class PromptEnhancerManager {
         // Notify clipboard manager to ignore this write
         ClipboardHistoryManager.shared.notifyInternalWrite()
         
-        // Write enhanced prompt to clipboard
-        writeToClipboard(prompt)
-        print("📋 Enhanced prompt written to clipboard")
-        
-        // Play success sound
-        SoundManager.shared.playSuccess()
-        
-        // Delete selected text, then paste
-        DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.clipboardPasteDelay) {
-            // Delete the selected text first
+        Task {
+            // Write enhanced prompt to clipboard
+            ClipboardHelper.writeToClipboard(prompt)
+            print("📋 Enhanced prompt written to clipboard")
+            
+            // Play success sound
+            SoundManager.shared.playSuccess()
+            
+            // Delete selected text first (Async wait) + Paste
+            NSApp.hide(nil)
+            
+            // Wait for app hide
+            try? await Task.sleep(nanoseconds: 100 * 1_000_000)
+            
             print("🗑️ Deleting selected text...")
-            self.simulateDelete()
+            ClipboardHelper.simulateDelete()
             
             // Wait a bit before pasting
-            DispatchQueue.main.asyncAfter(deadline: .now() + JoyaFixConstants.textConversionDeleteDelay) {
-                print("📋 Simulating paste...")
-                self.simulatePaste()
-            }
+            try? await Task.sleep(nanoseconds: 200 * 1_000_000)
+            
+            print("📋 Simulating paste...")
+            ClipboardHelper.simulatePaste()
         }
     }
     
@@ -192,8 +220,16 @@ class PromptEnhancerManager {
 """
         
         Task { @MainActor in
-            GeminiService.shared.sendPrompt(refinePrompt) { refinedPrompt in
-                completion(refinedPrompt)
+            GeminiService.shared.sendPrompt(refinePrompt) { result in
+                switch result {
+                case .success(let refinedPrompt):
+                    // Play success sound when refinement succeeds
+                    SoundManager.shared.playSuccess()
+                    completion(refinedPrompt)
+                case .failure(let error):
+                    Logger.network("Failed to refine prompt: \(error.localizedDescription)", level: .error)
+                    completion(nil)
+                }
             }
         }
     }
@@ -202,56 +238,16 @@ class PromptEnhancerManager {
     
     private func hasAPIKey() -> Bool {
         // Check Keychain first, then settings
-        if let keychainKey = KeychainHelper.retrieveGeminiKey(), !keychainKey.isEmpty {
+        if let keychainKey = try? KeychainHelper.retrieveGeminiKey(), !keychainKey.isEmpty {
             return true
         }
         
         return !settings.geminiKey.isEmpty
     }
     
-    private func readFromClipboard() -> String? {
-        let pasteboard = NSPasteboard.general
-        return pasteboard.string(forType: .string)
-    }
-    
-    private func writeToClipboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-    }
-    
-    // MARK: - Key Simulation
-    
-    private func simulateCopy() {
-        simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand)
-    }
-    
-    private func simulatePaste() {
-        simulateKeyPress(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
-    }
-    
-    private func simulateDelete() {
-        simulateKeyPress(keyCode: CGKeyCode(kVK_ForwardDelete), flags: [])
-    }
-    
-    private func simulateKeyPress(keyCode: CGKeyCode, flags: CGEventFlags) {
-        guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else {
-            print("Failed to create key down event")
-            return
-        }
-        keyDownEvent.flags = flags
-        
-        guard let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
-            print("Failed to create key up event")
-            return
-        }
-        keyUpEvent.flags = flags
-        
-        let location = CGEventTapLocation.cghidEventTap
-        keyDownEvent.post(tap: location)
-        usleep(10000) // 10ms
-        keyUpEvent.post(tap: location)
-    }
+    // MARK: - Helper Methods Removed
+    // Code moved to ClipboardHelper.swift to prevent duplication
+
     
     // MARK: - Alerts
     
@@ -290,6 +286,63 @@ class PromptEnhancerManager {
         alert.alertStyle = .warning
         alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
         alert.runModal()
+    }
+    
+    /// Shows a user-friendly error alert with specific guidance based on error type
+    private func showErrorAlertWithDetails(error: GeminiServiceError) {
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("prompt.enhancer.error.title", comment: "Prompt Enhancement Error")
+        
+        var informativeText: String
+        var showSettingsButton = false
+        
+        switch error {
+        case .apiKeyNotFound:
+            informativeText = NSLocalizedString("prompt.enhancer.error.api.key.detailed", comment: "API key not found detailed")
+            showSettingsButton = true
+        case .invalidURL:
+            informativeText = NSLocalizedString("prompt.enhancer.error.invalid.url", comment: "Invalid URL error")
+        case .networkError(let underlyingError):
+            informativeText = String(format: NSLocalizedString("prompt.enhancer.error.network.detailed", comment: "Network error detailed"), underlyingError.localizedDescription)
+        case .httpError(let code, let message):
+            if code == 401 {
+                informativeText = NSLocalizedString("prompt.enhancer.error.api.key.invalid", comment: "API key invalid")
+                showSettingsButton = true
+            } else if code == 403 {
+                informativeText = NSLocalizedString("prompt.enhancer.error.api.key.forbidden", comment: "API key forbidden")
+                showSettingsButton = true
+            } else if code == 429 {
+                informativeText = NSLocalizedString("prompt.enhancer.error.rate.limit", comment: "Rate limit error")
+            } else {
+                informativeText = String(format: NSLocalizedString("prompt.enhancer.error.http", comment: "HTTP error"), code, message ?? "Unknown")
+            }
+        case .rateLimitExceeded(let waitTime):
+            informativeText = String(format: NSLocalizedString("prompt.enhancer.error.rate.limit.wait", comment: "Rate limit wait"), Int(waitTime))
+        case .invalidResponse, .emptyResponse:
+            informativeText = NSLocalizedString("prompt.enhancer.error.invalid.response", comment: "Invalid response")
+        case .maxRetriesExceeded:
+            informativeText = NSLocalizedString("prompt.enhancer.error.max.retries", comment: "Max retries exceeded")
+        case .encodingError(let error):
+            informativeText = "Encoding Error: \(error.localizedDescription)"
+        case .decodingError(let error):
+            informativeText = "Decoding Error: \(error.localizedDescription)"
+        }
+        
+        alert.informativeText = informativeText
+        alert.alertStyle = .warning
+        
+        if showSettingsButton {
+            alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open Settings"))
+            alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                SettingsWindowController.shared.show()
+            }
+        } else {
+            alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+            alert.runModal()
+        }
     }
 }
 

@@ -6,18 +6,38 @@ class KeychainHelper {
     private static let service = JoyaFixConstants.Keychain.service
     private static let geminiKeyAccount = JoyaFixConstants.Keychain.geminiKeyAccount
     
-    /// Stores a string value securely in the Keychain
-    static func store(key: String, value: String) -> Bool {
-        // Delete existing item if it exists
-        _ = delete(key: key)
+    enum KeychainError: Error {
+        case itemNotFound
+        case duplicateItem
+        case unexpectedStatus(OSStatus)
+        case invalidData
+        case accessDenied
         
-        // Convert string to data
+        var localizedDescription: String {
+            switch self {
+            case .itemNotFound: return "Item not found in Keychain"
+            case .duplicateItem: return "Item already exists in Keychain"
+            case .invalidData: return "Data is invalid or corrupted"
+            case .accessDenied: return "Access to Keychain denied"
+            case .unexpectedStatus(let status):
+                if let msg = SecCopyErrorMessageString(status, nil) as String? {
+                    return "Keychain Error: \(msg) (\(status))"
+                }
+                return "Unexpected Keychain Error: \(status)"
+            }
+        }
+    }
+    
+    /// Stores a string value securely in the Keychain
+    /// - Throws: KeychainError
+    static func store(key: String, value: String) throws {
+        // Delete existing item first to ensure clean state
+        try? delete(key: key)
+        
         guard let data = value.data(using: .utf8) else {
-            print("❌ Failed to convert string to data")
-            return false
+            throw KeychainError.invalidData
         }
         
-        // Create query dictionary
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -26,20 +46,22 @@ class KeychainHelper {
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
-        // Add item to Keychain
         let status = SecItemAdd(query as CFDictionary, nil)
         
-        if status == errSecSuccess {
-            print("✓ Successfully stored key in Keychain")
-            return true
-        } else {
-            print("❌ Failed to store key in Keychain: \(status)")
-            return false
+        guard status == errSecSuccess else {
+            if status == errSecDuplicateItem { throw KeychainError.duplicateItem }
+            if status == errSecItemNotFound { throw KeychainError.itemNotFound }
+            if status == errSecAuthFailed { throw KeychainError.accessDenied }
+            throw KeychainError.unexpectedStatus(status)
         }
+        
+        print("✓ Successfully stored key in Keychain: \(key)")
     }
     
     /// Retrieves a string value from the Keychain
-    static func retrieve(key: String) -> String? {
+    /// - Throws: KeychainError
+    /// - Returns: The stored string
+    static func retrieve(key: String) throws -> String {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -51,23 +73,22 @@ class KeychainHelper {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         
-        if status == errSecSuccess {
-            if let data = result as? Data,
-               let string = String(data: data, encoding: .utf8) {
-                return string
-            }
-        } else if status == errSecItemNotFound {
-            // Item doesn't exist, return nil
-            return nil
-        } else {
-            print("❌ Failed to retrieve key from Keychain: \(status)")
+        guard status == errSecSuccess else {
+            if status == errSecItemNotFound { throw KeychainError.itemNotFound }
+            throw KeychainError.unexpectedStatus(status)
         }
         
-        return nil
+        guard let data = result as? Data,
+              let string = String(data: data, encoding: .utf8) else {
+            throw KeychainError.invalidData
+        }
+        
+        return string
     }
     
     /// Deletes a key from the Keychain
-    static func delete(key: String) -> Bool {
+    /// - Throws: KeychainError
+    static func delete(key: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -76,27 +97,29 @@ class KeychainHelper {
         
         let status = SecItemDelete(query as CFDictionary)
         
-        if status == errSecSuccess || status == errSecItemNotFound {
-            return true
-        } else {
-            print("⚠️ Failed to delete key from Keychain: \(status)")
-            return false
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.unexpectedStatus(status)
         }
     }
     
+    // MARK: - Gemini Key Specifics
+    // Wrappers now handle the try-catch internally to maintain backward compatibility or exposing errors if needed.
+    // Ideally, callers should handle errors. I will keep the signature somewhat compatible but throwing is better.
+    // However, since we refactored GeminiService to use try?, we need to align.
+    
     /// Stores the Gemini API key
-    static func storeGeminiKey(_ key: String) -> Bool {
-        return store(key: geminiKeyAccount, value: key)
+    static func storeGeminiKey(_ key: String) throws {
+        try store(key: geminiKeyAccount, value: key)
     }
     
     /// Retrieves the Gemini API key
-    static func retrieveGeminiKey() -> String? {
-        return retrieve(key: geminiKeyAccount)
+    static func retrieveGeminiKey() throws -> String {
+        return try retrieve(key: geminiKeyAccount)
     }
     
     /// Deletes the Gemini API key
-    static func deleteGeminiKey() -> Bool {
-        return delete(key: geminiKeyAccount)
+    static func deleteGeminiKey() throws {
+        try delete(key: geminiKeyAccount)
     }
 }
 

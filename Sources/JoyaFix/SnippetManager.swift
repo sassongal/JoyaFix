@@ -9,134 +9,8 @@ class SnippetManager: ObservableObject {
     @Published private(set) var snippets: [Snippet] = []
     
     private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.snippets
-    private let iCloudStore = NSUbiquitousKeyValueStore.default
-    private let iCloudKey = "JoyaFixSnippets"
-    
     private init() {
         loadSnippets()
-        setupiCloudSync()
-    }
-    
-    // MARK: - iCloud Sync Setup
-    
-    private func setupiCloudSync() {
-        // Listen for external changes from iCloud
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(iCloudStoreDidChange),
-            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: iCloudStore
-        )
-        
-        // Initial sync from iCloud
-        syncFromiCloud()
-    }
-    
-    @objc private func iCloudStoreDidChange(_ notification: Notification) {
-        print("☁️ iCloud store changed externally")
-        syncFromiCloud()
-    }
-    
-    private func syncFromiCloud() {
-        guard let iCloudData = iCloudStore.data(forKey: iCloudKey) else {
-            print("ℹ️ No iCloud data found")
-            return
-        }
-        
-        do {
-            let iCloudSnippets = try JSONDecoder().decode([Snippet].self, from: iCloudData)
-            print("☁️ Loaded \(iCloudSnippets.count) snippets from iCloud")
-            
-            // Merge with local snippets (iCloud takes precedence for conflicts)
-            mergeSnippets(iCloudSnippets: iCloudSnippets)
-        } catch {
-            print("❌ Failed to decode iCloud snippets: \(error.localizedDescription)")
-        }
-    }
-    
-    private func mergeSnippets(iCloudSnippets: [Snippet]) {
-        var mergedSnippets: [Snippet] = []
-        var seenTriggers = Set<String>()
-        var conflicts: [(local: Snippet, cloud: Snippet)] = []
-        
-        // Create a map of local snippets by trigger for quick lookup
-        var localSnippetsByTrigger: [String: Snippet] = [:]
-        for snippet in snippets {
-            let key = snippet.trigger.lowercased()
-            localSnippetsByTrigger[key] = snippet
-        }
-        
-        // Process iCloud snippets and resolve conflicts based on lastModified
-        for cloudSnippet in iCloudSnippets {
-            let triggerKey = cloudSnippet.trigger.lowercased()
-            
-            if let localSnippet = localSnippetsByTrigger[triggerKey] {
-                // Conflict detected - same trigger exists in both
-                if cloudSnippet.id == localSnippet.id {
-                    // Same snippet ID - use the one with later modification time
-                    if cloudSnippet.lastModified > localSnippet.lastModified {
-                        mergedSnippets.append(cloudSnippet)
-                        print("☁️ iCloud version of '\(cloudSnippet.trigger)' is newer, using it")
-                    } else if cloudSnippet.lastModified < localSnippet.lastModified {
-                        mergedSnippets.append(localSnippet)
-                        print("📱 Local version of '\(localSnippet.trigger)' is newer, keeping it")
-                    } else {
-                        // Same timestamp - prefer iCloud (fallback)
-                        mergedSnippets.append(cloudSnippet)
-                        print("☁️ Same timestamp for '\(cloudSnippet.trigger)', using iCloud version")
-                    }
-                } else {
-                    // Different IDs with same trigger - this is a real conflict
-                    // Use the one with later modification time
-                    if cloudSnippet.lastModified > localSnippet.lastModified {
-                        mergedSnippets.append(cloudSnippet)
-                        print("⚠️ Conflict resolved: iCloud version of '\(cloudSnippet.trigger)' is newer")
-                    } else {
-                        mergedSnippets.append(localSnippet)
-                        print("⚠️ Conflict resolved: Local version of '\(localSnippet.trigger)' is newer")
-                    }
-                    conflicts.append((local: localSnippet, cloud: cloudSnippet))
-                }
-            } else {
-                // No conflict - add iCloud snippet
-                mergedSnippets.append(cloudSnippet)
-            }
-            
-            seenTriggers.insert(triggerKey)
-        }
-        
-        // Add local snippets that don't conflict (not in iCloud)
-        for localSnippet in snippets {
-            let triggerKey = localSnippet.trigger.lowercased()
-            if !seenTriggers.contains(triggerKey) {
-                mergedSnippets.append(localSnippet)
-            }
-        }
-        
-        if mergedSnippets != snippets {
-            snippets = mergedSnippets
-            saveSnippets() // Save merged result locally
-            print("✓ Merged snippets: \(snippets.count) total")
-            if !conflicts.isEmpty {
-                print("⚠️ Resolved \(conflicts.count) conflict(s) using lastModified timestamps")
-            }
-        }
-    }
-    
-    private func syncToiCloud() {
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(snippets)
-            iCloudStore.set(data, forKey: iCloudKey)
-            let success = iCloudStore.synchronize()
-            if success {
-                print("☁️ Synced \(snippets.count) snippets to iCloud")
-            } else {
-                print("⚠️ Failed to synchronize with iCloud")
-            }
-        } catch {
-            print("❌ Failed to encode snippets for iCloud: \(error.localizedDescription)")
-        }
     }
     
     // MARK: - Persistence
@@ -238,9 +112,6 @@ class SnippetManager: ObservableObject {
             // Save locally
             UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
             print("✓ Snippets saved (\(snippets.count) snippets, \(encoded.count) bytes)")
-            
-            // Sync to iCloud
-            syncToiCloud()
         } catch {
             print("❌ Failed to save snippets: \(error.localizedDescription)")
             print("   Snippets count: \(snippets.count)")
@@ -292,23 +163,27 @@ class SnippetManager: ObservableObject {
     }
     
     func addSnippet(_ snippet: Snippet) {
-        // FIX: Validate snippet before adding
+        // SECURITY: Validate and sanitize snippet before adding
         let validation = validateSnippet(snippet)
         guard validation.isValid else {
-            print("❌ Invalid snippet: \(validation.error ?? "Unknown error")")
-            print("   Trigger: '\(snippet.trigger)'")
-            print("   Content length: \(snippet.content.count) characters")
+            Logger.snippet("Invalid snippet: \(validation.error ?? "Unknown error")", level: .error)
+            Logger.snippet("Trigger: '\(snippet.trigger)', Content length: \(snippet.content.count) characters", level: .error)
             return
         }
         
+        // SECURITY: Sanitize content (escape HTML entities if needed)
+        let sanitizedContent = sanitizeContent(snippet.content)
+        var sanitizedSnippet = snippet
+        sanitizedSnippet.content = sanitizedContent
+        
         // Validate trigger is unique
         guard !snippets.contains(where: { $0.trigger.lowercased() == snippet.trigger.lowercased() }) else {
-            print("⚠️ Snippet with trigger '\(snippet.trigger)' already exists")
+            Logger.snippet("Snippet with trigger '\(snippet.trigger)' already exists", level: .warning)
             return
         }
         
         // Create new snippet with current timestamp
-        var newSnippet = snippet
+        var newSnippet = sanitizedSnippet
         newSnippet.lastModified = Date()
         snippets.append(newSnippet)
         saveSnippets()
@@ -316,7 +191,20 @@ class SnippetManager: ObservableObject {
         // Notify InputMonitor to register the new trigger
         InputMonitor.shared.registerSnippetTrigger(newSnippet.trigger)
         
-        print("✓ Added snippet: '\(newSnippet.trigger)' → '\(newSnippet.content.prefix(30))...'")
+        Logger.snippet("Added snippet: '\(newSnippet.trigger)' → '\(newSnippet.content.prefix(30))...'", level: .info)
+    }
+    
+    /// Sanitizes snippet content to prevent XSS attacks
+    private func sanitizeContent(_ content: String) -> String {
+        // Basic sanitization - escape HTML entities
+        // Note: For snippets, we typically want to preserve the content as-is
+        // This is mainly for safety if content is ever displayed in HTML context
+        return content
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
     
     func updateSnippet(_ snippet: Snippet) {
@@ -430,7 +318,7 @@ class SnippetManager: ObservableObject {
             InputMonitor.shared.registerSnippetTrigger(snippet.trigger)
         }
         
-        // Save once (this also syncs to iCloud)
+        // Save once
         saveSnippets()
         
         print("✓ Atomically replaced all snippets: \(snippetsWithTimestamp.count) snippets")

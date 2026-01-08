@@ -8,17 +8,26 @@ struct GeneralSettingsTab: View {
     @ObservedObject var settings: SettingsManager
     @Binding var localConvertKeyCode: UInt32
     @Binding var localConvertModifiers: UInt32
+#if false
     @Binding var localOCRKeyCode: UInt32
     @Binding var localOCRModifiers: UInt32
+#endif
+
     @Binding var localPromptKeyCode: UInt32
     @Binding var localPromptModifiers: UInt32
     @Binding var localMaxHistoryCount: Int
     @Binding var localPlaySound: Bool
     @Binding var localAutoPaste: Bool
     @Binding var localGeminiKey: String
+#if false
     @Binding var localUseCloudOCR: Bool
+#endif
+
     @Binding var isRecordingConvertHotkey: Bool
+#if false
     @Binding var isRecordingOCRHotkey: Bool
+#endif
+
     @Binding var isRecordingPromptHotkey: Bool
     @Binding var hasUnsavedChanges: Bool
     @Binding var showSavedMessage: Bool
@@ -32,10 +41,16 @@ struct GeneralSettingsTab: View {
     @State private var importErrorMessage = ""
     @State private var showLanguageRestartAlert = false
     
+    // Permission status tracking
+    @State private var accessibilityGranted = false
+    @State private var screenRecordingGranted = false
+    private let permissionManager = PermissionManager.shared
+    
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(spacing: 20) {
+                settingsContent
+            }
                     // Text Conversion Hotkey Section
                     GroupBox(label: Label(NSLocalizedString("settings.text.conversion.hotkey", comment: "Text conversion hotkey"), systemImage: "keyboard")) {
                         VStack(alignment: .leading, spacing: 12) {
@@ -55,9 +70,20 @@ struct GeneralSettingsTab: View {
                         .padding(8)
                     }
 
-                    // TEMPORARILY DISABLED: OCR feature is not working yet
+#if false
                     // OCR Hotkey Section
-                    GroupBox(label: Label(NSLocalizedString("settings.ocr.hotkey", comment: "OCR hotkey") + " (בקרוב)", systemImage: "viewfinder")) {
+                    GroupBox(label: 
+                        HStack {
+                            Label(NSLocalizedString("settings.ocr.hotkey", comment: "OCR hotkey"), systemImage: "viewfinder")
+                            Text("בקרוב")
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.2))
+                                .foregroundColor(.orange)
+                                .cornerRadius(4)
+                        }
+                    ) {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("פונקציית OCR זמינה בקרוב")
                                 .font(.caption)
@@ -67,7 +93,6 @@ struct GeneralSettingsTab: View {
                             Text(NSLocalizedString("settings.ocr.hotkey.description", comment: "OCR hotkey description"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                                .opacity(0.6)
 
                             HotkeyRecorderButton(
                                 isRecording: $isRecordingOCRHotkey,
@@ -77,11 +102,13 @@ struct GeneralSettingsTab: View {
                                 localOCRModifiers = modifiers
                                 hasUnsavedChanges = true
                             }
-                            .disabled(true)
-                            .opacity(0.6)
                         }
                         .padding(8)
+                        .disabled(true)
+                        .opacity(0.6)
                     }
+#endif
+
 
                     // Prompt Enhancer Hotkey Section
                     GroupBox(label: Label(NSLocalizedString("settings.prompt.enhancer.hotkey", comment: "Prompt enhancer hotkey"), systemImage: "sparkles")) {
@@ -138,6 +165,66 @@ struct GeneralSettingsTab: View {
                         .padding(8)
                     }
                     
+                    // Permissions Section
+                    GroupBox(label: Label(NSLocalizedString("settings.permissions.title", comment: "Permissions"), systemImage: "lock.shield")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(NSLocalizedString("settings.permissions.description", comment: "Permissions description"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.bottom, 4)
+                            
+                            // Accessibility Permission
+                            SettingsPermissionRow(
+                                title: NSLocalizedString("settings.permissions.accessibility.title", comment: "Accessibility"),
+                                description: NSLocalizedString("settings.permissions.accessibility.description", comment: "Accessibility description"),
+                                isGranted: accessibilityGranted,
+                                icon: "hand.point.up.left.fill",
+                                onOpenSettings: {
+                                    permissionManager.openAccessibilitySettings()
+                                }
+                            )
+                            
+                            Divider()
+                            
+                            // Screen Recording Permission
+                            SettingsPermissionRow(
+                                title: NSLocalizedString("settings.permissions.screen.recording.title", comment: "Screen Recording"),
+                                description: NSLocalizedString("settings.permissions.screen.recording.description", comment: "Screen Recording description"),
+                                isGranted: screenRecordingGranted,
+                                icon: "camera.fill",
+                                onOpenSettings: {
+                                    permissionManager.openScreenRecordingSettings()
+                                }
+                            )
+                            
+                            // Refresh button
+                            HStack {
+                                Spacer()
+                                Button(action: {
+                                    refreshPermissionStatus()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.clockwise")
+                                        Text(NSLocalizedString("settings.permissions.refresh", comment: "Refresh"))
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            .padding(.top, 4)
+                        }
+                        .padding(8)
+                    }
+                    .onAppear {
+                        refreshPermissionStatus()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                        // Refresh permissions when app becomes active (user might have changed them in Settings)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            refreshPermissionStatus()
+                        }
+                    }
+                    
                     // System Integration Section
                     GroupBox(label: Label(NSLocalizedString("settings.system.integration", comment: "System Integration"), systemImage: "gear")) {
                         VStack(alignment: .leading, spacing: 12) {
@@ -161,6 +248,28 @@ struct GeneralSettingsTab: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .disabled(isCheckingForUpdates)
+                            }
+                            
+                            Divider()
+                            
+                            // Show Onboarding Again
+                            HStack {
+                                Text(NSLocalizedString("settings.show.onboarding", comment: "Show Onboarding Again"))
+                                    .font(.body)
+                                Spacer()
+                                Button(action: {
+                                    // Reset onboarding flag and show onboarding
+                                    UserDefaults.standard.set(false, forKey: JoyaFixConstants.UserDefaultsKeys.hasCompletedOnboarding)
+                                    OnboardingWindowController.shared.show {
+                                        Logger.info("Onboarding shown again from Settings")
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.counterclockwise")
+                                        Text(NSLocalizedString("settings.show.onboarding.button", comment: "Show Again"))
+                                    }
+                                }
+                                .buttonStyle(.bordered)
                             }
                         }
                         .padding(8)
@@ -201,9 +310,55 @@ struct GeneralSettingsTab: View {
                         .padding(8)
                     }
 
-                    // TEMPORARILY DISABLED: OCR feature is not working yet
+                    // API Configuration Section
+                    GroupBox(label: Label(NSLocalizedString("settings.api.configuration", comment: "API Configuration"), systemImage: "key.fill")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(NSLocalizedString("settings.api.configuration.description", comment: "API configuration description"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(NSLocalizedString("settings.api.gemini.key", comment: "Gemini API key"))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                SecureField(NSLocalizedString("settings.api.gemini.key.placeholder", comment: "API key placeholder"), text: $localGeminiKey)
+                                    .textFieldStyle(.roundedBorder)
+                                    .onChange(of: localGeminiKey) { _, _ in
+                                        hasUnsavedChanges = true
+                                    }
+
+                                Text(NSLocalizedString("settings.api.gemini.key.description", comment: "API key description"))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                
+                                HStack(spacing: 4) {
+                                    Image(systemName: "lock.shield.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    Text(NSLocalizedString("settings.api.key.secure.storage", comment: "Secure storage message"))
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .padding(8)
+                    }
+                    
+#if false
                     // OCR Configuration Section
-                    GroupBox(label: Label(NSLocalizedString("settings.ocr.configuration", comment: "OCR configuration") + " (בקרוב)", systemImage: "cloud.fill")) {
+                    GroupBox(label: 
+                        HStack {
+                            Label(NSLocalizedString("settings.ocr.configuration", comment: "OCR configuration"), systemImage: "cloud.fill")
+                            Text("בקרוב")
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.2))
+                                .foregroundColor(.orange)
+                                .cornerRadius(4)
+                        }
+                    ) {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("פונקציית OCR זמינה בקרוב")
                                 .font(.caption)
@@ -211,40 +366,20 @@ struct GeneralSettingsTab: View {
                                 .padding(.bottom, 4)
                             
                             Toggle(NSLocalizedString("settings.ocr.use.cloud", comment: "Use cloud OCR"), isOn: $localUseCloudOCR)
-                                .disabled(true)
-                                .opacity(0.6)
                                 .onChange(of: localUseCloudOCR) { _, _ in
                                     hasUnsavedChanges = true
                                 }
 
-                            if localUseCloudOCR {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(NSLocalizedString("settings.ocr.gemini.key", comment: "Gemini API key"))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-
-                                    SecureField(NSLocalizedString("settings.ocr.gemini.key.placeholder", comment: "API key placeholder"), text: $localGeminiKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .onChange(of: localGeminiKey) { _, _ in
-                                            hasUnsavedChanges = true
-                                        }
-
-                                    Text(NSLocalizedString("settings.ocr.gemini.key.description", comment: "API key description"))
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                    
-                                    Text("Your API key is stored securely and only used for OCR requests.")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                            } else {
-                                Text("Cloud OCR uses Google's Gemini 1.5 Flash for improved accuracy, especially for Hebrew text.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+                            Text("Cloud OCR uses Google's Gemini 1.5 Flash for improved accuracy, especially for Hebrew text.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                         .padding(8)
+                        .disabled(true)
+                        .opacity(0.6)
                     }
+#endif
+
 
                     // Export/Import Section
                     GroupBox(label: Label("Backup & Restore", systemImage: "arrow.up.arrow.down")) {
@@ -311,7 +446,10 @@ struct GeneralSettingsTab: View {
                     Spacer(minLength: 20)
                 }
                 .padding()
-            }
+    }
+    
+    private var settingsContent: some View {
+        VStack(spacing: 20) {
 
             Divider()
 
@@ -424,6 +562,13 @@ struct GeneralSettingsTab: View {
                 showNoUpdateAlert = true
             }
         }
+    }
+    
+    // MARK: - Permission Management
+    
+    private func refreshPermissionStatus() {
+        accessibilityGranted = permissionManager.refreshAccessibilityStatus()
+        screenRecordingGranted = permissionManager.isScreenRecordingTrusted()
     }
     
     // MARK: - Export/Import Actions
@@ -665,6 +810,65 @@ struct SnippetEditView: View {
         }
         .padding()
         .frame(width: 400, height: 350)
+    }
+}
+
+// MARK: - Permission Row Component
+
+struct SettingsPermissionRow: View {
+    let title: String
+    let description: String
+    let isGranted: Bool
+    let icon: String
+    let onOpenSettings: () -> Void
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // Icon
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(isGranted ? .green : .orange)
+                .frame(width: 24)
+            
+            // Content
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    // Status indicator
+                    HStack(spacing: 6) {
+                        Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundColor(isGranted ? .green : .orange)
+                        Text(isGranted ? NSLocalizedString("settings.permissions.granted", comment: "Granted") : NSLocalizedString("settings.permissions.not.granted", comment: "Not Granted"))
+                            .font(.caption)
+                            .foregroundColor(isGranted ? .green : .orange)
+                    }
+                }
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                if !isGranted {
+                    Button(action: onOpenSettings) {
+                        HStack {
+                            Image(systemName: "gear")
+                            Text(NSLocalizedString("settings.permissions.open.settings", comment: "Open Settings"))
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, 4)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

@@ -12,11 +12,24 @@
 "about.feature.snippets" = "קטעי טקסט והרחבה אוטומטית";
 "about.feature.clipboard" = "היסטוריית לוח מתקדמת";
 
+/* Hotkey Duplicate Errors */
+"hotkey.duplicate.title" = "קיצור דרך כפול";
+"hotkey.duplicate.message" = "קיצור הדרך הזה כבר בשימוש. אנא בחר קיצור אחר.";
+"hotkey.duplicate.between" = "קיצורי הדרך %@ ו-%@ משתמשים באותו קיצור. אנא שנה אחד מהם.";
+
+/* Settings - Show Onboarding */
+"settings.show.onboarding" = "הצג אונבורדינג שוב";
+"settings.show.onboarding.button" = "הצג שוב";
+
+/* About - What's New */
+"about.whats.new" = "מה חדש";
+
 /* Onboarding */
 "onboarding.welcome.title" = "ברוכים הבאים ל-JoyaFix";
 "onboarding.welcome.subtitle" = "כלי המק שלך האולטימטיבי";
 "onboarding.welcome.description" = "שפר את זרימת העבודה שלך עם המרת טקסט חכמה,\nOCR, קטעי טקסט ועוד.";
 "onboarding.features.title" = "תכונות חזקות";
+"onboarding.features.subtitle" = "גלה מה הופך את JoyaFix למיוחד";
 "onboarding.feature.convert.title" = "תיקון עברית/אנגלית";
 "onboarding.feature.convert.description" = "המר מיידית בין פריסות מקלדת עברית ואנגלית";
 "onboarding.feature.ocr.title" = "OCR חכם";
@@ -25,6 +38,22 @@
 "onboarding.feature.snippets.description" = "צור קיצורי דרך שמתרחבים לטקסט מלא אוטומטית";
 "onboarding.feature.snippets.example" = "דוגמה: הקלד '!mail' → מתרחב ל-'gal@joyatech.com'";
 "onboarding.ai.features.note" = "תכונות AI (שיפור טקסט) דורשות מפתח Gemini API חינמי. קבל את שלך מ-Google AI Studio.";
+
+/* Detailed Features */
+"onboarding.detailed.features.title" = "מדריך תכונות מלא";
+"onboarding.detailed.features.subtitle" = "כל מה שצריך לדעת על JoyaFix";
+"onboarding.detailed.convert.title" = "המרת טקסט חכמה";
+"onboarding.detailed.convert.description" = "זהה והמר אוטומטית טקסט בין פריסות מקלדת עברית ואנגלית. שומר על עיצוב, מטפל באותיות גדולות ועובד עם טקסט עשיר.";
+"onboarding.detailed.ocr.title" = "OCR מתקדם";
+"onboarding.detailed.ocr.description" = "חלץ טקסט מכל אזור במסך באמצעות AI בענן (Gemini) או מסגרת Vision מקומית. תומך במסכים מרובים ושומר על עיצוב טקסט.";
+"onboarding.detailed.snippets.title" = "קטעי טקסט והרחבה אוטומטית";
+"onboarding.detailed.snippets.description" = "צור קיצורי דרך מותאמים אישית שמתרחבים אוטומטית לטקסט מלא. תומך במשתנים, תנאים ותוכן דינמי כמו תאריכים ולוח.";
+"onboarding.detailed.clipboard.title" = "היסטוריית לוח מתקדמת";
+"onboarding.detailed.clipboard.description" = "היסטוריית לוח עשירה עם חיפוש, הצמדה והדבקה כטקסט רגיל. תומך ב-RTF, HTML וטקסט רגיל עם קטגוריזציה חכמה.";
+"onboarding.detailed.keyboard.title" = "מצב ניקוי מקלדת";
+"onboarding.detailed.keyboard.description" = "נעל את המקלדת כדי למנוע קלט מקרי בזמן ניקוי. שכבת עיצוב מציגה את סטטוס הנעילה. שחרר עם קיצור דרך או החזק ESC למשך 3 שניות.";
+"onboarding.detailed.ai.title" = "משפר הנחיות AI";
+"onboarding.detailed.ai.description" = "המר טקסט גולמי להנחיות LLM מקצועיות ומבניות באמצעות Google Gemini AI. סקור ושפר הנחיות לפני השימוש.";
 "onboarding.permissions.title" = "הרשאות נדרשות";
 "onboarding.permissions.description" = "JoyaFix צריך את ההרשאות הבאות כדי לעבוד כראוי:";
 "onboarding.permissions.accessibility.title" = "נגישות";
@@ -52,6 +81,12 @@
 "settings.behavior" = "התנהגות";
 "settings.behavior.play.sound" = "נגן צליל בהמרת טקסט";
 "settings.behavior.auto.paste" = "הדבק אוטומטית לאחר המרה";
+"settings.api.configuration" = "הגדרות API";
+"settings.api.configuration.description" = "הגדר את מפתח Google Gemini API שלך לתכונות AI (שיפור טקסט ו-OCR בענן).";
+"settings.api.gemini.key" = "מפתח API של Gemini";
+"settings.api.gemini.key.placeholder" = "הכנס את מפתח ה-API של Gemini";
+"settings.api.gemini.key.description" = "קבל את מפתח ה-API החינמי שלך מ-Google AI Studio: https://aistudio.google.com/app/apikey";
+"settings.api.key.secure.storage" = "מפתח ה-API שלך נשמר בצורה מאובטחת ב-Keychain של macOS.";
 "settings.ocr.configuration" = "הגדרות OCR";
 "settings.ocr.use.cloud" = "השתמש ב-OCR בענן (Gemini API)";
 "settings.ocr.gemini.key" = "מפתח API של Gemini";
@@ -110,6 +145,18 @@
 "shortcuts.ocr.title" = "קיצורי OCR";
 "shortcuts.tips.title" = "טיפים";
 
+/* Permissions */
+"settings.permissions.title" = "הרשאות";
+"settings.permissions.description" = "JoyaFix דורש את ההרשאות הבאות כדי לפעול כראוי:";
+"settings.permissions.accessibility.title" = "נגישות";
+"settings.permissions.accessibility.description" = "נדרש לדמות קיצורי מקלדת (Cmd+C, Cmd+V, Delete) להמרת טקסט, הרחבת קטעי טקסט ומצב ניקוי מקלדת.";
+"settings.permissions.screen.recording.title" = "הקלטת מסך";
+"settings.permissions.screen.recording.description" = "נדרש לצילום אזורי מסך לתכונת OCR.";
+"settings.permissions.granted" = "אושר";
+"settings.permissions.not.granted" = "לא אושר";
+"settings.permissions.open.settings" = "פתח הגדרות";
+"settings.permissions.refresh" = "רענן";
+
 /* System Integration */
 "settings.system.integration" = "אינטגרציה למערכת";
 "settings.launch.at.login" = "הפעל בעת עליית המחשב";
@@ -138,6 +185,19 @@
 "prompt.enhancer.error.api.failed" = "השיפור נכשל. אנא בדוק את מפתח ה-API ואת החיבור לרשת.";
 "prompt.enhancer.error.api.key.title" = "נדרש מפתח Gemini API";
 "prompt.enhancer.error.api.key.message" = "כדי להשתמש בתכונות AI, יש להזין מפתח Google Gemini API בהגדרות.";
+
+/* Enhanced Error Messages */
+"prompt.enhancer.error.title" = "שגיאת שיפור טקסט";
+"prompt.enhancer.error.api.key.detailed" = "מפתח Gemini API לא נמצא. אנא הגדר את מפתח ה-API בהגדרות → כללי → הגדרות API.\n\nקבל מפתח API חינמי מ: https://aistudio.google.com/app/apikey";
+"prompt.enhancer.error.api.key.invalid" = "מפתח ה-API לא תקין או בוטל. אנא בדוק את מפתח ה-API בהגדרות וודא שהוא נכון.\n\nקבל מפתח API חדש מ: https://aistudio.google.com/app/apikey";
+"prompt.enhancer.error.api.key.forbidden" = "למפתח ה-API אין הרשאה לגשת ל-Gemini API. אנא בדוק את הרשאות מפתח ה-API או קבל מפתח חדש מ: https://aistudio.google.com/app/apikey";
+"prompt.enhancer.error.invalid.url" = "הגדרת API לא תקינה. אנא בדוק את החיבור לרשת ונסה שוב.";
+"prompt.enhancer.error.network.detailed" = "אירעה שגיאת רשת: %@\n\nאנא בדוק את החיבור לרשת ונסה שוב.";
+"prompt.enhancer.error.http" = "שגיאת שרת (HTTP %d): %@\n\nאנא נסה שוב בעוד כמה רגעים.";
+"prompt.enhancer.error.rate.limit" = "מגבלת קצב הושגה. ביצעת יותר מדי בקשות. אנא המתן רגע ונסה שוב.";
+"prompt.enhancer.error.rate.limit.wait" = "מגבלת קצב הושגה. אנא המתן %d שניות לפני שתנסה שוב.";
+"prompt.enhancer.error.invalid.response" = "התקבלה תגובה לא תקינה מה-API. אנא נסה שוב.";
+"prompt.enhancer.error.max.retries" = "הגעת למספר הניסיונות המקסימלי. אנא בדוק את החיבור לרשת ונסה שוב מאוחר יותר.";
 
 /* Prompt Library */
 "library.tab.title" = "ספרייה";

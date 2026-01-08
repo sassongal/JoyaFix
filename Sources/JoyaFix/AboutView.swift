@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct AboutView: View {
     @Environment(\.dismiss) var dismiss
@@ -22,6 +23,41 @@ struct AboutView: View {
         if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: "png"),
            let logoImage = NSImage(contentsOfFile: logoPath) {
             return logoImage
+        }
+        
+        return nil
+    }
+    
+    /// Gets changelog from version.json or returns nil
+    private func getChangelog() -> String? {
+        // Define UpdateInfo struct locally (matches UpdateManager.UpdateInfo)
+        struct LocalUpdateInfo: Codable {
+            let version: String
+            let releaseNotes: String?
+            let downloadURL: String?
+            
+            enum CodingKeys: String, CodingKey {
+                case version
+                case releaseNotes = "release_notes"
+                case downloadURL = "downloadUrl"
+            }
+        }
+        
+        // Try to load from version.json in bundle
+        if let versionURL = Bundle.main.url(forResource: "version", withExtension: "json"),
+           let data = try? Data(contentsOf: versionURL),
+           let versionInfo = try? JSONDecoder().decode(LocalUpdateInfo.self, from: data) {
+            return versionInfo.releaseNotes
+        }
+        
+        // Fallback: Try to load from app support directory (for updates)
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let versionURL = appSupport.appendingPathComponent("JoyaFix/version.json")
+            if FileManager.default.fileExists(atPath: versionURL.path),
+               let data = try? Data(contentsOf: versionURL),
+               let versionInfo = try? JSONDecoder().decode(LocalUpdateInfo.self, from: data) {
+                return versionInfo.releaseNotes
+            }
         }
         
         return nil
@@ -80,23 +116,56 @@ struct AboutView: View {
             
             // Features
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(NSLocalizedString("about.features", comment: "Features"))
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(.bottom, 4)
+                VStack(alignment: .leading, spacing: 16) {
+                    // Current Features
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(NSLocalizedString("about.features", comment: "Features"))
+                            .font(.system(size: 14, weight: .semibold))
+                            .padding(.bottom, 4)
+                        
+                        FeatureRow(icon: "textformat", text: NSLocalizedString("about.feature.text.conversion", comment: "Text conversion feature"))
+                        FeatureRow(icon: "keyboard", text: NSLocalizedString("about.feature.keyboard.cleaner", comment: "Keyboard cleaner feature"))
+                        FeatureRow(icon: "text.bubble", text: NSLocalizedString("about.feature.snippets", comment: "Snippets feature"))
+                        FeatureRow(icon: "clipboard", text: NSLocalizedString("about.feature.clipboard", comment: "Clipboard feature"))
+                    }
                     
-                    FeatureRow(icon: "textformat", text: NSLocalizedString("about.feature.text.conversion", comment: "Text conversion feature"))
-                    FeatureRow(icon: "viewfinder", text: NSLocalizedString("about.feature.ocr", comment: "OCR feature"))
-                    FeatureRow(icon: "keyboard", text: NSLocalizedString("about.feature.keyboard.cleaner", comment: "Keyboard cleaner feature"))
-                    FeatureRow(icon: "text.bubble", text: NSLocalizedString("about.feature.snippets", comment: "Snippets feature"))
-                    FeatureRow(icon: "clipboard", text: NSLocalizedString("about.feature.clipboard", comment: "Clipboard feature"))
+                    // Upcoming Features
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(NSLocalizedString("about.features.upcoming", comment: "Upcoming Features"))
+                            .font(.system(size: 14, weight: .semibold))
+                            .padding(.bottom, 4)
+                        
+                        FeatureRow(icon: "viewfinder", text: NSLocalizedString("about.feature.ocr", comment: "OCR feature") + " (Soon)")
+                            .opacity(0.7) // Dimmed to indicate upcoming
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 150)
+            .frame(height: 200) // Height increased to accommodate both sections
             
             Divider()
                 .padding(.horizontal, 40)
+            
+            // What's New / Changelog
+            if let changelog = getChangelog(), !changelog.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(NSLocalizedString("about.whats.new", comment: "What's New"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.bottom, 4)
+                    
+                    ScrollView {
+                        Text(changelog)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 80)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Divider()
+                    .padding(.horizontal, 40)
+            }
             
             // Copyright
             Text(NSLocalizedString("about.copyright", comment: "Copyright"))

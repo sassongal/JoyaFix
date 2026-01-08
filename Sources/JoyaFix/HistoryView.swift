@@ -5,7 +5,10 @@ import Carbon
 
 struct HistoryView: View {
     @ObservedObject var clipboardManager = ClipboardHistoryManager.shared
+#if false
     @ObservedObject var ocrManager = OCRHistoryManager.shared
+#endif
+
     @ObservedObject var promptManager = PromptLibraryManager.shared
     @State private var searchText = ""
     @State private var selectedIndex = 0
@@ -34,6 +37,7 @@ struct HistoryView: View {
         }
     }
     
+#if false
     var filteredOCRScans: [OCRScan] {
         if searchText.isEmpty {
             return ocrManager.history
@@ -50,6 +54,8 @@ struct HistoryView: View {
             return score1 > score2
         }
     }
+#endif
+
     
     var filteredPrompts: [PromptTemplate] {
         if searchText.isEmpty {
@@ -97,6 +103,7 @@ struct HistoryView: View {
             .tag(0)
             
             // OCR Scans Tab
+            /* OCR Scans Tab - Hidden for now
             OCRScansTabView(
                 filteredScans: filteredOCRScans,
                 searchText: $searchText,
@@ -108,6 +115,7 @@ struct HistoryView: View {
                 Label("OCR Scans", systemImage: "viewfinder")
             }
             .tag(1)
+            */
             
             // Library Tab
             PromptLibraryTabView(
@@ -271,6 +279,15 @@ struct ClipboardHistoryTabView: View {
         .onAppear {
             isSearchFocused = true
             selectedIndex = 0
+            // CRITICAL FIX: Force refresh of history when view appears
+            // This ensures history is displayed even on first open
+            if ClipboardHistoryManager.shared.history.isEmpty {
+                // History might not be loaded yet, trigger a refresh
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // Force SwiftUI to refresh by accessing history
+                    _ = ClipboardHistoryManager.shared.history
+                }
+            }
         }
         .onKeyPress(.upArrow) {
             if selectedIndex > 0 {
@@ -302,6 +319,7 @@ struct ClipboardHistoryTabView: View {
     }
 }
 
+#if false
 // MARK: - OCR Scans Tab
 
 struct OCRScansTabView: View {
@@ -424,7 +442,10 @@ struct OCRScansTabView: View {
         }
     }
 }
+#endif
 
+
+#if false
 // MARK: - OCR Scan Row
 
 struct OCRScanRow: View {
@@ -432,86 +453,13 @@ struct OCRScanRow: View {
     let isSelected: Bool
     let onCopy: () -> Void
     let onDelete: () -> Void
-    
-    @State private var isHovered = false
-    
+
     var body: some View {
-        HStack(spacing: 10) {
-            // Icon
-            Image(systemName: "viewfinder")
-                .font(.system(size: 16))
-                .foregroundColor(isSelected ? .accentColor : .secondary)
-                .frame(width: 24)
-            
-            // Content
-            VStack(alignment: .leading, spacing: 2) {
-                Text(scan.singleLinePreview(maxLength: 60))
-                    .font(.system(size: 13))
-                    .lineLimit(2)
-                    .foregroundColor(.primary)
-                
-                HStack(spacing: 8) {
-                    // Timestamp
-                    Text(timeAgo(from: scan.date))
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                    
-                    // Character count
-                    Text("\(scan.extractedText.count) chars")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Spacer()
-            
-            // Action buttons (show on hover)
-            if isHovered || isSelected {
-                HStack(spacing: 4) {
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
-        )
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .onTapGesture {
-            onCopy()
-        }
-        .help(scan.extractedText) // Display full extracted text on hover
-    }
-    
-    private func timeAgo(from date: Date) -> String {
-        let seconds = Date().timeIntervalSince(date)
-        
-        if seconds < 60 {
-            return "Just now"
-        } else if seconds < 3600 {
-            let minutes = Int(seconds / 60)
-            return "\(minutes)m ago"
-        } else if seconds < 86400 {
-            let hours = Int(seconds / 3600)
-            return "\(hours)h ago"
-        } else {
-            let days = Int(seconds / 86400)
-            return "\(days)d ago"
-        }
+        EmptyView()
     }
 }
+#endif
+
 
 // MARK: - History Item Row
 
@@ -675,7 +623,14 @@ struct HistoryItemRow: View {
             let plainTextOnly = isShiftHeld || isOptionHeld
             onPaste(plainTextOnly)
         }
-        .help(item.textForPasting) // Display full text content on hover
+        .help(tooltipText) // Display full text content or image info on hover
+    }
+    
+    private var tooltipText: String {
+        if let imagePath = item.imagePath {
+             return "Image: \(imagePath)"
+        }
+        return item.textForPasting
     }
 
     private func timeAgo(from date: Date) -> String {
@@ -752,7 +707,7 @@ struct QuickActionsSection: View {
                 
                 Spacer()
             }
-            .padding(10)
+            .padding(8) // Reduced from 10
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isHovered ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))

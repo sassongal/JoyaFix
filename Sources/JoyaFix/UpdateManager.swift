@@ -85,8 +85,52 @@ class UpdateManager {
         task.resume()
     }
     
+    /// Cleans up old installation files before update
+    /// This should be called before installing an update to prevent conflicts
+    func cleanupOldInstallation() {
+        let fileManager = FileManager.default
+        
+        // Clean up old cache files
+        if let cacheURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            let joyaFixCache = cacheURL.appendingPathComponent("com.joyafix.app")
+            if fileManager.fileExists(atPath: joyaFixCache.path) {
+                try? fileManager.removeItem(at: joyaFixCache)
+                Logger.info("Cleaned up old cache files")
+            }
+        }
+        
+        // Clean up old temporary files
+        if let tempURL = fileManager.urls(for: .itemReplacementDirectory, in: .userDomainMask).first {
+            let joyaFixTemp = tempURL.appendingPathComponent("JoyaFix")
+            if fileManager.fileExists(atPath: joyaFixTemp.path) {
+                try? fileManager.removeItem(at: joyaFixTemp)
+                Logger.info("Cleaned up old temporary files")
+            }
+        }
+        
+        // Clean up old log files (keep only recent ones)
+        if let logsURL = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first {
+            let logsPath = logsURL.appendingPathComponent("Logs/com.joyafix.app")
+            if let logFiles = try? fileManager.contentsOfDirectory(at: logsPath, includingPropertiesForKeys: [.creationDateKey]) {
+                // Sort by creation date and remove old files (older than 30 days)
+                let thirtyDaysAgo = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+                for logFile in logFiles {
+                    if let creationDate = try? logFile.resourceValues(forKeys: [.creationDateKey]).creationDate,
+                       creationDate < thirtyDaysAgo {
+                        try? fileManager.removeItem(at: logFile)
+                    }
+                }
+            }
+        }
+        
+        Logger.info("Cleanup completed before update")
+    }
+    
     /// Shows update available alert
     func showUpdateAlert(updateInfo: UpdateInfo) {
+        // Clean up old files before showing update alert
+        cleanupOldInstallation()
+        
         let alert = NSAlert()
         alert.messageText = NSLocalizedString("update.alert.title", comment: "Update Available")
         let message = String(format: NSLocalizedString("update.alert.message", comment: "Update message"), updateInfo.version, updateInfo.releaseNotes ?? "Bug fixes and improvements.")

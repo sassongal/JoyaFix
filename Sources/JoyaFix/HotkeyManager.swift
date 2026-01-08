@@ -56,19 +56,28 @@ class HotkeyManager: NSObject {
     }()
 
     private var eventHotKeyRef: EventHotKeyRef?
+#if false
     private var ocrHotKeyRef: EventHotKeyRef?
+#endif
     private var keyboardLockHotKeyRef: EventHotKeyRef?
+
     private var promptHotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
 
     // Hotkey signatures
     private let hotkeyID = EventHotKeyID(signature: OSType(0x4A4F5941), id: 1) // 'JOYA'
+#if false
     private let ocrHotkeyID = EventHotKeyID(signature: OSType(0x4F435231), id: 2) // 'OCR1'
+#endif
+
     private let keyboardLockHotkeyID = EventHotKeyID(signature: OSType(0x4B424C4B), id: 3) // 'KBLK'
     private let promptHotkeyID = EventHotKeyID(signature: OSType(0x50524F4D), id: 4) // 'PROM'
     
     private let convertShortcutID = "hotkey.convert"
+#if false
     private let ocrShortcutID = "hotkey.ocr"
+#endif
+
     private let keyboardLockShortcutID = "hotkey.keyboardLock"
     private let promptShortcutID = "hotkey.prompt"
 
@@ -84,18 +93,25 @@ class HotkeyManager: NSObject {
     // MARK: - Rebind Hotkeys
     @discardableResult
     func rebindHotkeys() -> (convertSuccess: Bool, ocrSuccess: Bool, keyboardLockSuccess: Bool, promptSuccess: Bool) {
-        print("🔄 Rebinding hotkeys...")
+        Logger.hotkey("Rebinding hotkeys...", level: .info)
         unregisterHotkey()
         usleep(50000) // 50ms delay
 
         let convertSuccess = registerHotkey()
+#if false
         let ocrSuccess = registerOCRHotkey()
+#else
+        let ocrSuccess = true
+#endif
         let keyboardLockSuccess = registerKeyboardLockHotkey()
         let promptSuccess = registerPromptHotkey()
 
+
         if convertSuccess && ocrSuccess && keyboardLockSuccess && promptSuccess {
-            print("✓ All hotkeys rebound successfully")
+            Logger.hotkey("All hotkeys rebound successfully", level: .info)
             SoundManager.shared.playSuccess()
+        } else {
+            Logger.hotkey("Some hotkeys failed to rebind", level: .warning)
         }
         return (convertSuccess, ocrSuccess, keyboardLockSuccess, promptSuccess)
     }
@@ -121,7 +137,7 @@ class HotkeyManager: NSObject {
         )
         
         guard status == noErr else {
-            print("❌ Failed to install event handler: \(status)")
+            Logger.hotkey("Failed to install event handler: \(status)", level: .error)
             return false
         }
         
@@ -131,14 +147,20 @@ class HotkeyManager: NSObject {
     
     private func setupNotificationObservers() {
         NotificationCenter.default.addObserver(self, selector: #selector(handleHotkeyPressed), name: Notification.Name("HotkeyManager.hotkeyPressed"), object: nil)
+#if false
         NotificationCenter.default.addObserver(self, selector: #selector(handleOCRHotkeyPressed), name: Notification.Name("HotkeyManager.ocrHotkeyPressed"), object: nil)
+#endif
+
         NotificationCenter.default.addObserver(self, selector: #selector(handleKeyboardLockHotkeyPressed), name: Notification.Name("HotkeyManager.keyboardLockHotkeyPressed"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handlePromptHotkeyPressed), name: Notification.Name("HotkeyManager.promptHotkeyPressed"), object: nil)
     }
     
     // Methods to handle notifications from C callback
     @objc private func handleHotkeyPressed() { hotkeyPressed() }
+#if false
     @objc private func handleOCRHotkeyPressed() { ocrHotkeyPressed() }
+#endif
+
     @objc private func handleKeyboardLockHotkeyPressed() { keyboardLockHotkeyPressed() }
     @objc private func handlePromptHotkeyPressed() { promptHotkeyPressed() }
     
@@ -149,32 +171,49 @@ class HotkeyManager: NSObject {
     func registerHotkey() -> Bool {
         let keyCode = settings.hotkeyKeyCode
         let modifiers = settings.hotkeyModifiers
+        
+        // CRITICAL FIX: Check if shortcut is already registered before attempting registration
+        if !shortcutService.isKeyCombinationAvailable(keyCode: keyCode, modifiers: modifiers) {
+            Logger.hotkey("Hotkey already registered: \(settings.hotkeyDisplayString)", level: .warning)
+            return false
+        }
+        
         guard installSharedEventHandlerIfNeeded() else { return false }
 
         let registerStatus = RegisterEventHotKey(keyCode, modifiers, hotkeyID, GetApplicationEventTarget(), 0, &eventHotKeyRef)
         guard registerStatus == noErr else {
-            print("❌ Failed to register conversion hotkey (Error: \(registerStatus))")
+            Logger.hotkey("Failed to register conversion hotkey (Error: \(registerStatus))", level: .error)
             return false
         }
         _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: convertShortcutID)
-        print("✓ Conversion hotkey registered: \(settings.hotkeyDisplayString)")
+        Logger.hotkey("Conversion hotkey registered: \(settings.hotkeyDisplayString)", level: .info)
         return true
     }
 
+#if false
     func registerOCRHotkey() -> Bool {
         let keyCode = settings.ocrHotkeyKeyCode
         let modifiers = settings.ocrHotkeyModifiers
+        
+        // CRITICAL FIX: Check if shortcut is already registered
+        if !shortcutService.isKeyCombinationAvailable(keyCode: keyCode, modifiers: modifiers) {
+            Logger.hotkey("OCR hotkey already registered", level: .warning)
+            return false
+        }
+        
         guard installSharedEventHandlerIfNeeded() else { return false }
 
         let registerStatus = RegisterEventHotKey(keyCode, modifiers, ocrHotkeyID, GetApplicationEventTarget(), 0, &ocrHotKeyRef)
         guard registerStatus == noErr else {
-            print("❌ Failed to register OCR hotkey (Error: \(registerStatus))")
+            Logger.hotkey("Failed to register OCR hotkey (Error: \(registerStatus))", level: .error)
             return false
         }
         _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: ocrShortcutID)
-        print("✓ OCR hotkey registered")
+        Logger.hotkey("OCR hotkey registered", level: .info)
         return true
     }
+#endif
+
 
     func registerKeyboardLockHotkey() -> Bool {
         let keyCode = UInt32(kVK_ANSI_L)
@@ -182,34 +221,53 @@ class HotkeyManager: NSObject {
         guard installSharedEventHandlerIfNeeded() else { return false }
         
         let registerStatus = RegisterEventHotKey(keyCode, modifiers, keyboardLockHotkeyID, GetApplicationEventTarget(), 0, &keyboardLockHotKeyRef)
-        guard registerStatus == noErr else { return false }
+        guard registerStatus == noErr else {
+            Logger.hotkey("Failed to register keyboard lock hotkey (Error: \(registerStatus))", level: .error)
+            return false
+        }
         
         _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: keyboardLockShortcutID)
-        print("✓ Keyboard lock hotkey registered")
+        Logger.hotkey("Keyboard lock hotkey registered", level: .info)
         return true
     }
     
     func registerPromptHotkey() -> Bool {
         let keyCode = settings.promptHotkeyKeyCode
         let modifiers = settings.promptHotkeyModifiers
-        guard installSharedEventHandlerIfNeeded() else { return false }
         
+        // CRITICAL FIX: Check if shortcut is already registered
+        if !shortcutService.isKeyCombinationAvailable(keyCode: keyCode, modifiers: modifiers) {
+            Logger.hotkey("Prompt hotkey already registered", level: .warning)
+            return false
+        }
+        
+        guard installSharedEventHandlerIfNeeded() else { return false }
+
         let registerStatus = RegisterEventHotKey(keyCode, modifiers, promptHotkeyID, GetApplicationEventTarget(), 0, &promptHotKeyRef)
-        guard registerStatus == noErr else { return false }
+        guard registerStatus == noErr else {
+            Logger.hotkey("Failed to register prompt hotkey (Error: \(registerStatus))", level: .error)
+            return false
+        }
         
         _ = shortcutService.registerGlobalHotkey(keyCode: keyCode, modifiers: modifiers, identifier: promptShortcutID)
-        print("✓ Prompt hotkey registered")
+        Logger.hotkey("Prompt hotkey registered", level: .info)
         return true
     }
     
     func unregisterHotkey() {
         shortcutService.unregisterShortcut(identifier: convertShortcutID)
+#if false
         shortcutService.unregisterShortcut(identifier: ocrShortcutID)
+#endif
+
         shortcutService.unregisterShortcut(identifier: keyboardLockShortcutID)
         shortcutService.unregisterShortcut(identifier: promptShortcutID)
         
         if let ref = eventHotKeyRef { UnregisterEventHotKey(ref); eventHotKeyRef = nil }
+#if false
         if let ref = ocrHotKeyRef { UnregisterEventHotKey(ref); ocrHotKeyRef = nil }
+#endif
+
         if let ref = keyboardLockHotKeyRef { UnregisterEventHotKey(ref); keyboardLockHotKeyRef = nil }
         if let ref = promptHotKeyRef { UnregisterEventHotKey(ref); promptHotKeyRef = nil }
         
@@ -222,7 +280,7 @@ class HotkeyManager: NSObject {
     // MARK: - Actions (Logic)
     
     private func hotkeyPressed() {
-        print("🔥 Hotkey pressed! Converting text...")
+        Logger.hotkey("Hotkey pressed! Converting text...", level: .info)
         guard PermissionManager.shared.isAccessibilityTrusted() else {
             showPermissionRequiredAlert()
             return
@@ -252,12 +310,15 @@ class HotkeyManager: NSObject {
         }
     }
 
+#if false
     private func ocrHotkeyPressed() {
-        print("📸 OCR Hotkey pressed")
+        Logger.hotkey("OCR Hotkey pressed", level: .info)
         Task { @MainActor in
             ScreenCaptureManager.shared.startScreenCapture { _ in }
         }
     }
+#endif
+
     
     private func keyboardLockHotkeyPressed() {
         KeyboardBlocker.shared.toggleLock()

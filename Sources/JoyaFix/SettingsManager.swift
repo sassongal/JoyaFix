@@ -65,9 +65,9 @@ class SettingsManager: ObservableObject {
         didSet {
             // Store securely in Keychain instead of UserDefaults
             if !geminiKey.isEmpty {
-                _ = KeychainHelper.storeGeminiKey(geminiKey)
+                try? KeychainHelper.storeGeminiKey(geminiKey)
             } else {
-                _ = KeychainHelper.deleteGeminiKey()
+                try? KeychainHelper.deleteGeminiKey()
             }
         }
     }
@@ -110,19 +110,19 @@ class SettingsManager: ObservableObject {
         
         // Load Gemini key from Keychain (secure storage)
         // First try Keychain, then fallback to UserDefaults for migration
-        if let keychainKey = KeychainHelper.retrieveGeminiKey() {
+        if let keychainKey = try? KeychainHelper.retrieveGeminiKey() {
             self.geminiKey = keychainKey
         } else if let userDefaultsKey = UserDefaults.standard.string(forKey: Keys.geminiKey), !userDefaultsKey.isEmpty {
             // Migrate from UserDefaults to Keychain
             self.geminiKey = userDefaultsKey
-            _ = KeychainHelper.storeGeminiKey(userDefaultsKey)
+            try? KeychainHelper.storeGeminiKey(userDefaultsKey)
             // Remove from UserDefaults after migration
             UserDefaults.standard.removeObject(forKey: Keys.geminiKey)
         } else {
             self.geminiKey = ""
         }
         
-        self.useCloudOCR = UserDefaults.standard.object(forKey: Keys.useCloudOCR) as? Bool ?? false
+        self.useCloudOCR = UserDefaults.standard.object(forKey: Keys.useCloudOCR) as? Bool ?? true
     }
 
     // MARK: - Hotkey Helpers

@@ -1,3 +1,4 @@
+#if false
 import Cocoa
 @preconcurrency import Vision
 import CoreGraphics
@@ -100,9 +101,19 @@ class ScreenCaptureManager {
             escapeKeyLocalMonitor = nil
         }
         
+        // CRITICAL FIX: Remove global mouse monitor to prevent memory leak
+        if let mouseMonitor = globalMouseMonitor {
+            NSEvent.removeMonitor(mouseMonitor)
+            globalMouseMonitor = nil
+        }
+        
         // FIX: Restore cursor safely - use set() instead of pop() to prevent crashes
         NSCursor.arrow.set() // Force cursor back to arrow (safe)
         cursorPushed = false
+        
+        // Clear shared selection state
+        sharedSelectionState?.reset()
+        sharedSelectionState = nil
         
         // Close all overlay windows safely
         for window in overlayWindows {
@@ -342,20 +353,36 @@ class ScreenCaptureManager {
             globalMouseMonitor = nil
         }
         
+        // CRITICAL FIX: Throttle mouse updates to prevent Main Thread flooding
+        // High polling rate mice (1000Hz+) can flood the queue, causing a "freeze"
+        var lastUpdateTime: TimeInterval = 0
+        let throttleInterval: TimeInterval = 0.016 // ~60fps Limit
+        
         // Add global mouse tracking to synchronize selection across screens
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
             guard let self = self, self.isCapturing, let sharedState = self.sharedSelectionState else { return }
             
+            // THROTTLING CHECK: Only process if enough time has passed
+            let currentTime = CACurrentMediaTime()
+            if currentTime - lastUpdateTime < throttleInterval {
+                return
+            }
+            lastUpdateTime = currentTime
+            
+            // Capture point locally to avoid capturing it inside the Task (which might be delayed)
+            let globalPoint = NSEvent.mouseLocation
+            
             Task { @MainActor in
                 // Update shared state with global mouse position
-                let globalPoint = NSEvent.mouseLocation
                 sharedState.currentPoint = globalPoint
                 
                 // Update all overlay windows to reflect the current selection
                 for window in self.overlayWindows {
                     if let selectionView = window.contentView as? SelectionView {
                         // Update the view's display if the point is within this window's bounds
-                        if window.frame.contains(globalPoint) {
+                        // expanded bounds slightly to handle edge cases
+                        let paddedFrame = window.frame.insetBy(dx: -50, dy: -50)
+                        if paddedFrame.contains(globalPoint) {
                             selectionView.updateFromSharedState()
                         }
                     }
@@ -366,9 +393,12 @@ class ScreenCaptureManager {
     
     private func hideSelectionOverlay() {
         // Prevent double-cleanup with guard
+        // CRITICAL FIX: Ensure we check all state variables that indicate active capture
         guard !overlayWindows.isEmpty || overlayWindow != nil || escapeKeyMonitor != nil || escapeKeyLocalMonitor != nil || cursorPushed else {
             return
         }
+
+        print("🧹 Cleaning up selection overlay session...")
 
         // OPTIMIZATION: Remove global mouse tracking
         if let monitor = globalMouseMonitor {
@@ -421,6 +451,7 @@ class ScreenCaptureManager {
         
         // CRITICAL FIX: Reset capturing flag ONLY after everything is closed
         isCapturing = false
+        print("✅ Selection overlay cleanup complete")
     }
 
     // MARK: - Native Screen Capture (CGWindowListCreateImage)
@@ -585,6 +616,10 @@ class ScreenCaptureManager {
                             OCRHistoryManager.shared.addScan(scan)
                         }
                         print("📸 OCR scan saved to history: \(extractedText.prefix(50))...")
+                    } else {
+                        // Handle no text found
+                        print("⚠️ No text found in captured image")
+                        self.showErrorAlert(message: NSLocalizedString("ocr.error.no.text", comment: "No text found in selection"))
                     }
                     
                     // Clean up temp file after OCR processing
@@ -1047,3 +1082,4 @@ class SelectionView: NSView {
         delegate = nil
     }
 }
+#endif

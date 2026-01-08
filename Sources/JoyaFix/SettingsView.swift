@@ -7,18 +7,27 @@ struct SettingsView: View {
     // Local state for editing (not saved until "Save Changes" clicked)
     @State private var localConvertKeyCode: UInt32
     @State private var localConvertModifiers: UInt32
+#if false
     @State private var localOCRKeyCode: UInt32
     @State private var localOCRModifiers: UInt32
+#endif
+
     @State private var localPromptKeyCode: UInt32
     @State private var localPromptModifiers: UInt32
     @State private var localMaxHistoryCount: Int
     @State private var localPlaySound: Bool
     @State private var localAutoPaste: Bool
     @State private var localGeminiKey: String
+#if false
     @State private var localUseCloudOCR: Bool
+#endif
+
 
     @State private var isRecordingConvertHotkey = false
+#if false
     @State private var isRecordingOCRHotkey = false
+#endif
+
     @State private var isRecordingPromptHotkey = false
     @State private var hasUnsavedChanges = false
     @State private var showSavedMessage = false
@@ -28,15 +37,21 @@ struct SettingsView: View {
         let settings = SettingsManager.shared
         _localConvertKeyCode = State(initialValue: settings.hotkeyKeyCode)
         _localConvertModifiers = State(initialValue: settings.hotkeyModifiers)
+#if false
         _localOCRKeyCode = State(initialValue: settings.ocrHotkeyKeyCode)
         _localOCRModifiers = State(initialValue: settings.ocrHotkeyModifiers)
+#endif
+
         _localPromptKeyCode = State(initialValue: settings.promptHotkeyKeyCode)
         _localPromptModifiers = State(initialValue: settings.promptHotkeyModifiers)
         _localMaxHistoryCount = State(initialValue: settings.maxHistoryCount)
         _localPlaySound = State(initialValue: settings.playSoundOnConvert)
         _localAutoPaste = State(initialValue: settings.autoPasteAfterConvert)
         _localGeminiKey = State(initialValue: settings.geminiKey)
+#if false
         _localUseCloudOCR = State(initialValue: settings.useCloudOCR)
+#endif
+
     }
 
     var body: some View {
@@ -46,17 +61,16 @@ struct SettingsView: View {
                 settings: settings,
                 localConvertKeyCode: $localConvertKeyCode,
                 localConvertModifiers: $localConvertModifiers,
-                localOCRKeyCode: $localOCRKeyCode,
-                localOCRModifiers: $localOCRModifiers,
+
                 localPromptKeyCode: $localPromptKeyCode,
                 localPromptModifiers: $localPromptModifiers,
                 localMaxHistoryCount: $localMaxHistoryCount,
                 localPlaySound: $localPlaySound,
                 localAutoPaste: $localAutoPaste,
                 localGeminiKey: $localGeminiKey,
-                localUseCloudOCR: $localUseCloudOCR,
+
                 isRecordingConvertHotkey: $isRecordingConvertHotkey,
-                isRecordingOCRHotkey: $isRecordingOCRHotkey,
+
                 isRecordingPromptHotkey: $isRecordingPromptHotkey,
                 hasUnsavedChanges: $hasUnsavedChanges,
                 showSavedMessage: $showSavedMessage,
@@ -80,18 +94,48 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func saveChanges() {
+        // CRITICAL FIX: Validate no duplicate hotkeys before saving
+        let allHotkeys = [
+            (localConvertKeyCode, localConvertModifiers, NSLocalizedString("settings.text.conversion.hotkey", comment: "Convert hotkey")),
+
+            (localPromptKeyCode, localPromptModifiers, NSLocalizedString("settings.prompt.enhancer.hotkey", comment: "Prompt hotkey"))
+        ]
+        
+        // Check for duplicates
+        for i in 0..<allHotkeys.count {
+            for j in (i+1)..<allHotkeys.count {
+                if allHotkeys[i].0 == allHotkeys[j].0 && 
+                   allHotkeys[i].1 == allHotkeys[j].1 {
+                    // Show error alert
+                    let alert = NSAlert()
+                    alert.messageText = NSLocalizedString("hotkey.duplicate.title", comment: "Duplicate Hotkey")
+                    alert.informativeText = String(format: NSLocalizedString("hotkey.duplicate.between", comment: "Hotkeys %@ and %@ use the same shortcut. Please change one of them."), allHotkeys[i].2, allHotkeys[j].2)
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+                    alert.runModal()
+                    return // Don't save if duplicates exist
+                }
+            }
+        }
+        
         // Save all settings to UserDefaults
         settings.hotkeyKeyCode = localConvertKeyCode
         settings.hotkeyModifiers = localConvertModifiers
+#if false
         settings.ocrHotkeyKeyCode = localOCRKeyCode
         settings.ocrHotkeyModifiers = localOCRModifiers
+#endif
+
         settings.promptHotkeyKeyCode = localPromptKeyCode
         settings.promptHotkeyModifiers = localPromptModifiers
         settings.maxHistoryCount = localMaxHistoryCount
         settings.playSoundOnConvert = localPlaySound
         settings.autoPasteAfterConvert = localAutoPaste
         settings.geminiKey = localGeminiKey
+#if false
         settings.useCloudOCR = localUseCloudOCR
+#endif
+
 
         // Rebind hotkeys immediately
         let result = HotkeyManager.shared.rebindHotkeys()
@@ -121,15 +165,21 @@ struct SettingsView: View {
         // Reset local state to defaults
         localConvertKeyCode = UInt32(kVK_ANSI_K)
         localConvertModifiers = UInt32(cmdKey | optionKey)
+#if false
         localOCRKeyCode = UInt32(kVK_ANSI_X)
         localOCRModifiers = UInt32(cmdKey | optionKey)
+#endif
+
         localPromptKeyCode = UInt32(kVK_ANSI_P)
         localPromptModifiers = UInt32(cmdKey | optionKey)
         localMaxHistoryCount = 20
         localPlaySound = true
         localAutoPaste = true
         localGeminiKey = ""
+#if false
         localUseCloudOCR = false
+#endif
+
 
         hasUnsavedChanges = true
     }
@@ -279,6 +329,24 @@ class HotkeyRecorderView: NSView {
 
             // Require at least one modifier and a valid key
             if event.type == .keyDown && modifiers != 0 && keyCode != 0 {
+                // CRITICAL FIX: Check if shortcut is already in use
+                let shortcutService = KeyboardShortcutService.shared
+                let isAvailable = shortcutService.isKeyCombinationAvailable(keyCode: keyCode, modifiers: modifiers)
+                
+                if !isAvailable {
+                    // Show error alert to user
+                    DispatchQueue.main.async {
+                        let alert = NSAlert()
+                        alert.messageText = NSLocalizedString("hotkey.duplicate.title", comment: "Duplicate Hotkey")
+                        alert.informativeText = NSLocalizedString("hotkey.duplicate.message", comment: "This hotkey is already in use. Please choose a different one.")
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+                        alert.runModal()
+                    }
+                    self.isRecording = false
+                    return nil // Consume event
+                }
+                
                 self.onHotkeyRecorded?(keyCode, modifiers)
                 self.isRecording = false
                 return nil // Consume event

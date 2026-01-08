@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: macos-14
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Select Xcode version
+      run: sudo xcode-select -switch /Applications/Xcode_15.2.app/Contents/Developer
+      
+    - name: Cache Swift packages
+      uses: actions/cache@v3
+      with:
+        path: .build
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+    
+    - name: Resolve dependencies
+      run: swift package resolve
+      
+    - name: Build
+      run: swift build -c release
+      
+    - name: Run tests
+      run: swift test
+      
+    - name: Run SwiftLint
+      run: |
+        if which swiftlint >/dev/null; then
+          swiftlint lint --strict
+        else
+          echo "SwiftLint not installed, skipping..."
+        fi
+      
+    - name: Check for force unwrapping
+      run: |
+        if grep -r "!" Sources/ --include="*.swift" | grep -v "//.*!" | grep -v "Logger\."; then
+          echo "⚠️ Found force unwrapping - review needed"
+          exit 1
+        fi
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'JoyaFix'
+        path: '.'
+        format: 'HTML'
+        args: >
+          --enableRetired
+          --failOnCVSS 7
+          
+    - name: Upload dependency check results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: dependency-check-report
+        path: reports/
+

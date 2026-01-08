@@ -137,6 +137,7 @@ class KeyboardBlocker {
                flags.contains(.maskCommand) &&
                flags.contains(.maskAlternate) {
                 unlock()
+                SoundManager.shared.playSuccess()
                 return nil // Consume the event
             }
             
@@ -166,13 +167,24 @@ class KeyboardBlocker {
     }
     
     private func startEscHoldTimer() {
-        unlockTimer = Timer.scheduledTimer(withTimeInterval: escHoldDuration, repeats: false) { [weak self] _ in
-            guard let self = self, let startTime = self.escKeyPressStartTime else { return }
-            
-            // Check if ESC is still being held
-            let elapsed = Date().timeIntervalSince(startTime)
-            if elapsed >= self.escHoldDuration {
-                self.unlock()
+        // Invalidate existing timer if any
+        unlockTimer?.invalidate()
+        
+        // Create new timer on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.unlockTimer = Timer.scheduledTimer(withTimeInterval: self.escHoldDuration, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                
+                // Double check if still locked and start time exists
+                guard self.isLocked, let startTime = self.escKeyPressStartTime else { return }
+                
+                // Check if ESC is still being held
+                let elapsed = Date().timeIntervalSince(startTime)
+                if elapsed >= self.escHoldDuration {
+                    self.unlock()
+                    SoundManager.shared.playSuccess() // Feedback
+                }
             }
         }
     }

@@ -10,8 +10,6 @@ enum JoyaFixConstants {
     
     // MARK: - History Limits
     
-    /// Maximum number of OCR scans to keep in history
-    static let maxOCRHistoryCount = 50
     
     /// Default maximum number of clipboard history items
     static let defaultMaxClipboardHistoryCount = 20
@@ -44,11 +42,6 @@ enum JoyaFixConstants {
     
     // MARK: - Timing & Delays
     
-    /// Delay before capturing screen after selection (seconds)
-    static let ocrCaptureDelay: TimeInterval = 0.1
-    
-    /// Delay after canceling selection (seconds)
-    static let ocrCancelDelay: TimeInterval = 0.05
     
     /// Delay for snippet backspace processing (seconds)
     /// Increased for better reliability under high CPU load
@@ -72,46 +65,9 @@ enum JoyaFixConstants {
     /// Delay for text conversion delete before paste (seconds)
     static let textConversionDeleteDelay: TimeInterval = 0.1
     
-    // MARK: - OCR Rate Limiting
-    
-    /// Maximum number of Cloud OCR requests per minute
-    static let maxCloudOCRRequestsPerMinute = 10
-    
-    /// Time window for rate limiting (seconds)
-    static let rateLimitWindow: TimeInterval = 60.0
-    
-    /// Initial retry delay for failed OCR requests (seconds)
-    static let ocrRetryInitialDelay: TimeInterval = 1.0
-    
-    /// Maximum retry delay for exponential backoff (seconds)
-    static let ocrRetryMaxDelay: TimeInterval = 30.0
-    
-    /// Maximum number of retry attempts for OCR
-    static let ocrMaxRetryAttempts = 3
     
     // MARK: - Image Processing
     
-    /// JPEG compression factor for Cloud OCR
-    static let cloudOCRCompressionFactor: CGFloat = 0.8
-    
-    /// Minimum selection size for OCR (pixels)
-    static let minOCRSelectionSize: CGFloat = 10.0
-    
-    /// Minimum dimension threshold for OCR upscaling (pixels)
-    /// Images smaller than this will be upscaled to improve OCR accuracy
-    static let ocrMinDimensionThreshold: CGFloat = 400.0
-    
-    /// Target minimum dimension after upscaling (pixels)
-    /// Small images will be scaled to reach at least this dimension
-    static let ocrTargetMinDimension: CGFloat = 800.0
-    
-    /// Maximum scale factor for OCR upscaling
-    /// Prevents over-processing of very small images
-    static let ocrMaxScaleFactor: CGFloat = 4.0
-    
-    /// Minimum scale factor for OCR upscaling
-    /// Ensures meaningful upscaling when applied
-    static let ocrMinScaleFactor: CGFloat = 1.2
     
     // MARK: - UI Sizes
     
@@ -128,7 +84,6 @@ enum JoyaFixConstants {
     
     enum UserDefaultsKeys {
         static let clipboardHistory = "ClipboardHistory"
-        static let ocrHistory = "OCRHistory"
         static let snippets = "JoyaFixSnippets"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let promptLibrary = "PromptLibrary"
@@ -150,7 +105,6 @@ enum JoyaFixConstants {
     // MARK: - File Paths
     
     enum FilePaths {
-        static let ocrPreviewsDirectory = "JoyaFix/OCRPreviews"
         static let clipboardDataDirectory = "JoyaFix/ClipboardData"
     }
 }

@@ -83,6 +83,7 @@ class HistoryDatabaseManager {
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_clipboard_timestamp ON clipboard_history(timestamp DESC)")
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_clipboard_pinned ON clipboard_history(is_pinned)")
                 
+#if false
                 // Create ocr_history table
                 try db.execute(sql: """
                     CREATE TABLE IF NOT EXISTS ocr_history (
@@ -97,6 +98,8 @@ class HistoryDatabaseManager {
                 // Create index for OCR history (optimized for ORDER BY date DESC)
                 // CRITICAL: Index on date DESC for fast history loading
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_ocr_date ON ocr_history(date DESC)")
+#endif
+
                 
                 print("✓ Database initialized successfully")
             }
@@ -175,7 +178,10 @@ class HistoryDatabaseManager {
             
             // Try to read what we can from corrupted database
             var recoveredClipboardItems: [ClipboardItem] = []
+#if false
             var recoveredOCRItems: [OCRScan] = []
+#endif
+
             
             do {
                 recoveredClipboardItems = try tempQueue.read { db in
@@ -218,6 +224,7 @@ class HistoryDatabaseManager {
                 print("⚠️ Could not recover clipboard history: \(error.localizedDescription)")
             }
             
+#if false
             do {
                 recoveredOCRItems = try tempQueue.read { db in
                     let rows = try? Row.fetchAll(db, sql: """
@@ -244,10 +251,14 @@ class HistoryDatabaseManager {
                         )
                     } ?? []
                 }
+#if false
                 print("✓ Recovered \(recoveredOCRItems.count) OCR scans")
+#endif
+
             } catch {
                 print("⚠️ Could not recover OCR history: \(error.localizedDescription)")
             }
+#endif
             
             // Close the corrupted database (DatabaseQueue automatically closes when deallocated)
             
@@ -288,6 +299,7 @@ class HistoryDatabaseManager {
                     }
                 }
                 
+#if false
                 if !recoveredOCRItems.isEmpty {
                     do {
                         try dbQueue?.write { db in
@@ -309,6 +321,8 @@ class HistoryDatabaseManager {
                         print("⚠️ Could not restore recovered OCR scans: \(error.localizedDescription)")
                     }
                 }
+#endif
+
             } catch {
                 print("❌ Failed to re-initialize database after recovery: \(error.localizedDescription)")
                 return false
@@ -427,6 +441,7 @@ class HistoryDatabaseManager {
     
     // MARK: - OCR History Operations
     
+#if false
     /// Saves OCR history items to database
     func saveOCRHistory(_ items: [OCRScan]) throws {
         guard let queue = dbQueue else {
@@ -452,7 +467,10 @@ class HistoryDatabaseManager {
             }
         }
     }
+#endif
+
     
+#if false
     /// Loads OCR history from database
     func loadOCRHistory() throws -> [OCRScan] {
         guard let queue = dbQueue else {
@@ -485,6 +503,8 @@ class HistoryDatabaseManager {
             }
         }
     }
+#endif
+
     
     // MARK: - Migration from UserDefaults
     
@@ -513,30 +533,24 @@ class HistoryDatabaseManager {
         }
     }
     
+#if false
     /// Migrates OCR history from UserDefaults to database
     func migrateOCRHistoryFromUserDefaults() -> Bool {
-        let key = JoyaFixConstants.UserDefaultsKeys.ocrHistory
+        let key = "OCRHistory" // Use string literal instead of missing constant
         
         guard let data = UserDefaults.standard.data(forKey: key) else {
             print("ℹ️ No OCR history in UserDefaults to migrate")
             return false
         }
         
-        do {
-            let decoder = JSONDecoder()
-            let items = try decoder.decode([OCRScan].self, from: data)
-            
-            try saveOCRHistory(items)
-            
-            // Remove from UserDefaults after successful migration
-            UserDefaults.standard.removeObject(forKey: key)
-            print("✓ Migrated \(items.count) OCR scans from UserDefaults to database")
-            return true
-        } catch {
-            print("❌ Failed to migrate OCR history: \(error.localizedDescription)")
-            return false
-        }
+        return false
     }
+#else
+    func migrateOCRHistoryFromUserDefaults() -> Bool {
+        return false
+    }
+#endif
+
     
     // MARK: - Database Health Check
     
@@ -563,6 +577,7 @@ class HistoryDatabaseManager {
                     print("✓ Created missing index: idx_clipboard_pinned")
                 }
                 
+#if false
                 // Check and create ocr_history indexes if missing
                 let ocrIndexes = try db.indexes(on: "ocr_history")
                 let hasDateIndex = ocrIndexes.contains { $0.name == "idx_ocr_date" }
@@ -571,6 +586,8 @@ class HistoryDatabaseManager {
                     try db.execute(sql: "CREATE INDEX idx_ocr_date ON ocr_history(date DESC)")
                     print("✓ Created missing index: idx_ocr_date")
                 }
+#endif
+
             }
         } catch {
             print("⚠️ Failed to ensure indexes exist: \(error.localizedDescription)")

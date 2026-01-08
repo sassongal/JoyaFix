@@ -20,9 +20,13 @@ class ClipboardHistoryManager: ObservableObject {
 
     // Configuration
     private let settings = SettingsManager.shared
-    private let pollInterval: TimeInterval = 0.5
+    // OPTIMIZATION: Use longer poll interval to reduce CPU usage
+    private let pollInterval: TimeInterval = 1.0  // Changed from 0.5 to 1.0
     private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.clipboardHistory
     private let dataDirectory: URL
+    
+    // OPTIMIZATION: Track last clipboard content to avoid unnecessary processing
+    private var lastClipboardHash: String?
     
     // Migration flags
     private let migrationKey = "ClipboardHistoryMigrationCompleted"
@@ -124,6 +128,15 @@ class ClipboardHistoryManager: ObservableObject {
             return
         }
 
+        // OPTIMIZATION: Quick hash check to avoid processing duplicate content
+        if let currentText = NSPasteboard.general.string(forType: .string) {
+            let currentHash = String(currentText.hashValue)
+            if currentHash == lastClipboardHash {
+                return  // Same content, skip processing
+            }
+            lastClipboardHash = currentHash
+        }
+
         // All subsequent code runs on the MainActor because the class is isolated.
         
         guard let item = captureClipboardContent() else { return }
@@ -149,7 +162,7 @@ class ClipboardHistoryManager: ObservableObject {
         }
 
         if isDuplicate {
-            print("📝 Skipping duplicate: \(item.plainTextPreview.prefix(30))...")
+            Logger.clipboard("Skipping duplicate: \(item.plainTextPreview.prefix(30))...", level: .info)
             return
         }
 
@@ -705,79 +718,95 @@ class ClipboardHistoryManager: ObservableObject {
     @MainActor
     private func loadHistory() {
         // CRITICAL FIX: Load from database instead of UserDefaults
-        do {
-            let items = try databaseManager.loadClipboardHistory()
-            history = items
-            print("✓ Loaded \(history.count) items from database")
-            
-            // Check if we have fallback data that needs to be migrated back
-            if UserDefaults.standard.bool(forKey: "ClipboardHistoryFallbackActive") {
-                print("🔄 Detected fallback data - attempting to migrate back to database...")
-                // Try to save current database state, then merge with fallback if needed
-                if let fallbackData = UserDefaults.standard.data(forKey: userDefaultsKey) {
-                    let decoder = JSONDecoder()
-                    if let fallbackItems = try? decoder.decode([ClipboardItem].self, from: fallbackData) {
-                        // Merge fallback items with database items (avoid duplicates)
-                        var mergedItems = items
-                        for fallbackItem in fallbackItems {
-                            if !mergedItems.contains(where: { $0.id == fallbackItem.id }) {
-                                mergedItems.append(fallbackItem)
+        // Add retry logic for better reliability
+        var retryCount = 0
+        let maxRetries = 3
+        
+        func attemptLoad() {
+            do {
+                let items = try databaseManager.loadClipboardHistory()
+                history = items
+                Logger.clipboard("Loaded \(history.count) items from database", level: .info)
+                
+                // Check if we have fallback data that needs to be migrated back
+                if UserDefaults.standard.bool(forKey: "ClipboardHistoryFallbackActive") {
+                    Logger.clipboard("Detected fallback data - attempting to migrate back to database...", level: .info)
+                    // Try to save current database state, then merge with fallback if needed
+                    if let fallbackData = UserDefaults.standard.data(forKey: userDefaultsKey) {
+                        let decoder = JSONDecoder()
+                        if let fallbackItems = try? decoder.decode([ClipboardItem].self, from: fallbackData) {
+                            // Merge fallback items with database items (avoid duplicates)
+                            var mergedItems = items
+                            for fallbackItem in fallbackItems {
+                                if !mergedItems.contains(where: { $0.id == fallbackItem.id }) {
+                                    mergedItems.append(fallbackItem)
+                                }
                             }
-                        }
-                        // Sort by timestamp
-                        mergedItems.sort { $0.timestamp > $1.timestamp }
-                        history = mergedItems
-                        
-                        // Try to save merged data back to database
-                        do {
-                            try databaseManager.saveClipboardHistory(mergedItems)
-                            // Clear fallback data after successful migration
-                            UserDefaults.standard.removeObject(forKey: userDefaultsKey)
-                            UserDefaults.standard.removeObject(forKey: "ClipboardHistoryFallbackActive")
-                            UserDefaults.standard.removeObject(forKey: "ClipboardHistoryFallbackTimestamp")
-                            print("✓ Successfully migrated fallback data back to database")
-                        } catch {
-                            print("⚠️ Could not migrate fallback data back to database: \(error.localizedDescription)")
+                            // Sort by timestamp
+                            mergedItems.sort { $0.timestamp > $1.timestamp }
+                            history = mergedItems
+                            
+                            // Try to save merged data back to database
+                            do {
+                                try databaseManager.saveClipboardHistory(mergedItems)
+                                // Clear fallback data after successful migration
+                                UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+                                UserDefaults.standard.removeObject(forKey: "ClipboardHistoryFallbackActive")
+                                UserDefaults.standard.removeObject(forKey: "ClipboardHistoryFallbackTimestamp")
+                                Logger.clipboard("Successfully migrated fallback data back to database", level: .info)
+                            } catch {
+                                Logger.clipboard("Could not migrate fallback data back to database: \(error.localizedDescription)", level: .warning)
+                            }
                         }
                     }
                 }
-            }
-        } catch {
-            // Detailed error logging
-            let errorDescription = error.localizedDescription
-            let isLocked = DatabaseError.isDatabaseLocked(error)
-            let isIOError = DatabaseError.isIOError(error)
-            
-            if isLocked {
-                print("🔒 Database is locked - using fallback from UserDefaults")
-                print("   Error details: \(errorDescription)")
-            } else if isIOError {
-                print("💾 Database I/O error - using fallback from UserDefaults")
-                print("   Error details: \(errorDescription)")
-            } else {
-                print("❌ Failed to load clipboard history from database: \(errorDescription)")
-            }
-            
-            // Fallback to UserDefaults if database fails
-            if let data = UserDefaults.standard.data(forKey: userDefaultsKey) {
-                let decoder = JSONDecoder()
-                do {
-                    let decoded = try decoder.decode([ClipboardItem].self, from: data)
-                    history = decoded
-                    print("⚠️ Fallback: Loaded \(history.count) items from UserDefaults (\(data.count) bytes)")
-                    
-                    // Mark fallback as active
-                    UserDefaults.standard.set(true, forKey: "ClipboardHistoryFallbackActive")
-                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ClipboardHistoryFallbackTimestamp")
-                } catch {
-                    print("🔥 CRITICAL: Failed to decode fallback data: \(error.localizedDescription)")
+            } catch {
+                // Retry logic for transient errors
+                if retryCount < maxRetries {
+                    retryCount += 1
+                    Logger.clipboard("Retry \(retryCount)/\(maxRetries) loading history", level: .warning)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        attemptLoad()
+                    }
+                    return
+                }
+                
+                // Detailed error logging
+                let errorDescription = error.localizedDescription
+                let isLocked = DatabaseError.isDatabaseLocked(error)
+                let isIOError = DatabaseError.isIOError(error)
+                
+                if isLocked {
+                    Logger.clipboard("Database is locked - using fallback from UserDefaults", level: .warning)
+                } else if isIOError {
+                    Logger.clipboard("Database I/O error - using fallback from UserDefaults", level: .warning)
+                } else {
+                    Logger.clipboard("Failed to load clipboard history from database: \(errorDescription)", level: .error)
+                }
+                
+                // Fallback to UserDefaults if database fails
+                if let data = UserDefaults.standard.data(forKey: userDefaultsKey) {
+                    let decoder = JSONDecoder()
+                    do {
+                        let decoded = try decoder.decode([ClipboardItem].self, from: data)
+                        history = decoded
+                        Logger.clipboard("Fallback: Loaded \(history.count) items from UserDefaults", level: .info)
+                        
+                        // Mark fallback as active
+                        UserDefaults.standard.set(true, forKey: "ClipboardHistoryFallbackActive")
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ClipboardHistoryFallbackTimestamp")
+                    } catch {
+                        Logger.clipboard("CRITICAL: Failed to decode fallback data: \(error.localizedDescription)", level: .error)
+                        history = []
+                    }
+                } else {
+                    Logger.clipboard("No clipboard history found (first run)", level: .info)
                     history = []
                 }
-            } else {
-                print("ℹ️ No clipboard history found (first run)")
-                history = []
             }
         }
+        
+        attemptLoad()
     }
     
     /// Migrates clipboard history from UserDefaults to database (one-time migration)
@@ -786,23 +815,12 @@ class ClipboardHistoryManager: ObservableObject {
     private func migrateToDatabase() {
         print("🔄 Migrating clipboard history from UserDefaults to database...")
         
-        do {
-            let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
-            if success {
-                // Reload from database after migration
-                loadHistory()
-            } else {
-                print("⚠️ Migration returned false - keeping data in UserDefaults as fallback")
-            }
-        } catch {
-            // Handle corruption errors gracefully
-            if DatabaseError.isCorruptionError(error) {
-                print("⚠️ Database corruption detected during migration - keeping data in UserDefaults")
-                // Don't crash - keep using UserDefaults
-            } else {
-                print("❌ Migration failed: \(error.localizedDescription)")
-                // Keep using UserDefaults as fallback
-            }
+        let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
+        if success {
+            // Reload from database after migration
+            loadHistory()
+        } else {
+            print("⚠️ Migration returned false - keeping data in UserDefaults as fallback")
         }
     }
     

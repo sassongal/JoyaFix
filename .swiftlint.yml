@@ -8,13 +8,31 @@ disabled_rules:
   - function_body_length
   - large_tuple
   - multiple_closures_with_trailing_closure
-  - force_unwrapping
-  - todo
 
 opt_in_rules:
   - empty_string
   - first_where
   - sorted_imports
+  - force_unwrapping  # CRITICAL: Enable force unwrapping warnings
+  - empty_count
+  - discouraged_optional_boolean
+  - discouraged_optional_collection
+
+# Force unwrapping configuration
+force_unwrapping:
+  severity: warning  # Warning instead of error for gradual migration
+  excluded:  # Allow force unwrapping in specific safe contexts
+    - "*.generated.swift"  # Generated files
+
+# Custom rules
+custom_rules:
+  # Warn about print statements in production code
+  no_print_in_production:
+    name: "No Print in Production"
+    regex: '^\s*print\('
+    message: "Consider using proper logging instead of print()"
+    severity: warning
+    excluded: ".*Tests.*"
 
 # הפסקת חסימת הבנייה על אזהרות
 warning_threshold: 1000
