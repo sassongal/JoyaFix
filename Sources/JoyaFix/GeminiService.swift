@@ -151,7 +151,7 @@ class GeminiService: NSObject, AIServiceProtocol {
         let base64Image = pngData.base64EncodedString()
         
         // Create vision prompt for "Nano Banano Style" description
-        let visionPrompt = "Provide a detailed, professional, and artistic description of this image suitable for high-end image generation prompts (like Midjourney/DALL-E), focusing on lighting, texture, and composition."
+        let visionPrompt = "Describe this image with extreme detail for an AI image generator. Include style, color palette, lighting (e.g., Rembrandt, volumetric), and lens info. Follow the 'Nano Banano' artistic style: concise yet vivid."
         
         return try await withCheckedThrowingContinuation { continuation in
             sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in

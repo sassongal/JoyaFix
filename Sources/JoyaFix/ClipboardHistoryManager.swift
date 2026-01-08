@@ -20,8 +20,8 @@ class ClipboardHistoryManager: ObservableObject {
 
     // Configuration
     private let settings = SettingsManager.shared
-    // OPTIMIZATION: Use longer poll interval to reduce CPU usage
-    private let pollInterval: TimeInterval = 1.0  // Changed from 0.5 to 1.0
+    // OPTIMIZATION: Poll at 0.5s with changeCount check to only process when clipboard actually changes
+    private let pollInterval: TimeInterval = 0.5
     private let userDefaultsKey = JoyaFixConstants.UserDefaultsKeys.clipboardHistory
     private let dataDirectory: URL
     

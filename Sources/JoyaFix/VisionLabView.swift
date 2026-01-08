@@ -9,11 +9,10 @@ struct VisionLabView: View {
     @State private var isDragging = false
     
     @ObservedObject private var settings = SettingsManager.shared
-    private let aiService: AIServiceProtocol
     
-    init() {
-        // Use AIServiceFactory to get the appropriate service
-        self.aiService = AIServiceFactory.createService()
+    // Reactive AI service - always uses latest provider from settings
+    private var aiService: AIServiceProtocol {
+        AIServiceFactory.createService()
     }
     
     var body: some View {
@@ -155,7 +154,7 @@ struct VisionLabView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "doc.on.clipboard")
                                     .font(.system(size: 12))
-                                Text("Copy")
+                                Text("Magic Copy")
                                     .font(.system(size: 12))
                             }
                         }
