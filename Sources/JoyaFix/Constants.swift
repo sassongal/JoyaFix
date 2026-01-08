@@ -104,6 +104,83 @@ enum JoyaFixConstants {
         static let openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
     }
     
+    // MARK: - OpenRouter Models
+    
+    enum OpenRouterModel: Hashable {
+        case deepseekChat
+        case mistral7B
+        case llama33_70B
+        case gemini15Flash
+        case custom(String)
+        
+        var displayName: String {
+            switch self {
+            case .deepseekChat:
+                return "DeepSeek Chat (Free)"
+            case .mistral7B:
+                return "Mistral 7B Instruct (Free)"
+            case .llama33_70B:
+                return "Llama 3.3 70B (Free)"
+            case .gemini15Flash:
+                return "Gemini 1.5 Flash (Free, Vision)"
+            case .custom(let name):
+                return "Custom: \(name)"
+            }
+        }
+        
+        var modelID: String {
+            switch self {
+            case .deepseekChat:
+                return "deepseek/deepseek-chat"
+            case .mistral7B:
+                return "mistralai/mistral-7b-instruct"
+            case .llama33_70B:
+                return "meta-llama/llama-3.3-70b-instruct"
+            case .gemini15Flash:
+                return "google/gemini-1.5-flash"
+            case .custom(let name):
+                return name
+            }
+        }
+        
+        var supportsVision: Bool {
+            switch self {
+            case .gemini15Flash:
+                return true
+            default:
+                return false
+            }
+        }
+        
+        var isFree: Bool {
+            switch self {
+            case .deepseekChat, .mistral7B, .llama33_70B, .gemini15Flash:
+                return true
+            case .custom:
+                return false // Unknown for custom models
+            }
+        }
+        
+        static var recommendedModels: [OpenRouterModel] {
+            return [.deepseekChat, .mistral7B, .llama33_70B, .gemini15Flash]
+        }
+        
+        static func fromModelID(_ modelID: String) -> OpenRouterModel {
+            switch modelID {
+            case "deepseek/deepseek-chat":
+                return .deepseekChat
+            case "mistralai/mistral-7b-instruct":
+                return .mistral7B
+            case "meta-llama/llama-3.3-70b-instruct":
+                return .llama33_70B
+            case "google/gemini-1.5-flash":
+                return .gemini15Flash
+            default:
+                return .custom(modelID)
+            }
+        }
+    }
+    
     // MARK: - File Paths
     
     enum FilePaths {

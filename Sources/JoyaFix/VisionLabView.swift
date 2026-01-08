@@ -229,9 +229,34 @@ struct VisionLabView: View {
                 isProcessing = false
                 SoundManager.shared.playSuccess()
             } catch {
-                errorMessage = error.localizedDescription
+                // Provide user-friendly error messages
+                let userFriendlyMessage: String
+                if let aiError = error as? AIServiceError {
+                    switch aiError {
+                    case .apiKeyNotFound:
+                        userFriendlyMessage = "API key not found. Please configure your API key in Settings > API Configuration."
+                    case .httpError(let code, let message):
+                        if code == 401 {
+                            userFriendlyMessage = "Invalid API key. Please check your API key in Settings."
+                        } else if code == 429 {
+                            userFriendlyMessage = "Rate limit exceeded. Please try again in a few moments."
+                        } else {
+                            userFriendlyMessage = "Error \(code): \(message ?? "Unknown error"). Please try again."
+                        }
+                    case .networkError:
+                        userFriendlyMessage = "Network error. Please check your internet connection and try again."
+                    case .rateLimitExceeded:
+                        userFriendlyMessage = "Rate limit exceeded. Please wait a moment and try again."
+                    default:
+                        userFriendlyMessage = "Error processing image: \(aiError.localizedDescription)"
+                    }
+                } else {
+                    userFriendlyMessage = "Error processing image: \(error.localizedDescription)"
+                }
+                
+                errorMessage = userFriendlyMessage
                 isProcessing = false
-                Logger.error("Vision Lab error: \(error.localizedDescription)", category: .ai)
+                Logger.error("Vision Lab error: \(error.localizedDescription)", category: Logger.network)
             }
         }
     }

@@ -38,6 +38,9 @@ class InputMonitor {
     // FIX: Separate serial queue for async text processing to avoid blocking event tap
     private let processingQueue = DispatchQueue(label: "com.joyafix.inputmonitor.processing", qos: .userInteractive)
     
+    // FIX: Dedicated queue for monitoring state synchronization to prevent race conditions
+    private let monitoringQueue = DispatchQueue(label: "com.joyafix.inputmonitor.monitoring", qos: .userInteractive)
+    
     // FIX: Lock-free buffer access using concurrent queue with barrier for writes
     private let bufferQueue = DispatchQueue(label: "com.joyafix.inputmonitor.buffer", attributes: .concurrent)
     private var _keyBuffer: String = ""
@@ -90,10 +93,8 @@ class InputMonitor {
         
         // Check Accessibility permissions
         guard PermissionManager.shared.isAccessibilityTrusted() || disableEventTapForTesting else {
-            // Reset flag if permission check fails
-            os_unfair_lock_lock(&monitoringLock)
+            // Reset flag if permission check fails (already inside lock, no need to lock again)
             _isMonitoring = false
-            os_unfair_lock_unlock(&monitoringLock)
             Logger.snippet("Accessibility permission required for snippet expansion", level: .warning)
             return
         }
@@ -137,18 +138,14 @@ class InputMonitor {
         )
         
         guard let newEventTap = newEventTap else {
-            // Reset flag if creation fails
-            os_unfair_lock_lock(&monitoringLock)
-            defer { os_unfair_lock_unlock(&monitoringLock) }
+            // Reset flag if creation fails (already inside lock, no need to lock again)
             _isMonitoring = false
             Logger.snippet("Failed to create event tap for InputMonitor", level: .error)
             return
         }
         
-        // Store event tap thread-safely
-        os_unfair_lock_lock(&monitoringLock)
+        // Store event tap thread-safely (already inside lock, no need to lock again)
         _eventTap = newEventTap
-        os_unfair_lock_unlock(&monitoringLock)
         
         let eventTap = newEventTap
         
@@ -266,9 +263,14 @@ class InputMonitor {
             return Unmanaged.passUnretained(event)
         }
         
-        // FIX: Double-check monitoring status (already checked in callback, but verify again)
-        // This is a fast check that should already be true from callback guard
-        guard isMonitoringFast else {
+        // FIX: Double-check monitoring status with queue synchronization to prevent race conditions
+        // This ensures handleEvent cannot execute after stopMonitoring() has been called
+        var shouldProcess = false
+        monitoringQueue.sync {
+            shouldProcess = _isMonitoring && _eventTap != nil
+        }
+        
+        guard shouldProcess else {
             return Unmanaged.passUnretained(event)
         }
         

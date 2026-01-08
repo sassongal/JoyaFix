@@ -49,6 +49,18 @@ struct GeneralSettingsTab: View {
     @State private var screenRecordingGranted = false
     private let permissionManager = PermissionManager.shared
     
+    // OpenRouter API Key validation
+    @State private var isTestingOpenRouterKey = false
+    @State private var openRouterKeyStatus: APIKeyStatus = .unknown
+    @State private var openRouterKeyErrorMessage: String = ""
+    
+    enum APIKeyStatus {
+        case unknown
+        case testing
+        case valid
+        case invalid(String)
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -322,9 +334,33 @@ struct GeneralSettingsTab: View {
                             
                             // Provider Picker
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("AI Provider")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                HStack {
+                                    Text("AI Provider")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Button(action: {
+                                        let alert = NSAlert()
+                                        alert.messageText = "AI Provider Selection"
+                                        alert.informativeText = """
+                                        Choose your AI provider:
+                                        
+                                        • Gemini: Google's AI service (free tier available)
+                                        • OpenRouter: Access to multiple AI models (free and paid options)
+                                        
+                                        You can switch between providers at any time in Settings.
+                                        """
+                                        alert.alertStyle = .informational
+                                        alert.addButton(withTitle: "OK")
+                                        alert.runModal()
+                                    }) {
+                                        Image(systemName: "info.circle")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Click for more information about AI providers")
+                                }
                                 
                                 Picker("", selection: $localAIProvider) {
                                     Text("Gemini").tag(AIProvider.gemini)
@@ -333,6 +369,10 @@ struct GeneralSettingsTab: View {
                                 .pickerStyle(.segmented)
                                 .onChange(of: localAIProvider) { _, _ in
                                     hasUnsavedChanges = true
+                                    // Reset API key status when switching providers
+                                    if localAIProvider == .openRouter {
+                                        openRouterKeyStatus = .unknown
+                                    }
                                 }
                             }
                             
@@ -387,15 +427,64 @@ struct GeneralSettingsTab: View {
                                         .font(.caption)
                                         .foregroundColor(.secondary)
 
-                                    SecureField("Enter OpenRouter API key", text: $localOpenRouterKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .onChange(of: localOpenRouterKey) { _, _ in
-                                            hasUnsavedChanges = true
+                                    HStack(spacing: 8) {
+                                        SecureField("Enter OpenRouter API key", text: $localOpenRouterKey)
+                                            .textFieldStyle(.roundedBorder)
+                                            .onChange(of: localOpenRouterKey) { _, _ in
+                                                hasUnsavedChanges = true
+                                                openRouterKeyStatus = .unknown
+                                                openRouterKeyErrorMessage = ""
+                                            }
+                                        
+                                        // Visual status indicator
+                                        Group {
+                                            switch openRouterKeyStatus {
+                                            case .unknown:
+                                                Image(systemName: "questionmark.circle")
+                                                    .foregroundColor(.secondary)
+                                            case .testing:
+                                                ProgressView()
+                                                    .scaleEffect(0.7)
+                                            case .valid:
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .foregroundColor(.green)
+                                            case .invalid:
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .foregroundColor(.red)
+                                            }
                                         }
+                                        .frame(width: 20, height: 20)
+                                        
+                                        // Test API Key button
+                                        Button(action: {
+                                            testOpenRouterAPIKey()
+                                        }) {
+                                            Text("Test")
+                                                .font(.caption)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 4)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(isTestingOpenRouterKey || localOpenRouterKey.isEmpty)
+                                    }
+                                    
+                                    // Error message display
+                                    if case .invalid(let message) = openRouterKeyStatus {
+                                        Text(message)
+                                            .font(.caption2)
+                                            .foregroundColor(.red)
+                                            .padding(.leading, 4)
+                                    }
 
-                                    Text("Get your API key from openrouter.ai")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
+                                    if case .valid = openRouterKeyStatus {
+                                        Text("✓ API key is valid")
+                                            .font(.caption2)
+                                            .foregroundColor(.green)
+                                    } else {
+                                        Text("Get your API key from openrouter.ai")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
                                     
                                     // Help link
                                     Button(action: {
@@ -428,15 +517,11 @@ struct GeneralSettingsTab: View {
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     
-                                    TextField("deepseek/deepseek-chat", text: $localOpenRouterModel)
-                                        .textFieldStyle(.roundedBorder)
-                                        .onChange(of: localOpenRouterModel) { _, _ in
-                                            hasUnsavedChanges = true
-                                        }
-                                    
-                                    Text("Free models: deepseek/deepseek-chat, mistralai/mistral-7b-instruct, meta-llama/llama-3.3-70b-instruct")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
+                                    // Model selection with Picker
+                                    ModelSelectionView(
+                                        selectedModelID: $localOpenRouterModel,
+                                        hasUnsavedChanges: $hasUnsavedChanges
+                                    )
                                 }
                             }
                         }
@@ -669,6 +754,86 @@ struct GeneralSettingsTab: View {
         screenRecordingGranted = permissionManager.isScreenRecordingTrusted()
     }
     
+    // MARK: - OpenRouter API Key Testing
+    
+    private func testOpenRouterAPIKey() {
+        guard !localOpenRouterKey.isEmpty else {
+            openRouterKeyStatus = .invalid("API key cannot be empty")
+            return
+        }
+        
+        // Basic format validation
+        if localOpenRouterKey.count < 20 {
+            openRouterKeyStatus = .invalid("API key seems too short. OpenRouter API keys are typically longer.")
+            return
+        }
+        
+        isTestingOpenRouterKey = true
+        openRouterKeyStatus = .testing
+        
+        // Test the API key by making a direct request
+        Task { @MainActor in
+            // Save original values before testing
+            let originalKey = settings.openRouterKey
+            let originalModel = settings.openRouterModel
+            
+            // Always restore original settings when done
+            defer {
+                settings.openRouterKey = originalKey
+                settings.openRouterModel = originalModel
+                isTestingOpenRouterKey = false
+            }
+            
+            do {
+                // Temporarily store the key in SettingsManager for testing
+                settings.openRouterKey = localOpenRouterKey
+                if !localOpenRouterModel.isEmpty {
+                    settings.openRouterModel = localOpenRouterModel
+                }
+                
+                // Test with a simple request using the service
+                let testService = OpenRouterService.shared
+                let testPrompt = "Say hello"
+                let response = try await testService.generateResponse(prompt: testPrompt)
+                
+                // Check if we got a valid response
+                if !response.isEmpty {
+                    openRouterKeyStatus = .valid
+                    openRouterKeyErrorMessage = ""
+                } else {
+                    openRouterKeyStatus = .invalid("API key test returned empty response")
+                }
+            } catch {
+                let errorMessage: String
+                if let aiError = error as? AIServiceError {
+                    switch aiError {
+                    case .apiKeyNotFound:
+                        errorMessage = "API key not found. Please enter a valid OpenRouter API key."
+                    case .httpError(let code, let message):
+                        if code == 401 {
+                            errorMessage = "Invalid API key. Please check your OpenRouter API key."
+                        } else if code == 429 {
+                            errorMessage = "Rate limit exceeded. Please try again later."
+                        } else {
+                            errorMessage = "HTTP error \(code): \(message ?? "Unknown error")"
+                        }
+                    case .networkError(let err):
+                        errorMessage = "Network error: \(err.localizedDescription). Please check your internet connection."
+                    case .rateLimitExceeded:
+                        errorMessage = "Rate limit exceeded. Please try again later."
+                    default:
+                        errorMessage = "Error testing API key: \(aiError.localizedDescription)"
+                    }
+                } else {
+                    errorMessage = "Error testing API key: \(error.localizedDescription)"
+                }
+                
+                openRouterKeyStatus = .invalid(errorMessage)
+                openRouterKeyErrorMessage = errorMessage
+            }
+        }
+    }
+    
     // MARK: - Export/Import Actions
     
     private func exportSettings() {
@@ -862,6 +1027,7 @@ struct SnippetEditView: View {
     
     @State private var trigger: String
     @State private var content: String
+    @State private var validationError: String? = nil
     
     init(snippet: Snippet?, onSave: @escaping (String, String) -> Void, onCancel: @escaping () -> Void) {
         self.snippet = snippet
@@ -869,6 +1035,45 @@ struct SnippetEditView: View {
         self.onCancel = onCancel
         _trigger = State(initialValue: snippet?.trigger ?? "")
         _content = State(initialValue: snippet?.content ?? "")
+    }
+    
+    private func validateInput() -> Bool {
+        validationError = nil
+        
+        // Validate trigger is not empty
+        guard !trigger.isEmpty else {
+            validationError = "Snippet trigger cannot be empty"
+            return false
+        }
+        
+        // Validate trigger length
+        let minLength = JoyaFixConstants.minSnippetTriggerLength
+        let maxLength = JoyaFixConstants.maxSnippetTriggerLength
+        
+        guard trigger.count >= minLength else {
+            validationError = "Snippet trigger must be at least \(minLength) characters long"
+            return false
+        }
+        
+        guard trigger.count <= maxLength else {
+            validationError = "Snippet trigger cannot exceed \(maxLength) characters"
+            return false
+        }
+        
+        // Validate content is not empty
+        guard !content.isEmpty else {
+            validationError = "Snippet content cannot be empty"
+            return false
+        }
+        
+        // Check for special characters that might cause issues
+        let invalidChars = CharacterSet(charactersIn: "\n\r\t")
+        if trigger.rangeOfCharacter(from: invalidChars) != nil {
+            validationError = "Snippet trigger cannot contain newlines or tabs"
+            return false
+        }
+        
+        return true
     }
     
     var body: some View {
@@ -884,6 +1089,17 @@ struct SnippetEditView: View {
                     .foregroundColor(.secondary)
                 TextField(NSLocalizedString("settings.snippets.trigger.placeholder", comment: "Trigger placeholder"), text: $trigger)
                     .textFieldStyle(.roundedBorder)
+                    .onChange(of: trigger) { _, _ in
+                        validationError = nil
+                    }
+                
+                // Trigger length indicator
+                HStack {
+                    Spacer()
+                    Text("\(trigger.count)/\(JoyaFixConstants.maxSnippetTriggerLength)")
+                        .font(.caption2)
+                        .foregroundColor(trigger.count > JoyaFixConstants.maxSnippetTriggerLength ? .red : .secondary)
+                }
             }
             
             VStack(alignment: .leading, spacing: 8) {
@@ -893,6 +1109,22 @@ struct SnippetEditView: View {
                 TextEditor(text: $content)
                     .frame(height: 150)
                     .border(Color.gray.opacity(0.3), width: 1)
+                    .onChange(of: content) { _, _ in
+                        validationError = nil
+                    }
+            }
+            
+            // Validation error display
+            if let error = validationError {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                        .font(.caption2)
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+                .padding(.horizontal)
             }
             
             HStack {
@@ -900,10 +1132,12 @@ struct SnippetEditView: View {
                     .buttonStyle(.bordered)
                 Spacer()
                 Button(NSLocalizedString("settings.snippets.save", comment: "Save"), action: {
-                    onSave(trigger, content)
+                    if validateInput() {
+                        onSave(trigger, content)
+                    }
                 })
                 .buttonStyle(.borderedProminent)
-                .disabled(trigger.isEmpty || content.isEmpty)
+                .disabled(trigger.isEmpty || content.isEmpty || validationError != nil)
             }
         }
         .padding()
@@ -967,6 +1201,83 @@ struct SettingsPermissionRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Model Selection View
+
+struct ModelSelectionView: View {
+    @Binding var selectedModelID: String
+    @Binding var hasUnsavedChanges: Bool
+    @State private var isCustom: Bool = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let currentModel = JoyaFixConstants.OpenRouterModel.fromModelID(selectedModelID.isEmpty ? "deepseek/deepseek-chat" : selectedModelID)
+            let isCustomModel = if case .custom = currentModel { true } else { false }
+            
+            Picker("", selection: Binding(
+                get: { currentModel },
+                set: { newModel in
+                    if case .custom = newModel {
+                        // Keep current custom value, just mark as custom
+                        isCustom = true
+                    } else {
+                        selectedModelID = newModel.modelID
+                        isCustom = false
+                        hasUnsavedChanges = true
+                    }
+                }
+            )) {
+                ForEach(JoyaFixConstants.OpenRouterModel.recommendedModels, id: \.modelID) { model in
+                    Text(model.displayName).tag(model)
+                }
+                Text("Custom Model").tag(JoyaFixConstants.OpenRouterModel.custom(selectedModelID))
+            }
+            .pickerStyle(.menu)
+            .onAppear {
+                isCustom = isCustomModel
+            }
+            
+            // Show custom text field if custom is selected or current model is not in recommended list
+            if isCustom || isCustomModel {
+                TextField("e.g., anthropic/claude-3-haiku", text: $selectedModelID)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: selectedModelID) { _, _ in
+                        hasUnsavedChanges = true
+                    }
+            }
+            
+            // Model info
+            if isCustom || isCustomModel {
+                Text("Enter a custom model ID in the format 'provider/model-name'")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    if currentModel.supportsVision {
+                        HStack(spacing: 4) {
+                            Image(systemName: "eye.fill")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                            Text("Supports Vision")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    if currentModel.isFree {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                            Text("Free")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

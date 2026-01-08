@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Security
 
 /// Errors that can occur when interacting with OpenRouter API
@@ -17,25 +18,49 @@ enum OpenRouterServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .apiKeyNotFound:
-            return "OpenRouter API key not found. Please configure it in Settings."
+            return "OpenRouter API key not found. Please configure it in Settings > API Configuration."
         case .invalidURL:
-            return "Invalid API URL configuration."
+            return "Invalid API URL configuration. Please check your network settings."
         case .networkError(let error):
-            return "Network error: \(error.localizedDescription)"
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain {
+                switch nsError.code {
+                case NSURLErrorNotConnectedToInternet:
+                    return "No internet connection. Please check your network and try again."
+                case NSURLErrorTimedOut:
+                    return "Request timed out. Please check your internet connection and try again."
+                case NSURLErrorCannotFindHost:
+                    return "Cannot reach OpenRouter servers. Please check your internet connection."
+                default:
+                    return "Network error: \(error.localizedDescription). Please check your internet connection."
+                }
+            }
+            return "Network error: \(error.localizedDescription). Please check your internet connection."
         case .httpError(let code, let message):
-            return "HTTP error \(code): \(message ?? "Unknown error")"
+            switch code {
+            case 401:
+                return "Invalid API key. Please check your OpenRouter API key in Settings > API Configuration."
+            case 403:
+                return "API key access forbidden. Please verify your OpenRouter API key has the correct permissions."
+            case 429:
+                return "Rate limit exceeded. Please wait a moment and try again, or upgrade your OpenRouter plan."
+            case 500...599:
+                return "OpenRouter server error (\(code)). Please try again in a few moments."
+            default:
+                return "HTTP error \(code): \(message ?? "Unknown error"). Please try again or contact support if the problem persists."
+            }
         case .invalidResponse:
-            return "Invalid response from OpenRouter API."
+            return "Invalid response from OpenRouter API. The server returned an unexpected format. Please try again."
         case .emptyResponse:
-            return "Empty response from OpenRouter API."
+            return "Empty response from OpenRouter API. The request was successful but no content was returned. Please try again."
         case .rateLimitExceeded(let waitTime):
-            return "Rate limit exceeded. Please wait \(Int(waitTime)) seconds."
+            return "Rate limit exceeded. Please wait \(Int(waitTime)) seconds before trying again."
         case .maxRetriesExceeded:
-            return "Maximum retry attempts reached."
+            return "Maximum retry attempts reached. Please check your internet connection and try again later."
         case .encodingError(let error):
-            return "Failed to encode request: \(error.localizedDescription)"
+            return "Failed to encode request: \(error.localizedDescription). Please try again or contact support."
         case .decodingError(let error):
-            return "Failed to decode response: \(error.localizedDescription)"
+            return "Failed to decode response: \(error.localizedDescription). The server may have returned an unexpected format. Please try again."
         }
     }
 }
@@ -193,18 +218,6 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         // For OpenRouter vision models, we need to format the content as an array
         // with text and image_url objects
         let imageDataUrl = "data:image/png;base64,\(imageBase64)"
-        
-        // Create vision content array
-        let visionContent: [String: Any] = [
-            "type": "text",
-            "text": prompt
-        ]
-        let imageContent: [String: Any] = [
-            "type": "image_url",
-            "image_url": [
-                "url": imageDataUrl
-            ]
-        ]
         
         // For OpenRouter vision models, use the vision content format
         let visionContent = [

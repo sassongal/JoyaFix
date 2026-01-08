@@ -191,9 +191,17 @@ JoyaFix/
    
    The app will guide you through the permission setup on first launch.
 
-2. **Configure Settings (optional):**
-   - Right-click menubar icon → Settings
+2. **Configure API Keys (required for AI features):**
+   - Right-click menubar icon → Settings → API Configuration
+   - Choose AI Provider: Gemini or OpenRouter
+   - Enter your API key
+   - For OpenRouter: Select a model or enter a custom model ID
+   - Click "Test" to verify your API key works
+   - Save settings
+
+3. **Configure Other Settings (optional):**
    - Customize hotkeys, history limit, and other preferences
+   - Add text snippets for quick expansion
 
 ---
 
@@ -415,10 +423,41 @@ See `OPTIMIZATION.md` for detailed documentation.
 
 ### API Integration
 
-**Gemini 1.5 Flash OCR:**
+JoyaFix supports two AI providers:
+
+**1. Gemini (Google AI):**
 - Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`
 - API Key: Stored securely in Keychain
-- Fallback: Local Vision framework if cloud OCR fails
+- Get your free API key: [Google AI Studio](https://aistudio.google.com/app/apikey)
+- Features: Text generation, Vision Lab (image description), OCR
+- Free tier available
+
+**2. OpenRouter:**
+- Endpoint: `https://openrouter.ai/api/v1/chat/completions`
+- API Key: Stored securely in Keychain
+- Get your API key: [OpenRouter](https://openrouter.ai/keys)
+- Features: Access to multiple AI models, Vision Lab support
+- Supported Models:
+  - **Free Models:**
+    - `deepseek/deepseek-chat` - Fast and free chat model
+    - `mistralai/mistral-7b-instruct` - Mistral 7B Instruct
+    - `meta-llama/llama-3.3-70b-instruct` - Llama 3.3 70B
+    - `google/gemini-1.5-flash` - Gemini 1.5 Flash (supports vision)
+  - **Custom Models:** You can use any model supported by OpenRouter by entering the model ID manually
+
+**Configuration:**
+1. Open Settings → API Configuration
+2. Select your preferred AI provider (Gemini or OpenRouter)
+3. Enter your API key
+4. For OpenRouter, select a model from the dropdown or enter a custom model ID
+5. Click "Test" to verify your API key
+6. Save settings
+
+**Troubleshooting API Issues:**
+- **Invalid API Key:** Check that your API key is correct and has the necessary permissions
+- **Rate Limit Exceeded:** Wait a few moments and try again, or upgrade your API plan
+- **Network Error:** Check your internet connection
+- **Model Not Found:** For OpenRouter, ensure the model ID is correct (format: `provider/model-name`)
 
 ---
 

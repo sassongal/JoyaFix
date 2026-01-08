@@ -103,6 +103,44 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func saveChanges() {
+        // Validate OpenRouter API key if OpenRouter is selected
+        if localAIProvider == .openRouter {
+            if localOpenRouterKey.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "OpenRouter API Key Required"
+                alert.informativeText = "Please enter your OpenRouter API key to use OpenRouter as your AI provider."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+                alert.runModal()
+                return
+            }
+            
+            // Basic format validation
+            if localOpenRouterKey.count < 20 {
+                let alert = NSAlert()
+                alert.messageText = "Invalid OpenRouter API Key"
+                alert.informativeText = "The API key seems too short. OpenRouter API keys are typically longer. Please check your key and try again."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+                alert.runModal()
+                return
+            }
+            
+            // Validate model name if provided
+            if !localOpenRouterModel.isEmpty {
+                // Basic validation: model should contain at least one slash (e.g., "deepseek/deepseek-chat")
+                if !localOpenRouterModel.contains("/") {
+                    let alert = NSAlert()
+                    alert.messageText = "Invalid Model Name"
+                    alert.informativeText = "Model name should be in the format 'provider/model-name' (e.g., 'deepseek/deepseek-chat')."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+                    alert.runModal()
+                    return
+                }
+            }
+        }
+        
         // CRITICAL FIX: Validate no duplicate hotkeys before saving
         let allHotkeys = [
             (localConvertKeyCode, localConvertModifiers, NSLocalizedString("settings.text.conversion.hotkey", comment: "Convert hotkey")),

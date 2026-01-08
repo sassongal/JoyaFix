@@ -71,7 +71,7 @@ class ScratchpadManager: ObservableObject {
                 UserDefaults.standard.removeObject(forKey: userDefaultsKey)
                 Logger.info("📝 Scratchpad auto-saved to file (\(content.count) chars)")
             } catch {
-                Logger.error("Failed to save scratchpad to file: \(error.localizedDescription)", category: .general)
+                Logger.error("Failed to save scratchpad to file: \(error.localizedDescription)", category: Logger.general)
                 // Fallback to UserDefaults if file save fails
                 UserDefaults.standard.set(content, forKey: userDefaultsKey)
                 Logger.info("📝 Scratchpad fallback saved to UserDefaults (\(content.count) chars)")
@@ -93,7 +93,7 @@ class ScratchpadManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: userDefaultsKey)
             Logger.info("📝 Scratchpad migrated to file (\(content.count) chars)")
         } catch {
-            Logger.error("Failed to migrate scratchpad to file: \(error.localizedDescription)", category: .general)
+            Logger.error("Failed to migrate scratchpad to file: \(error.localizedDescription)", category: Logger.general)
         }
     }
     
