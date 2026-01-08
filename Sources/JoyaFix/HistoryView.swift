@@ -117,6 +117,13 @@ struct HistoryView: View {
             .tag(1)
             */
             
+            // Scratchpad Tab
+            ScratchpadTabView(onClose: onClose)
+                .tabItem {
+                    Label("Scratchpad", systemImage: "note.text")
+                }
+                .tag(1)
+            
             // Library Tab
             PromptLibraryTabView(
                 filteredPrompts: filteredPrompts,
@@ -185,7 +192,12 @@ struct ClipboardHistoryTabView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Quick Actions Section (Pinned at top)
+            // Tools Section (Caffeine, Color Picker)
+            ToolsSection()
+            
+            Divider()
+            
+            // Quick Actions Section (Convert Text)
             QuickActionsSection()
             
             Divider()
@@ -590,14 +602,14 @@ struct HistoryItemRow: View {
                     Button(action: onTogglePin) {
                         Image(systemName: item.isPinned ? "pin.slash" : "pin")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.orange)
                     }
                     .buttonStyle(.plain)
 
                     Button(action: onDelete) {
                         Image(systemName: "trash")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
                 }
@@ -606,14 +618,16 @@ struct HistoryItemRow: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : (isHovered ? Color.accentColor.opacity(0.08) : Color(NSColor.controlBackgroundColor)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                .stroke(isSelected ? Color.accentColor : (isHovered ? Color.accentColor.opacity(0.3) : Color.clear), lineWidth: isSelected ? 1.5 : 1)
         )
         .onHover { hovering in
-            isHovered = hovering
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
         }
         .onTapGesture {
             // Check modifier keys for plain text paste
@@ -630,6 +644,7 @@ struct HistoryItemRow: View {
         if let imagePath = item.imagePath {
              return "Image: \(imagePath)"
         }
+        // Return full text content for tooltip (handles multi-line and long text)
         return item.textForPasting
     }
 
@@ -675,6 +690,103 @@ struct EmptyStateView: View {
             Text(isSearching ? "Try a different search term" : (isOCR ? "Capture text from screen to get started" : "Copy something to get started"))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - Tools Section
+
+struct ToolsSection: View {
+    @ObservedObject private var caffeineManager = CaffeineManager.shared
+    @State private var isHoveredCaffeine = false
+    @State private var isHoveredColor = false
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            // Section Header
+            HStack {
+                Image(systemName: "wrench.and.screwdriver")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text("Tools")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            
+            // Tools Grid
+            HStack(spacing: 8) {
+                // Caffeine Mode Toggle
+                Button(action: {
+                    caffeineManager.toggle()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "cup.and.saucer.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(caffeineManager.isActive ? .orange : .secondary)
+                            .frame(width: 20)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Keep Awake")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.primary)
+                            Text(caffeineManager.isActive ? "Active" : "Inactive")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(isHoveredCaffeine ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(isHoveredCaffeine ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    isHoveredCaffeine = hovering
+                }
+                
+                // Color Picker
+                Button(action: {
+                    ColorPickerManager.shared.pickColor()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "eyedropper")
+                            .font(.system(size: 14))
+                            .foregroundColor(.blue)
+                            .frame(width: 20)
+                        
+                        Text("Pick Color")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(isHoveredColor ? Color.blue.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(isHoveredColor ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    isHoveredColor = hovering
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
         }
     }
 }
@@ -1119,6 +1231,64 @@ struct PromptEditorView: View {
         .onAppear {
             isTitleFocused = true
         }
+    }
+}
+
+// MARK: - Scratchpad Tab
+
+struct ScratchpadTabView: View {
+    @ObservedObject private var scratchpadManager = ScratchpadManager.shared
+    var onClose: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Scratchpad")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button(action: {
+                    scratchpadManager.clear()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundColor(.red)
+                        Text("Clear")
+                            .font(.system(size: 11))
+                            .foregroundColor(.red)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            
+            Divider()
+            
+            // Text Editor
+            TextEditor(text: $scratchpadManager.content)
+                .font(.system(size: 13))
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            Divider()
+            
+            // Footer
+            HStack {
+                Text("Auto-saves as you type")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(scratchpadManager.content.count) chars")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        }
+        .frame(width: 400)
     }
 }
 

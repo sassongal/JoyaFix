@@ -276,20 +276,26 @@ class OpenRouterService: NSObject, AIServiceProtocol {
     // MARK: - Private Helpers
     
     private func getAPIKey() -> String? {
-        // Try Keychain first
+        // Priority 1: Try Keychain first (user's custom key)
         if let keychainKey = try? KeychainHelper.retrieveOpenRouterKey(), !keychainKey.isEmpty {
             Logger.network("OpenRouter API key retrieved from Keychain (length: \(keychainKey.count))", level: .debug)
             return keychainKey
         }
         
-        // Fallback to Settings
+        // Priority 2: Fallback to Settings
         let settingsKey = settings.openRouterKey
         if !settingsKey.isEmpty {
             Logger.network("OpenRouter API key retrieved from Settings (length: \(settingsKey.count))", level: .debug)
             return settingsKey
         }
         
-        Logger.network("OpenRouter API key not found in Keychain or Settings", level: .debug)
+        // Priority 3: Fallback to developer secret key (for development use only)
+        if !Secrets.defaultOpenRouterKey.isEmpty {
+            Logger.network("OpenRouter API key using developer default key", level: .debug)
+            return Secrets.defaultOpenRouterKey
+        }
+        
+        Logger.network("OpenRouter API key not found in any source", level: .debug)
         return nil
     }
     

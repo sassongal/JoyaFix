@@ -355,6 +355,22 @@ struct GeneralSettingsTab: View {
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                     
+                                    // Help link
+                                    Button(action: {
+                                        if let url = URL(string: "https://aistudio.google.com/app/apikey") {
+                                            NSWorkspace.shared.open(url)
+                                        }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "link")
+                                                .font(.caption2)
+                                            Text("Get your free API Key from Google AI Studio")
+                                                .font(.caption2)
+                                        }
+                                        .foregroundColor(.blue)
+                                    }
+                                    .buttonStyle(.plain)
+                                    
                                     HStack(spacing: 4) {
                                         Image(systemName: "lock.shield.fill")
                                             .font(.caption2)
@@ -380,6 +396,22 @@ struct GeneralSettingsTab: View {
                                     Text("Get your API key from openrouter.ai")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
+                                    
+                                    // Help link
+                                    Button(action: {
+                                        if let url = URL(string: "https://openrouter.ai/keys") {
+                                            NSWorkspace.shared.open(url)
+                                        }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "link")
+                                                .font(.caption2)
+                                            Text("Get your API Key from OpenRouter for more models")
+                                                .font(.caption2)
+                                        }
+                                        .foregroundColor(.blue)
+                                    }
+                                    .buttonStyle(.plain)
                                     
                                     HStack(spacing: 4) {
                                         Image(systemName: "lock.shield.fill")

@@ -139,3 +139,6 @@ build/
 # Icon generation temporary files
 *.iconset/
 
+# Developer secrets (DO NOT COMMIT)
+Sources/JoyaFix/Secrets.swift
+

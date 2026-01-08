@@ -232,6 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         convertItem.target = self
+        convertItem.image = createColoredIcon(systemName: "arrow.left.arrow.right", color: .blue)
         menu.addItem(convertItem)
         
         menu.addItem(NSMenuItem.separator())
@@ -259,6 +260,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         promptItem.keyEquivalentModifierMask = [.command, .option]
         promptItem.target = self
+        promptItem.image = createColoredIcon(systemName: "sparkles", color: .purple)
         menu.addItem(promptItem)
         
         // Add Smart Translate menu item (New Feature)
@@ -269,6 +271,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         translateItem.keyEquivalentModifierMask = [.command, .shift] 
         translateItem.target = self
+        translateItem.image = createColoredIcon(systemName: "globe", color: .green)
         menu.addItem(translateItem)
         
         // Add Keyboard Cleaner menu item
@@ -279,6 +282,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         keyboardCleanerItem.keyEquivalentModifierMask = [.command, .option]
         keyboardCleanerItem.target = self
+        keyboardCleanerItem.image = createColoredIcon(systemName: KeyboardBlocker.shared.isKeyboardLocked ? "lock.fill" : "lock.open", color: .orange)
         menu.addItem(keyboardCleanerItem)
 
         let clearHistoryItem = NSMenuItem(
@@ -287,6 +291,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         clearHistoryItem.target = self
+        clearHistoryItem.image = createColoredIcon(systemName: "trash", color: .red)
         menu.addItem(clearHistoryItem)
 
         // Add Settings menu item
@@ -297,6 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsItem.target = self
         settingsItem.isEnabled = true
+        settingsItem.image = createColoredIcon(systemName: "gearshape", color: .gray)
         menu.addItem(settingsItem)
         
         // Add Keyboard Shortcuts menu item
@@ -307,6 +313,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         shortcutsItem.keyEquivalentModifierMask = [.command, .shift]
         shortcutsItem.target = self
+        shortcutsItem.image = createColoredIcon(systemName: "keyboard", color: .blue)
         menu.addItem(shortcutsItem)
         
         menu.addItem(NSMenuItem.separator())
@@ -318,6 +325,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         aboutItem.target = self
+        aboutItem.image = createColoredIcon(systemName: "info.circle", color: .blue)
         menu.addItem(aboutItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -368,9 +376,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 #if false
     /// Extracts text from screen using OCR
+    // OCR functionality is currently disabled (code in waiting)
     @objc func extractTextFromScreen() {
         // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
         // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
+        // DISABLED: OCR feature is on hold
+        /*
         Task { @MainActor in
             ScreenCaptureManager.shared.startScreenCapture { extractedText in
                 if let text = extractedText, !text.isEmpty {
@@ -380,6 +391,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        */
     }
 #endif
 
@@ -497,5 +509,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 InputMonitor.shared.startMonitoring()
             }
         }
+    }
+    
+    // MARK: - Helper Methods
+    
+    /// Creates a colored SF Symbol icon for menu items
+    private func createColoredIcon(systemName: String, color: NSColor) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
+            return nil
+        }
+        
+        let coloredImage = NSImage(size: image.size)
+        coloredImage.lockFocus()
+        
+        color.set()
+        let rect = NSRect(origin: .zero, size: image.size)
+        image.draw(in: rect, from: rect, operation: .sourceAtop, fraction: 1.0)
+        
+        coloredImage.unlockFocus()
+        coloredImage.isTemplate = false
+        
+        return coloredImage
     }
 }

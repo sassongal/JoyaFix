@@ -383,6 +383,74 @@ struct DetailedFeaturesSlide: View {
                         hotkey: "⌘⌥P"
                     )
                 }
+                
+                // API Keys Information
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "key.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.orange)
+                        Text("API Keys Setup")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("To use AI features (Prompt Enhancement, Translation), you'll need an API key:")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                        
+                        // Gemini
+                        HStack(spacing: 8) {
+                            Text("• Gemini:")
+                                .font(.system(size: 12, weight: .medium))
+                            Button(action: {
+                                if let url = URL(string: "https://aistudio.google.com/app/apikey") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }) {
+                                Text("Get free API key from Google AI Studio")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
+                        // OpenRouter
+                        HStack(spacing: 8) {
+                            Text("• OpenRouter:")
+                                .font(.system(size: 12, weight: .medium))
+                            Button(action: {
+                                if let url = URL(string: "https://openrouter.ai/keys") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }) {
+                                Text("Get API key for more models")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.shield.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.green)
+                            Text("All API keys are stored securely in macOS Keychain")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.1))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                        )
+                )
             }
             .padding(40)
         }

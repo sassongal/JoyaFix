@@ -8,9 +8,6 @@ class KeyboardBlocker {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isLocked = false
-    private var unlockTimer: Timer?
-    private var escKeyPressStartTime: Date?
-    private let escHoldDuration: TimeInterval = 3.0 // Hold ESC for 3 seconds to unlock
     
     // Overlay window for lock indicator
     private var overlayWindow: NSWindow?
@@ -55,9 +52,6 @@ class KeyboardBlocker {
         isLocked = false
         removeEventTap()
         hideOverlay()
-        escKeyPressStartTime = nil
-        unlockTimer?.invalidate()
-        unlockTimer = nil
         print("🔓 Keyboard unlocked")
     }
     
@@ -141,52 +135,19 @@ class KeyboardBlocker {
                 return nil // Consume the event
             }
             
-            // Check for ESC key (hold for 3 seconds to unlock)
+            // Check for ESC key (immediate unlock)
             if keyCode == Int64(kVK_Escape) {
-                if escKeyPressStartTime == nil {
-                    escKeyPressStartTime = Date()
-                    startEscHoldTimer()
-                }
-                return nil // Consume ESC key
+                // Immediately unlock on ESC press (no hold required)
+                unlock()
+                SoundManager.shared.playSuccess()
+                return nil // Consume ESC key to prevent it from closing windows
             }
         }
         
-        if type == .keyUp {
-            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-            
-            // Reset ESC hold timer if ESC is released
-            if keyCode == Int64(kVK_Escape) {
-                escKeyPressStartTime = nil
-                unlockTimer?.invalidate()
-                unlockTimer = nil
-            }
-        }
+        // ESC key handling is done in keyDown, no need for keyUp handling
         
         // Block all other keyboard events
         return nil // Consume all events when locked
-    }
-    
-    private func startEscHoldTimer() {
-        // Invalidate existing timer if any
-        unlockTimer?.invalidate()
-        
-        // Create new timer on main thread
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.unlockTimer = Timer.scheduledTimer(withTimeInterval: self.escHoldDuration, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                
-                // Double check if still locked and start time exists
-                guard self.isLocked, let startTime = self.escKeyPressStartTime else { return }
-                
-                // Check if ESC is still being held
-                let elapsed = Date().timeIntervalSince(startTime)
-                if elapsed >= self.escHoldDuration {
-                    self.unlock()
-                    SoundManager.shared.playSuccess() // Feedback
-                }
-            }
-        }
     }
     
     // MARK: - Overlay Window
