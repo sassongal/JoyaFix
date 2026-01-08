@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// Protocol for AI service providers
 /// All AI services must conform to this protocol to ensure consistent interface
@@ -9,6 +10,12 @@ protocol AIServiceProtocol {
     /// - Returns: The generated response text
     /// - Throws: An error if the request fails
     func generateResponse(prompt: String) async throws -> String
+    
+    /// Describes an image using vision capabilities
+    /// - Parameter image: The NSImage to describe
+    /// - Returns: A detailed description of the image suitable for image generation prompts
+    /// - Throws: An error if the request fails
+    func describeImage(image: NSImage) async throws -> String
 }
 
 /// Common error type for AI services

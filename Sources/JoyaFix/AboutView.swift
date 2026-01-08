@@ -120,28 +120,34 @@ struct AboutView: View {
                     // Current Features
                     VStack(alignment: .leading, spacing: 8) {
                         Text(NSLocalizedString("about.features", comment: "Features"))
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 16, weight: .bold))
                             .padding(.bottom, 4)
                         
-                        FeatureRow(icon: "textformat", text: NSLocalizedString("about.feature.text.conversion", comment: "Text conversion feature"))
-                        FeatureRow(icon: "keyboard", text: NSLocalizedString("about.feature.keyboard.cleaner", comment: "Keyboard cleaner feature"))
-                        FeatureRow(icon: "text.bubble", text: NSLocalizedString("about.feature.snippets", comment: "Snippets feature"))
-                        FeatureRow(icon: "clipboard", text: NSLocalizedString("about.feature.clipboard", comment: "Clipboard feature"))
-                    }
-                    
-                    // Upcoming Features
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(NSLocalizedString("about.features.upcoming", comment: "Upcoming Features"))
-                            .font(.system(size: 14, weight: .semibold))
-                            .padding(.bottom, 4)
+                        // Clipboard History
+                        FeatureRow(icon: "clipboard", iconColor: .blue, text: "Clipboard History")
                         
-                        FeatureRow(icon: "viewfinder", text: NSLocalizedString("about.feature.ocr", comment: "OCR feature") + " (Soon)")
-                            .opacity(0.7) // Dimmed to indicate upcoming
+                        // AI Text Enhancement
+                        FeatureRow(icon: "sparkles", iconColor: .purple, text: "AI Text Enhancement (Gemini/OpenRouter)")
+                        
+                        // Keyboard Cleaner
+                        FeatureRow(icon: "keyboard", iconColor: .red, text: "Keyboard Cleaner")
+                        
+                        // Caffeine Mode
+                        FeatureRow(icon: "cup.and.saucer.fill", iconColor: .orange, text: "Caffeine Mode (Keep Awake)")
+                        
+                        // Color Picker
+                        FeatureRow(icon: "eyedropper", iconColor: .cyan, text: "Color Picker")
+                        
+                        // Scratchpad
+                        FeatureRow(icon: "note.text", iconColor: .yellow, text: "Quick Scratchpad")
+                        
+                        // Vision Lab
+                        FeatureRow(icon: "eye", iconColor: .pink, text: "Vision Lab (Image-to-Prompt)")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 200) // Height increased to accommodate both sections
+            .frame(height: 250)
             
             Divider()
                 .padding(.horizontal, 40)
@@ -186,13 +192,14 @@ struct AboutView: View {
 
 struct FeatureRow: View {
     let icon: String
+    var iconColor: Color = .blue
     let text: String
     
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 14))
-                .foregroundColor(.blue)
+                .foregroundColor(iconColor)
                 .frame(width: 20)
             Text(text)
                 .font(.system(size: 13))

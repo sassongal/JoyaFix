@@ -21,11 +21,15 @@ struct OnboardingView: View {
                 case 2:
                     DetailedFeaturesSlide()
                 case 3:
+                    CaffeineModeSlide()
+                case 4:
+                    ColorPickerSlide()
+                case 5:
                     PermissionsSlide(
                         accessibilityGranted: $accessibilityGranted,
                         screenRecordingGranted: $screenRecordingGranted
                     )
-                case 4:
+                case 6:
                     ReadySlide(onComplete: {
                         hasCompletedOnboarding = true
                         onComplete()
@@ -61,7 +65,7 @@ struct OnboardingView: View {
                 
                 // Page indicators
                 HStack(spacing: 8) {
-                    ForEach(0..<5) { index in
+                    ForEach(0..<7) { index in
                         Circle()
                             .fill(index == currentPage ? Color.accentColor : Color.gray.opacity(0.3))
                             .frame(width: index == currentPage ? 10 : 8, height: index == currentPage ? 10 : 8)
@@ -72,7 +76,7 @@ struct OnboardingView: View {
                 Spacer()
                 
                 // Next/Get Started button
-                if currentPage < 4 {
+                if currentPage < 6 {
                     Button(action: {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                             currentPage += 1
@@ -687,6 +691,153 @@ struct ReadySlide: View {
                 checkmarkScale = 1.0
                 checkmarkOpacity = 1.0
             }
+        }
+    }
+}
+
+// MARK: - Caffeine Mode Slide
+
+struct CaffeineModeSlide: View {
+    var body: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // Placeholder Image with SF Symbol and gradient
+            ZStack {
+                // Gradient background
+                RoundedRectangle(cornerRadius: 30)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.orange.opacity(0.3), Color.orange.opacity(0.1)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 200, height: 200)
+                    .shadow(color: .orange.opacity(0.3), radius: 20, x: 0, y: 10)
+                
+                // SF Symbol
+                Image(systemName: "cup.and.saucer.fill")
+                    .font(.system(size: 80))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.orange, .orange.opacity(0.7)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 16) {
+                Text("Caffeine Mode")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.orange, .orange.opacity(0.7)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                
+                Text("Keep your Mac awake with a single click")
+                    .font(.system(size: 18))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    FeatureBullet(icon: "bolt.fill", text: "Prevents system sleep automatically")
+                    FeatureBullet(icon: "togglepower", text: "Toggle on/off from menu bar")
+                    FeatureBullet(icon: "lock.shield.fill", text: "Uses macOS power management APIs")
+                }
+                .padding(.top, 8)
+            }
+            
+            Spacer()
+        }
+        .padding(40)
+    }
+}
+
+// MARK: - Color Picker Slide
+
+struct ColorPickerSlide: View {
+    var body: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // Placeholder Image with SF Symbol and gradient
+            ZStack {
+                // Gradient background
+                RoundedRectangle(cornerRadius: 30)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.cyan.opacity(0.3), Color.blue.opacity(0.1)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 200, height: 200)
+                    .shadow(color: .cyan.opacity(0.3), radius: 20, x: 0, y: 10)
+                
+                // SF Symbol
+                Image(systemName: "eyedropper")
+                    .font(.system(size: 80))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.cyan, .blue],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 16) {
+                Text("Color Picker")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.cyan, .blue],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                
+                Text("Pick any color from your screen instantly")
+                    .font(.system(size: 18))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    FeatureBullet(icon: "eye.fill", text: "Click anywhere on screen to pick color")
+                    FeatureBullet(icon: "doc.on.clipboard", text: "HEX code copied to clipboard automatically")
+                    FeatureBullet(icon: "checkmark.circle.fill", text: "Success sound confirms copy")
+                }
+                .padding(.top, 8)
+            }
+            
+            Spacer()
+        }
+        .padding(40)
+    }
+}
+
+// MARK: - Feature Bullet
+
+struct FeatureBullet: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(.blue)
+                .frame(width: 20)
+            Text(text)
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
         }
     }
 }

@@ -138,6 +138,13 @@ struct HistoryView: View {
                 Label(NSLocalizedString("library.tab.title", comment: "Library"), systemImage: "book")
             }
             .tag(2)
+            
+            // Vision Lab Tab
+            VisionLabView()
+                .tabItem {
+                    Label("Vision Lab", systemImage: "eye")
+                }
+                .tag(3)
         }
         .frame(width: 400)
         .sheet(isPresented: $showingEditor) {
@@ -905,126 +912,196 @@ struct PromptLibraryTabView: View {
     @Binding var showingEditor: Bool
     var onClose: () -> Void
     @ObservedObject var promptManager = PromptLibraryManager.shared
+    @State private var selectedCategory: PromptCategory? = nil
+    
+    // Computed: Get prompts to display based on search and category
+    var displayedPrompts: [PromptTemplate] {
+        let categoryFiltered = selectedCategory == nil ? filteredPrompts : filteredPrompts.filter { $0.category == selectedCategory }
+        return categoryFiltered
+    }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Search Bar
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 14))
-
-                TextField(NSLocalizedString("library.search.placeholder", comment: "Search prompts..."), text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .font(.system(size: 13))
-
-                if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-
-            Divider()
-            
-            // Add Prompt Button
-            HStack {
-                Button(action: {
-                    editingPrompt = nil
-                    showingEditor = true
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 14))
-                        Text(NSLocalizedString("library.add.new", comment: "Add Prompt"))
-                            .font(.system(size: 13))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-
-            Divider()
-
-            // Prompts List
-            if filteredPrompts.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "book")
-                        .font(.system(size: 40))
+        HSplitView {
+            // LEFT: Sidebar with Categories
+            VStack(spacing: 0) {
+                // Search Bar
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
+                        .font(.system(size: 12))
 
-                    Text(NSLocalizedString("library.empty.state", comment: "No prompts found. Create your own!"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.primary)
+                    TextField(NSLocalizedString("library.search.placeholder", comment: "Search prompts..."), text: $searchText)
+                        .textFieldStyle(.plain)
+                        .focused($isSearchFocused)
+                        .font(.system(size: 11))
+
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 10))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .frame(height: 200)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 6) {
-                            ForEach(Array(filteredPrompts.enumerated()), id: \.element.id) { index, prompt in
-                                PromptRowView(
-                                    prompt: prompt,
-                                    isSelected: index == selectedIndex,
-                                    onCopy: {
-                                        promptManager.copyPromptToClipboard(prompt)
-                                        onClose()
-                                    },
-                                    onEdit: {
-                                        editingPrompt = prompt
-                                        showingEditor = true
-                                    },
-                                    onDelete: {
-                                        promptManager.deletePrompt(prompt)
-                                        if selectedIndex >= filteredPrompts.count - 1 {
-                                            selectedIndex = max(0, filteredPrompts.count - 2)
+                .padding(8)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                
+                Divider()
+                
+                // Categories List
+                List(selection: $selectedCategory) {
+                    Section("Categories") {
+                        // "All" option
+                        HStack {
+                            Image(systemName: "square.grid.2x2")
+                                .foregroundColor(.blue)
+                                .frame(width: 16)
+                            Text("All")
+                            Spacer()
+                            Text("\(filteredPrompts.count)")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 10))
+                        }
+                        .tag(nil as PromptCategory?)
+                        
+                        ForEach(PromptCategory.allCases) { category in
+                            HStack {
+                                Image(systemName: category.icon)
+                                    .foregroundColor(category.color)
+                                    .frame(width: 16)
+                                Text(category.rawValue)
+                                    .font(.system(size: 12))
+                                Spacer()
+                                Text("\(promptManager.prompts(in: category).count)")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 10))
+                            }
+                            .tag(category as PromptCategory?)
+                        }
+                    }
+                }
+                .listStyle(.sidebar)
+                .frame(minWidth: 180)
+            }
+            .frame(width: 200)
+
+            // RIGHT: Prompts List
+            VStack(spacing: 0) {
+                // Add Prompt Button
+                HStack {
+                    Button(action: {
+                        editingPrompt = nil
+                        showingEditor = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 14))
+                            Text(NSLocalizedString("library.add.new", comment: "Add Prompt"))
+                                .font(.system(size: 13))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+
+                Divider()
+
+                // Prompts List
+                if displayedPrompts.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "book")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+
+                        Text(NSLocalizedString("library.empty.state", comment: "No prompts found. Create your own!"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                    }
+                    .frame(height: 200)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            // Group by category if "All" is selected, otherwise show flat list
+                            if selectedCategory == nil && searchText.isEmpty {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(PromptCategory.allCases) { category in
+                                        let categoryPrompts = promptManager.prompts(in: category)
+                                        if !categoryPrompts.isEmpty {
+                                            CategorySection(
+                                                category: category,
+                                                prompts: categoryPrompts,
+                                                selectedIndex: $selectedIndex,
+                                                promptManager: promptManager,
+                                                editingPrompt: $editingPrompt,
+                                                showingEditor: $showingEditor,
+                                                onClose: onClose
+                                            )
                                         }
                                     }
-                                )
-                                .id(index)
+                                }
+                                .padding(8)
+                            } else {
+                                LazyVStack(spacing: 6) {
+                                    ForEach(Array(displayedPrompts.enumerated()), id: \.element.id) { index, prompt in
+                                        PromptRowView(
+                                            prompt: prompt,
+                                            isSelected: index == selectedIndex,
+                                            onCopy: {
+                                                promptManager.copyPromptToClipboard(prompt)
+                                                onClose()
+                                            },
+                                            onEdit: {
+                                                editingPrompt = prompt
+                                                showingEditor = true
+                                            },
+                                            onDelete: {
+                                                promptManager.deletePrompt(prompt)
+                                                if selectedIndex >= displayedPrompts.count - 1 {
+                                                    selectedIndex = max(0, displayedPrompts.count - 2)
+                                                }
+                                            }
+                                        )
+                                        .id(index)
+                                    }
+                                }
+                                .padding(8)
                             }
                         }
-                        .padding(8)
-                    }
-                    .frame(height: min(CGFloat(filteredPrompts.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { _, newValue in
-                        withAnimation {
-                            proxy.scrollTo(newValue, anchor: .center)
+                        .frame(height: min(CGFloat(displayedPrompts.count * 70 + 16), 400))
+                        .onChange(of: selectedIndex) { _, newValue in
+                            withAnimation {
+                                proxy.scrollTo(newValue, anchor: .center)
+                            }
                         }
                     }
                 }
+
+                Divider()
+
+                // Footer
+                HStack(spacing: 16) {
+                    FooterHintView(icon: "return", text: NSLocalizedString("library.action.copy", comment: "Copy"))
+                    FooterHintView(icon: "arrow.up.arrow.down", text: "Navigate")
+                    FooterHintView(icon: "plus", text: NSLocalizedString("library.add.new", comment: "Add Prompt"))
+
+                    Spacer()
+
+                    Text("\(displayedPrompts.count) prompts")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             }
-
-            Divider()
-
-            // Footer
-            HStack(spacing: 16) {
-                FooterHintView(icon: "return", text: NSLocalizedString("library.action.copy", comment: "Copy"))
-                FooterHintView(icon: "arrow.up.arrow.down", text: "Navigate")
-                FooterHintView(icon: "plus", text: NSLocalizedString("library.add.new", comment: "Add Prompt"))
-
-                Spacer()
-
-                Text("\(filteredPrompts.count) prompts")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         }
-        .frame(width: 400)
+        .frame(width: 600, height: 500)
         .background(Color.clear)
         .onKeyPress(.upArrow) {
             if selectedIndex > 0 {
@@ -1033,14 +1110,14 @@ struct PromptLibraryTabView: View {
             return .handled
         }
         .onKeyPress(.downArrow) {
-            if selectedIndex < filteredPrompts.count - 1 {
+            if selectedIndex < displayedPrompts.count - 1 {
                 selectedIndex += 1
             }
             return .handled
         }
         .onKeyPress(.return) {
-            if !filteredPrompts.isEmpty {
-                promptManager.copyPromptToClipboard(filteredPrompts[selectedIndex])
+            if !displayedPrompts.isEmpty {
+                promptManager.copyPromptToClipboard(displayedPrompts[selectedIndex])
                 onClose()
             }
             return .handled
@@ -1056,6 +1133,58 @@ struct PromptLibraryTabView: View {
                 return .handled
             }
             return .ignored
+        }
+    }
+}
+
+// MARK: - Category Section View
+
+struct CategorySection: View {
+    let category: PromptCategory
+    let prompts: [PromptTemplate]
+    @Binding var selectedIndex: Int
+    @ObservedObject var promptManager: PromptLibraryManager
+    @Binding var editingPrompt: PromptTemplate?
+    @Binding var showingEditor: Bool
+    var onClose: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Category Header
+            HStack {
+                Image(systemName: category.icon)
+                    .foregroundColor(category.color)
+                    .font(.system(size: 14))
+                Text(category.rawValue)
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Text("\(prompts.count)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(category.color.opacity(0.1))
+            .cornerRadius(6)
+            
+            // Prompts in this category
+            ForEach(Array(prompts.enumerated()), id: \.element.id) { index, prompt in
+                PromptRowView(
+                    prompt: prompt,
+                    isSelected: false, // Category view doesn't use selection
+                    onCopy: {
+                        promptManager.copyPromptToClipboard(prompt)
+                        onClose()
+                    },
+                    onEdit: {
+                        editingPrompt = prompt
+                        showingEditor = true
+                    },
+                    onDelete: {
+                        promptManager.deletePrompt(prompt)
+                    }
+                )
+            }
         }
     }
 }

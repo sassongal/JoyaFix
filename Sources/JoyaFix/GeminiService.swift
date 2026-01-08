@@ -139,6 +139,33 @@ class GeminiService: NSObject, AIServiceProtocol {
         }
     }
     
+    /// Describes an image using Gemini's vision capabilities
+    func describeImage(image: NSImage) async throws -> String {
+        // Convert NSImage to base64
+        guard let imageData = image.tiffRepresentation,
+              let bitmapImage = NSBitmapImageRep(data: imageData),
+              let pngData = bitmapImage.representation(using: .png, properties: [:]) else {
+            throw AIServiceError.encodingError(NSError(domain: "GeminiService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image to PNG"]))
+        }
+        
+        let base64Image = pngData.base64EncodedString()
+        
+        // Create vision prompt for "Nano Banano Style" description
+        let visionPrompt = "Provide a detailed, professional, and artistic description of this image suitable for high-end image generation prompts (like Midjourney/DALL-E), focusing on lighting, texture, and composition."
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in
+                switch result {
+                case .success(let text):
+                    continuation.resume(returning: text)
+                case .failure(let error):
+                    let aiError = self.convertToAIServiceError(error)
+                    continuation.resume(throwing: aiError)
+                }
+            }
+        }
+    }
+    
     // MARK: - Public API (Result-based - deprecated)
     
     /// Sends a text prompt to Gemini API with retry logic
@@ -149,6 +176,31 @@ class GeminiService: NSObject, AIServiceProtocol {
     
     
     // MARK: - Internal Logic
+    
+    /// Sends an image with a prompt to Gemini API
+    private func sendImagePrompt(imageBase64: String, prompt: String, attempt: Int, completion: @escaping (Result<String, GeminiServiceError>) -> Void) {
+        let requestBody = GeminiRequest(
+            contents: [
+                GeminiRequest.Content(parts: [
+                    GeminiRequest.Content.Part(
+                        text: prompt,
+                        inlineData: GeminiRequest.Content.InlineData(
+                            mimeType: "image/png",
+                            data: imageBase64
+                        )
+                    )
+                ])
+            ],
+            generationConfig: GeminiRequest.GenerationConfig(
+                temperature: 0.7,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 2048
+            )
+        )
+        
+        performRequest(requestBody: requestBody, attempt: attempt, context: "Vision Image Description", completion: completion)
+    }
     
     private func sendPromptWithRetry(_ prompt: String, attempt: Int, completion: @escaping (Result<String, GeminiServiceError>) -> Void) {
         let requestBody = GeminiRequest(

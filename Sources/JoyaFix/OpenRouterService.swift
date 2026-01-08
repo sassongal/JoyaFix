@@ -45,7 +45,44 @@ enum OpenRouterServiceError: LocalizedError {
 struct OpenRouterRequest: Encodable {
     struct Message: Encodable {
         let role: String // "user" or "system"
-        let content: String
+        let content: String // For text prompts
+        let contentArray: [VisionContent]? // For vision prompts
+        
+        init(role: String, content: String) {
+            self.role = role
+            self.content = content
+            self.contentArray = nil
+        }
+        
+        init(role: String, visionContent: [VisionContent]) {
+            self.role = role
+            self.content = ""
+            self.contentArray = visionContent
+        }
+        
+        struct VisionContent: Encodable {
+            let type: String
+            let text: String?
+            let imageUrl: ImageURL?
+            
+            struct ImageURL: Encodable {
+                let url: String
+            }
+        }
+        
+        enum CodingKeys: String, CodingKey {
+            case role, content
+        }
+        
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(role, forKey: .role)
+            if let contentArray = contentArray {
+                try container.encode(contentArray, forKey: .content)
+            } else {
+                try container.encode(content, forKey: .content)
+            }
+        }
     }
     
     let model: String
@@ -113,7 +150,85 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         }
     }
     
+    /// Describes an image using OpenRouter's vision-capable models
+    func describeImage(image: NSImage) async throws -> String {
+        // Convert NSImage to base64
+        guard let imageData = image.tiffRepresentation,
+              let bitmapImage = NSBitmapImageRep(data: imageData),
+              let pngData = bitmapImage.representation(using: .png, properties: [:]) else {
+            throw AIServiceError.encodingError(NSError(domain: "OpenRouterService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image to PNG"]))
+        }
+        
+        let base64Image = pngData.base64EncodedString()
+        
+        // Create vision prompt for "Nano Banano Style" description
+        let visionPrompt = "Provide a detailed, professional, and artistic description of this image suitable for high-end image generation prompts (like Midjourney/DALL-E), focusing on lighting, texture, and composition."
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in
+                switch result {
+                case .success(let text):
+                    continuation.resume(returning: text)
+                case .failure(let error):
+                    let aiError = self.convertToAIServiceError(error)
+                    continuation.resume(throwing: aiError)
+                }
+            }
+        }
+    }
+    
     // MARK: - Internal Logic
+    
+    /// Sends an image with a prompt to OpenRouter API using a vision-capable model
+    private func sendImagePrompt(imageBase64: String, prompt: String, attempt: Int, completion: @escaping (Result<String, OpenRouterServiceError>) -> Void) {
+        guard let apiKey = getAPIKey() else {
+            Logger.security("OpenRouter API key not found", level: .error)
+            completion(.failure(.apiKeyNotFound))
+            return
+        }
+        
+        // Use a vision-capable model (gemini-1.5-flash supports vision)
+        let model = "google/gemini-1.5-flash"
+        
+        // For OpenRouter vision models, we need to format the content as an array
+        // with text and image_url objects
+        let imageDataUrl = "data:image/png;base64,\(imageBase64)"
+        
+        // Create vision content array
+        let visionContent: [String: Any] = [
+            "type": "text",
+            "text": prompt
+        ]
+        let imageContent: [String: Any] = [
+            "type": "image_url",
+            "image_url": [
+                "url": imageDataUrl
+            ]
+        ]
+        
+        // For OpenRouter vision models, use the vision content format
+        let visionContent = [
+            OpenRouterRequest.Message.VisionContent(
+                type: "text",
+                text: prompt,
+                imageUrl: nil
+            ),
+            OpenRouterRequest.Message.VisionContent(
+                type: "image_url",
+                text: nil,
+                imageUrl: OpenRouterRequest.Message.VisionContent.ImageURL(url: imageDataUrl)
+            )
+        ]
+        
+        let requestBody = OpenRouterRequest(
+            model: model,
+            messages: [
+                OpenRouterRequest.Message(role: "user", visionContent: visionContent)
+            ]
+        )
+        
+        performRequest(requestBody: requestBody, apiKey: apiKey, attempt: attempt, context: "Vision Image Description", completion: completion)
+    }
     
     private func sendPrompt(_ prompt: String, attempt: Int, completion: @escaping (Result<String, OpenRouterServiceError>) -> Void) {
         guard let apiKey = getAPIKey() else {
