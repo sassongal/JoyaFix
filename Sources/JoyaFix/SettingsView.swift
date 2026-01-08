@@ -18,6 +18,9 @@ struct SettingsView: View {
     @State private var localPlaySound: Bool
     @State private var localAutoPaste: Bool
     @State private var localGeminiKey: String
+    @State private var localAIProvider: AIProvider
+    @State private var localOpenRouterKey: String
+    @State private var localOpenRouterModel: String
 #if false
     @State private var localUseCloudOCR: Bool
 #endif
@@ -48,6 +51,9 @@ struct SettingsView: View {
         _localPlaySound = State(initialValue: settings.playSoundOnConvert)
         _localAutoPaste = State(initialValue: settings.autoPasteAfterConvert)
         _localGeminiKey = State(initialValue: settings.geminiKey)
+        _localAIProvider = State(initialValue: settings.selectedAIProvider)
+        _localOpenRouterKey = State(initialValue: settings.openRouterKey)
+        _localOpenRouterModel = State(initialValue: settings.openRouterModel)
 #if false
         _localUseCloudOCR = State(initialValue: settings.useCloudOCR)
 #endif
@@ -68,6 +74,9 @@ struct SettingsView: View {
                 localPlaySound: $localPlaySound,
                 localAutoPaste: $localAutoPaste,
                 localGeminiKey: $localGeminiKey,
+                localAIProvider: $localAIProvider,
+                localOpenRouterKey: $localOpenRouterKey,
+                localOpenRouterModel: $localOpenRouterModel,
 
                 isRecordingConvertHotkey: $isRecordingConvertHotkey,
 
@@ -132,6 +141,9 @@ struct SettingsView: View {
         settings.playSoundOnConvert = localPlaySound
         settings.autoPasteAfterConvert = localAutoPaste
         settings.geminiKey = localGeminiKey
+        settings.selectedAIProvider = localAIProvider
+        settings.openRouterKey = localOpenRouterKey
+        settings.openRouterModel = localOpenRouterModel
 #if false
         settings.useCloudOCR = localUseCloudOCR
 #endif
@@ -176,6 +188,9 @@ struct SettingsView: View {
         localPlaySound = true
         localAutoPaste = true
         localGeminiKey = ""
+        localAIProvider = .gemini
+        localOpenRouterKey = ""
+        localOpenRouterModel = "deepseek/deepseek-chat"
 #if false
         localUseCloudOCR = false
 #endif

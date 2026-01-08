@@ -121,5 +121,24 @@ class KeychainHelper {
     static func deleteGeminiKey() throws {
         try delete(key: geminiKeyAccount)
     }
+    
+    // MARK: - OpenRouter Key Specifics
+    
+    private static let openRouterKeyAccount = JoyaFixConstants.Keychain.openRouterKeyAccount
+    
+    /// Stores the OpenRouter API key
+    static func storeOpenRouterKey(_ key: String) throws {
+        try store(key: openRouterKeyAccount, value: key)
+    }
+    
+    /// Retrieves the OpenRouter API key
+    static func retrieveOpenRouterKey() throws -> String {
+        return try retrieve(key: openRouterKeyAccount)
+    }
+    
+    /// Deletes the OpenRouter API key
+    static func deleteOpenRouterKey() throws {
+        try delete(key: openRouterKeyAccount)
+    }
 }
 

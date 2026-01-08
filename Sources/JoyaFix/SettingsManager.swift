@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import Carbon
 
+/// AI Provider selection
+enum AIProvider: String, Codable {
+    case gemini
+    case openRouter
+}
+
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
@@ -77,6 +83,32 @@ class SettingsManager: ObservableObject {
             UserDefaults.standard.set(useCloudOCR, forKey: Keys.useCloudOCR)
         }
     }
+    
+    @Published var selectedAIProvider: AIProvider {
+        didSet {
+            if let encoded = try? JSONEncoder().encode(selectedAIProvider),
+               let string = String(data: encoded, encoding: .utf8) {
+                UserDefaults.standard.set(string, forKey: Keys.selectedAIProvider)
+            }
+        }
+    }
+    
+    @Published var openRouterKey: String {
+        didSet {
+            // Store securely in Keychain instead of UserDefaults
+            if !openRouterKey.isEmpty {
+                try? KeychainHelper.storeOpenRouterKey(openRouterKey)
+            } else {
+                try? KeychainHelper.deleteOpenRouterKey()
+            }
+        }
+    }
+    
+    @Published var openRouterModel: String {
+        didSet {
+            UserDefaults.standard.set(openRouterModel, forKey: Keys.openRouterModel)
+        }
+    }
 
     // MARK: - Keys
 
@@ -92,6 +124,8 @@ class SettingsManager: ObservableObject {
         static let promptHotkeyModifiers = "promptHotkeyModifiers"
         static let geminiKey = "geminiKey"
         static let useCloudOCR = "useCloudOCR"
+        static let selectedAIProvider = "selectedAIProvider"
+        static let openRouterModel = "openRouterModel"
     }
 
     // MARK: - Initialization
@@ -123,6 +157,26 @@ class SettingsManager: ObservableObject {
         }
         
         self.useCloudOCR = UserDefaults.standard.object(forKey: Keys.useCloudOCR) as? Bool ?? true
+        
+        // Load AI Provider selection
+        if let providerString = UserDefaults.standard.string(forKey: Keys.selectedAIProvider),
+           let providerData = providerString.data(using: .utf8),
+           let provider = try? JSONDecoder().decode(AIProvider.self, from: providerData) {
+            self.selectedAIProvider = provider
+        } else {
+            // Default to Gemini for backward compatibility
+            self.selectedAIProvider = .gemini
+        }
+        
+        // Load OpenRouter key from Keychain
+        if let keychainKey = try? KeychainHelper.retrieveOpenRouterKey() {
+            self.openRouterKey = keychainKey
+        } else {
+            self.openRouterKey = ""
+        }
+        
+        // Load OpenRouter model (default to deepseek/deepseek-chat)
+        self.openRouterModel = UserDefaults.standard.string(forKey: Keys.openRouterModel) ?? "deepseek/deepseek-chat"
     }
 
     // MARK: - Hotkey Helpers

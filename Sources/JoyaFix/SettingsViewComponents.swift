@@ -19,6 +19,9 @@ struct GeneralSettingsTab: View {
     @Binding var localPlaySound: Bool
     @Binding var localAutoPaste: Bool
     @Binding var localGeminiKey: String
+    @Binding var localAIProvider: AIProvider
+    @Binding var localOpenRouterKey: String
+    @Binding var localOpenRouterModel: String
 #if false
     @Binding var localUseCloudOCR: Bool
 #endif
@@ -310,33 +313,96 @@ struct GeneralSettingsTab: View {
                         .padding(8)
                     }
 
-                    // API Configuration Section
+                    // AI Provider Configuration Section
                     GroupBox(label: Label(NSLocalizedString("settings.api.configuration", comment: "API Configuration"), systemImage: "key.fill")) {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(NSLocalizedString("settings.api.configuration.description", comment: "API configuration description"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
+                            // Provider Picker
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(NSLocalizedString("settings.api.gemini.key", comment: "Gemini API key"))
+                                Text("AI Provider")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
-
-                                SecureField(NSLocalizedString("settings.api.gemini.key.placeholder", comment: "API key placeholder"), text: $localGeminiKey)
-                                    .textFieldStyle(.roundedBorder)
-                                    .onChange(of: localGeminiKey) { _, _ in
-                                        hasUnsavedChanges = true
-                                    }
-
-                                Text(NSLocalizedString("settings.api.gemini.key.description", comment: "API key description"))
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
                                 
-                                HStack(spacing: 4) {
-                                    Image(systemName: "lock.shield.fill")
+                                Picker("", selection: $localAIProvider) {
+                                    Text("Gemini").tag(AIProvider.gemini)
+                                    Text("OpenRouter").tag(AIProvider.openRouter)
+                                }
+                                .pickerStyle(.segmented)
+                                .onChange(of: localAIProvider) { _, _ in
+                                    hasUnsavedChanges = true
+                                }
+                            }
+                            
+                            Divider()
+                            
+                            // Conditional API Key Fields
+                            if localAIProvider == .gemini {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(NSLocalizedString("settings.api.gemini.key", comment: "Gemini API key"))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    SecureField(NSLocalizedString("settings.api.gemini.key.placeholder", comment: "API key placeholder"), text: $localGeminiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .onChange(of: localGeminiKey) { _, _ in
+                                            hasUnsavedChanges = true
+                                        }
+
+                                    Text(NSLocalizedString("settings.api.gemini.key.description", comment: "API key description"))
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
-                                    Text(NSLocalizedString("settings.api.key.secure.storage", comment: "Secure storage message"))
+                                    
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "lock.shield.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text(NSLocalizedString("settings.api.key.secure.storage", comment: "Secure storage message"))
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            } else {
+                                // OpenRouter Configuration
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("OpenRouter API Key")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+
+                                    SecureField("Enter OpenRouter API key", text: $localOpenRouterKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .onChange(of: localOpenRouterKey) { _, _ in
+                                            hasUnsavedChanges = true
+                                        }
+
+                                    Text("Get your API key from openrouter.ai")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "lock.shield.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text(NSLocalizedString("settings.api.key.secure.storage", comment: "Secure storage message"))
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Divider()
+                                    
+                                    Text("Model")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    
+                                    TextField("deepseek/deepseek-chat", text: $localOpenRouterModel)
+                                        .textFieldStyle(.roundedBorder)
+                                        .onChange(of: localOpenRouterModel) { _, _ in
+                                            hasUnsavedChanges = true
+                                        }
+                                    
+                                    Text("Free models: deepseek/deepseek-chat, mistralai/mistral-7b-instruct, meta-llama/llama-3.3-70b-instruct")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                 }

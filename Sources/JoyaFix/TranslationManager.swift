@@ -5,15 +5,11 @@ import Carbon
 
 @MainActor
 class TranslationManager {
-    static let shared = TranslationManager(geminiService: GeminiService.shared)
-    
-    private let geminiService: GeminiService
+    static let shared = TranslationManager()
     
     // MARK: - Initialization
     
-    init(geminiService: GeminiService) {
-        self.geminiService = geminiService
-    }
+    private init() {}
     
     // MARK: - Public API
     
@@ -48,8 +44,9 @@ class TranslationManager {
                     NSSound(named: "Pop")?.play()
                 }
                 
-                // 3. Send to Gemini (using async wrapper)
-                let translatedText = try await sendPromptToGemini(prompt)
+                // 3. Send to AI service
+                let service = AIServiceFactory.createService()
+                let translatedText = try await service.generateResponse(prompt: prompt)
                 
                 print("✅ Translation received: \(translatedText.prefix(50))...")
                 
@@ -65,21 +62,6 @@ class TranslationManager {
             } catch {
                 print("❌ Translation failed: \(error.localizedDescription)")
                 showErrorAlert(message: "Translation failed: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    // MARK: - Gemini Integration
-    
-    private func sendPromptToGemini(_ prompt: String) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            geminiService.sendPrompt(prompt) { result in
-                switch result {
-                case .success(let text):
-                    continuation.resume(returning: text)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
             }
         }
     }

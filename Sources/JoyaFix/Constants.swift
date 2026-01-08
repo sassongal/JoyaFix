@@ -94,12 +94,14 @@ enum JoyaFixConstants {
     enum Keychain {
         static let service = "com.joyafix.app"
         static let geminiKeyAccount = "gemini_api_key"
+        static let openRouterKeyAccount = "openrouter_api_key"
     }
     
     // MARK: - API Endpoints
     
     enum API {
         static let geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        static let openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
     }
     
     // MARK: - File Paths

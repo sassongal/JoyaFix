@@ -103,7 +103,7 @@ struct GeminiResponse: Decodable {
 /// Service for interacting with Google Gemini API
 /// Handles both text-only and image-based requests
 @MainActor
-class GeminiService: NSObject {
+class GeminiService: NSObject, AIServiceProtocol {
     static let shared: GeminiService = {
         let instance = GeminiService()
         return instance
@@ -121,9 +121,28 @@ class GeminiService: NSObject {
         self.urlSession = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }
     
-    // MARK: - Public API (Result-based)
+    // MARK: - Public API (AIServiceProtocol)
+    
+    /// Generates a response from Gemini API (async/await)
+    func generateResponse(prompt: String) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            sendPrompt(prompt) { result in
+                switch result {
+                case .success(let text):
+                    continuation.resume(returning: text)
+                case .failure(let error):
+                    // Convert GeminiServiceError to AIServiceError
+                    let aiError = self.convertToAIServiceError(error)
+                    continuation.resume(throwing: aiError)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Public API (Result-based - deprecated)
     
     /// Sends a text prompt to Gemini API with retry logic
+    @available(*, deprecated, message: "Use generateResponse(prompt:) async throws instead")
     func sendPrompt(_ prompt: String, completion: @escaping (Result<String, GeminiServiceError>) -> Void) {
         sendPromptWithRetry(prompt, attempt: 0, completion: completion)
     }
@@ -149,16 +168,30 @@ class GeminiService: NSObject {
     
     
     private func performRequest(requestBody: GeminiRequest, attempt: Int, context: String, completion: @escaping (Result<String, GeminiServiceError>) -> Void) {
-        guard let apiKey = getAPIKey() else {
-            Logger.security("Gemini API key not found", level: .error)
+        // Enhanced logging: API Key verification
+        let (apiKey, keySource) = getAPIKeyWithSource()
+        guard let apiKey = apiKey else {
+            Logger.security("Gemini API key not found - checked both Keychain and Settings", level: .error)
             completion(.failure(.apiKeyNotFound))
             return
         }
         
+        // Log API key presence (length only, not the key itself)
+        Logger.network("Gemini API key found (length: \(apiKey.count) chars, source: \(keySource))", level: .info)
+        
+        // Validate API key format (Gemini keys typically start with "AI" or are base64-like)
+        if apiKey.count < 20 {
+            Logger.security("Warning: API key seems too short (\(apiKey.count) chars). Expected ~39+ chars for Gemini keys.", level: .warning)
+        }
+        
         guard let url = URL(string: JoyaFixConstants.API.geminiBaseURL) else {
+            Logger.network("Invalid Gemini API URL: \(JoyaFixConstants.API.geminiBaseURL)", level: .error)
             completion(.failure(.invalidURL))
             return
         }
+        
+        // Log full request URL
+        Logger.network("Gemini API Request URL: \(url.absoluteString)", level: .debug)
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -166,9 +199,21 @@ class GeminiService: NSObject {
         // SECURITY FIX: Send API Key in Header instead of URL
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         
+        // Log request headers (sanitized)
+        Logger.network("Request headers: Content-Type=application/json, x-goog-api-key=***\(apiKey.suffix(4))", level: .debug)
+        
         do {
-            request.httpBody = try JSONEncoder().encode(requestBody)
+            let requestBodyData = try JSONEncoder().encode(requestBody)
+            request.httpBody = requestBodyData
+            
+            // Log request body structure (sanitized)
+            if let requestBodyString = String(data: requestBodyData, encoding: .utf8) {
+                let sanitized = requestBodyString.replacingOccurrences(of: apiKey, with: "***REDACTED***")
+                Logger.network("Request body size: \(requestBodyData.count) bytes", level: .debug)
+                Logger.network("Request body (first 500 chars): \(sanitized.prefix(500))", level: .debug)
+            }
         } catch {
+            Logger.network("Failed to encode request body: \(error.localizedDescription)", level: .error)
             completion(.failure(.encodingError(error)))
             return
         }
@@ -177,60 +222,74 @@ class GeminiService: NSObject {
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
-            if let error = error {
-                self.handleNetworkError(error, attempt: attempt, context: context, requestBody: requestBody, completion: completion)
-                return
-            }
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                completion(.failure(.networkError(NSError(domain: "InvalidResponse", code: 0))))
-                return
-            }
-            
-            guard let data = data else {
-                completion(.failure(.emptyResponse))
-                return
-            }
-            
-            // Handle HTTP Errors
-            if httpResponse.statusCode != 200 {
-                
-                self.handleHTTPError(statusCode: httpResponse.statusCode, data: data, attempt: attempt, context: context, requestBody: requestBody, completion: completion)
-                return
-            }
-            
-            // Success Path
-            do {
-                let geminiResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
-                
-                if let error = geminiResponse.error {
-                    completion(.failure(.httpError(error.code, error.message)))
+            Task { @MainActor in
+                if let error = error {
+                    self.handleNetworkError(error, attempt: attempt, context: context, requestBody: requestBody, completion: completion)
                     return
                 }
                 
-                guard let text = geminiResponse.candidates?.first?.content?.parts?.first?.text else {
-                    Logger.network("Invalid response structure from Gemini API", level: .error)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    Logger.network("Invalid response type - not HTTPURLResponse", level: .error)
+                    completion(.failure(.networkError(NSError(domain: "InvalidResponse", code: 0))))
+                    return
+                }
+                
+                // Log HTTP status code and response headers
+                Logger.network("HTTP Status Code: \(httpResponse.statusCode)", level: .info)
+                Logger.network("Response headers: \(httpResponse.allHeaderFields)", level: .debug)
+                
+                guard let data = data else {
+                    Logger.network("Response data is nil", level: .error)
+                    completion(.failure(.emptyResponse))
+                    return
+                }
+                
+                // Log response body size
+                Logger.network("Response body size: \(data.count) bytes", level: .debug)
+                
+                // Handle HTTP Errors
+                if httpResponse.statusCode != 200 {
+                    // Log raw response body for debugging (first 1000 chars)
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        Logger.network("HTTP Error Response Body (first 1000 chars): \(responseString.prefix(1000))", level: .error)
+                    }
+                    self.handleHTTPError(statusCode: httpResponse.statusCode, data: data, attempt: attempt, context: context, requestBody: requestBody, completion: completion)
+                    return
+                }
+                
+                // Success Path
+                do {
+                    let geminiResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                    
+                    if let error = geminiResponse.error {
+                        completion(.failure(.httpError(error.code, error.message)))
+                        return
+                    }
+                    
+                    guard let text = geminiResponse.candidates?.first?.content?.parts?.first?.text else {
+                        Logger.network("Invalid response structure from Gemini API", level: .error)
+                         if let responseString = String(data: data, encoding: .utf8) {
+                            Logger.network("Response: \(responseString.prefix(500))", level: .debug)
+                        }
+                        completion(.failure(.invalidResponse))
+                        return
+                    }
+                    
+                    let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if cleanedText.isEmpty {
+                        completion(.failure(.emptyResponse))
+                    } else {
+                        Logger.network("\(context) success: \(cleanedText.count) chars", level: .info)
+                        completion(.success(cleanedText))
+                    }
+                    
+                } catch {
+                    Logger.network("Failed to decode JSON response: \(error.localizedDescription)", level: .error)
                      if let responseString = String(data: data, encoding: .utf8) {
                         Logger.network("Response: \(responseString.prefix(500))", level: .debug)
                     }
-                    completion(.failure(.invalidResponse))
-                    return
+                    completion(.failure(.decodingError(error)))
                 }
-                
-                let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if cleanedText.isEmpty {
-                    completion(.failure(.emptyResponse))
-                } else {
-                    Logger.network("\(context) success: \(cleanedText.count) chars", level: .info)
-                    completion(.success(cleanedText))
-                }
-                
-            } catch {
-                Logger.network("Failed to decode JSON response: \(error.localizedDescription)", level: .error)
-                 if let responseString = String(data: data, encoding: .utf8) {
-                    Logger.network("Response: \(responseString.prefix(500))", level: .debug)
-                }
-                completion(.failure(.decodingError(error)))
             }
         }
         task.resume()
@@ -282,12 +341,53 @@ class GeminiService: NSObject {
     // MARK: - Private Helpers
     
     private func getAPIKey() -> String? {
+        let (key, _) = getAPIKeyWithSource()
+        return key
+    }
+    
+    private func getAPIKeyWithSource() -> (key: String?, source: String) {
+        // Try Keychain first
         if let keychainKey = try? KeychainHelper.retrieveGeminiKey(), !keychainKey.isEmpty {
-            return keychainKey
+            Logger.network("API key retrieved from Keychain (length: \(keychainKey.count))", level: .debug)
+            return (keychainKey, "Keychain")
         }
+        
+        // Fallback to Settings
         let settingsKey = settings.geminiKey
-        if !settingsKey.isEmpty { return settingsKey }
-        return nil
+        if !settingsKey.isEmpty {
+            Logger.network("API key retrieved from Settings (length: \(settingsKey.count))", level: .debug)
+            return (settingsKey, "Settings")
+        }
+        
+        Logger.network("API key not found in Keychain or Settings", level: .debug)
+        return (nil, "None")
+    }
+    
+    // MARK: - Error Conversion
+    
+    private func convertToAIServiceError(_ error: GeminiServiceError) -> AIServiceError {
+        switch error {
+        case .apiKeyNotFound:
+            return .apiKeyNotFound
+        case .invalidURL:
+            return .invalidURL
+        case .networkError(let err):
+            return .networkError(err)
+        case .httpError(let code, let message):
+            return .httpError(code, message)
+        case .invalidResponse:
+            return .invalidResponse
+        case .emptyResponse:
+            return .emptyResponse
+        case .rateLimitExceeded(let waitTime):
+            return .rateLimitExceeded(waitTime)
+        case .maxRetriesExceeded:
+            return .maxRetriesExceeded
+        case .encodingError(let err):
+            return .encodingError(err)
+        case .decodingError(let err):
+            return .decodingError(err)
+        }
     }
     
 }

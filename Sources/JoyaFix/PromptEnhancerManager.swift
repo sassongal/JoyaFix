@@ -65,10 +65,12 @@ Generate the CO-STAR prompt now.
         
         // Step 2: Check if API key is available
         if hasAPIKey() {
-            Logger.info("✅ Gemini API Key verified. Starting enhancement process.")
+            let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
+            Logger.info("✅ \(providerName) API Key verified. Starting enhancement process.")
         } else {
-            Logger.error("❌ Gemini API Key NOT found in Settings or Keychain.")
-            print("⚠️ Gemini API key not found")
+            let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
+            Logger.error("❌ \(providerName) API Key NOT found in Settings or Keychain.")
+            print("⚠️ \(providerName) API key not found")
             showAPIKeyRequiredAlert()
             return
         }
@@ -93,29 +95,26 @@ Generate the CO-STAR prompt now.
             
             print("📝 Original text: '\(selectedText.prefix(100))...'")
             
-            // Step 6: Create meta-prompt and send to Gemini
+            // Step 6: Create meta-prompt and send to AI service
             let metaPrompt = self.createMetaPrompt(userText: selectedText)
             
             Task { @MainActor in
-                GeminiService.shared.sendPrompt(metaPrompt) { result in
-                    switch result {
-                    case .success(let enhancedPrompt):
-                        Logger.info("Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
-                        
-                        // Play success sound when enhancement succeeds
-                        SoundManager.shared.playSuccess()
-                        
-                        // Step 7: Show review window instead of pasting immediately
-                        Task { @MainActor in
-                            self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
-                        }
-                    case .failure(let error):
-                        Logger.network("Failed to enhance prompt: \(error.localizedDescription)", level: .error)
-                        // Ensure alert is shown on Main Thread with user-friendly message
-                        Task { @MainActor in
-                            self.showErrorAlertWithDetails(error: error)
-                        }
-                    }
+                do {
+                    let service = AIServiceFactory.createService()
+                    let enhancedPrompt = try await service.generateResponse(prompt: metaPrompt)
+                    
+                    Logger.info("Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
+                    
+                    // Play success sound when enhancement succeeds
+                    SoundManager.shared.playSuccess()
+                    
+                    // Step 7: Show review window instead of pasting immediately
+                    self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
+                } catch {
+                    Logger.network("Failed to enhance prompt: \(error.localizedDescription)", level: .error)
+                    // Convert to GeminiServiceError for backward compatibility with error handling
+                    let geminiError = self.convertToGeminiServiceError(error)
+                    self.showErrorAlertWithDetails(error: geminiError)
                 }
             }
         }
@@ -220,16 +219,16 @@ Generate the CO-STAR prompt now.
 """
         
         Task { @MainActor in
-            GeminiService.shared.sendPrompt(refinePrompt) { result in
-                switch result {
-                case .success(let refinedPrompt):
-                    // Play success sound when refinement succeeds
-                    SoundManager.shared.playSuccess()
-                    completion(refinedPrompt)
-                case .failure(let error):
-                    Logger.network("Failed to refine prompt: \(error.localizedDescription)", level: .error)
-                    completion(nil)
-                }
+            do {
+                let service = AIServiceFactory.createService()
+                let refinedPrompt = try await service.generateResponse(prompt: refinePrompt)
+                
+                // Play success sound when refinement succeeds
+                SoundManager.shared.playSuccess()
+                completion(refinedPrompt)
+            } catch {
+                Logger.network("Failed to refine prompt: \(error.localizedDescription)", level: .error)
+                completion(nil)
             }
         }
     }
@@ -237,12 +236,21 @@ Generate the CO-STAR prompt now.
     // MARK: - Private Helpers
     
     private func hasAPIKey() -> Bool {
-        // Check Keychain first, then settings
-        if let keychainKey = try? KeychainHelper.retrieveGeminiKey(), !keychainKey.isEmpty {
-            return true
+        // Check API key based on selected provider
+        switch settings.selectedAIProvider {
+        case .gemini:
+            // Check Keychain first, then settings
+            if let keychainKey = try? KeychainHelper.retrieveGeminiKey(), !keychainKey.isEmpty {
+                return true
+            }
+            return !settings.geminiKey.isEmpty
+        case .openRouter:
+            // Check Keychain first, then settings
+            if let keychainKey = try? KeychainHelper.retrieveOpenRouterKey(), !keychainKey.isEmpty {
+                return true
+            }
+            return !settings.openRouterKey.isEmpty
         }
-        
-        return !settings.geminiKey.isEmpty
     }
     
     // MARK: - Helper Methods Removed
@@ -286,6 +294,38 @@ Generate the CO-STAR prompt now.
         alert.alertStyle = .warning
         alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
         alert.runModal()
+    }
+    
+    /// Converts AIServiceError to GeminiServiceError for backward compatibility
+    private func convertToGeminiServiceError(_ error: Error) -> GeminiServiceError {
+        if let aiError = error as? AIServiceError {
+            switch aiError {
+            case .apiKeyNotFound:
+                return .apiKeyNotFound
+            case .invalidURL:
+                return .invalidURL
+            case .networkError(let err):
+                return .networkError(err)
+            case .httpError(let code, let message):
+                return .httpError(code, message)
+            case .invalidResponse:
+                return .invalidResponse
+            case .emptyResponse:
+                return .emptyResponse
+            case .rateLimitExceeded(let waitTime):
+                return .rateLimitExceeded(waitTime)
+            case .maxRetriesExceeded:
+                return .maxRetriesExceeded
+            case .encodingError(let err):
+                return .encodingError(err)
+            case .decodingError(let err):
+                return .decodingError(err)
+            case .providerSpecific(let message):
+                return .httpError(0, message)
+            }
+        }
+        // Fallback for unknown errors
+        return .networkError(error)
     }
     
     /// Shows a user-friendly error alert with specific guidance based on error type
