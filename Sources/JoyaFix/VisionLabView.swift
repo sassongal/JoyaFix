@@ -7,6 +7,7 @@ struct VisionLabView: View {
     @State private var isProcessing = false
     @State private var errorMessage: String?
     @State private var isDragging = false
+    @State private var showSuccessFeedback = false
     
     @ObservedObject private var settings = SettingsManager.shared
     
@@ -150,15 +151,27 @@ struct VisionLabView: View {
                         Button(action: {
                             ClipboardHelper.writeToClipboard(description)
                             SoundManager.shared.playSuccess()
+                            // Show success feedback
+                            showSuccessFeedback = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                showSuccessFeedback = false
+                            }
                         }) {
                             HStack(spacing: 4) {
-                                Image(systemName: "doc.on.clipboard")
-                                    .font(.system(size: 12))
-                                Text("Magic Copy")
+                                if showSuccessFeedback {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.green)
+                                } else {
+                                    Image(systemName: "doc.on.clipboard")
+                                        .font(.system(size: 12))
+                                }
+                                Text(showSuccessFeedback ? "Copied!" : "Magic Copy")
                                     .font(.system(size: 12))
                             }
                         }
                         .buttonStyle(.bordered)
+                        .animation(.easeInOut(duration: 0.2), value: showSuccessFeedback)
                     }
                     
                     ScrollView {

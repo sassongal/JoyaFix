@@ -122,6 +122,9 @@
 "menu.keyboard.shortcuts" = "Keyboard Shortcuts...";
 "menu.about" = "About JoyaFix";
 "menu.quit" = "Quit";
+"menu.smart.translate" = "Smart Translate (AI)";
+"menu.vision.lab" = "Vision Lab";
+"menu.coming.soon" = "Coming Soon";
 
 /* Alerts */
 "alert.accessibility.title" = "Accessibility Permission Required";

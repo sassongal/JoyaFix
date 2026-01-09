@@ -122,6 +122,9 @@
 "menu.keyboard.shortcuts" = "קיצורי מקלדת...";
 "menu.about" = "אודות JoyaFix";
 "menu.quit" = "צא";
+"menu.smart.translate" = "תרגום חכם (AI)";
+"menu.vision.lab" = "מעבדת ראייה";
+"menu.coming.soon" = "בקרוב";
 
 /* Alerts */
 "alert.accessibility.title" = "הרשאת נגישות נדרשת";

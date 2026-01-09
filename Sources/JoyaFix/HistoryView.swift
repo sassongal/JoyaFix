@@ -5,10 +5,6 @@ import Carbon
 
 struct HistoryView: View {
     @ObservedObject var clipboardManager = ClipboardHistoryManager.shared
-#if false
-    @ObservedObject var ocrManager = OCRHistoryManager.shared
-#endif
-
     @ObservedObject var promptManager = PromptLibraryManager.shared
     @State private var searchText = ""
     @State private var selectedIndex = 0
@@ -36,26 +32,6 @@ struct HistoryView: View {
             return score1 > score2
         }
     }
-    
-#if false
-    var filteredOCRScans: [OCRScan] {
-        if searchText.isEmpty {
-            return ocrManager.history
-        }
-        // Use fuzzy search with threshold
-        let threshold = 0.3
-        return ocrManager.history.filter { scan in
-            let score = scan.extractedText.fuzzyScore(word: searchText)
-            return score >= threshold
-        }.sorted { scan1, scan2 in
-            // Sort by score (highest first)
-            let score1 = scan1.extractedText.fuzzyScore(word: searchText)
-            let score2 = scan2.extractedText.fuzzyScore(word: searchText)
-            return score1 > score2
-        }
-    }
-#endif
-
     
     var filteredPrompts: [PromptTemplate] {
         if searchText.isEmpty {
@@ -102,21 +78,6 @@ struct HistoryView: View {
             }
             .tag(0)
             
-            // OCR Scans Tab
-            /* OCR Scans Tab - Hidden for now
-            OCRScansTabView(
-                filteredScans: filteredOCRScans,
-                searchText: $searchText,
-                selectedIndex: $selectedIndex,
-                isSearchFocused: $isSearchFocused,
-                onClose: onClose
-            )
-            .tabItem {
-                Label("OCR Scans", systemImage: "viewfinder")
-            }
-            .tag(1)
-            */
-            
             // Scratchpad Tab
             ScratchpadTabView(onClose: onClose)
                 .tabItem {
@@ -147,6 +108,10 @@ struct HistoryView: View {
                 .tag(3)
         }
         .frame(width: 400)
+        .onChange(of: selectedTab) { oldValue, newValue in
+            // Notify AppDelegate to resize popover when tab changes
+            NotificationCenter.default.post(name: NSNotification.Name("JoyaFixResizePopover"), object: nil, userInfo: ["tab": newValue])
+        }
         .sheet(isPresented: $showingEditor) {
             if let prompt = editingPrompt {
                 PromptEditorView(
@@ -337,148 +302,6 @@ struct ClipboardHistoryTabView: View {
         }
     }
 }
-
-#if false
-// MARK: - OCR Scans Tab
-
-struct OCRScansTabView: View {
-    let filteredScans: [OCRScan]
-    @Binding var searchText: String
-    @Binding var selectedIndex: Int
-    @FocusState.Binding var isSearchFocused: Bool
-    var onClose: () -> Void
-    @ObservedObject var ocrManager = OCRHistoryManager.shared
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Search Bar
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 14))
-
-                TextField("Search OCR scans...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .font(.system(size: 13))
-
-                if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-
-            Divider()
-
-            // OCR Scans List
-            if filteredScans.isEmpty {
-                EmptyStateView(isSearching: !searchText.isEmpty, isOCR: true)
-                    .frame(height: 200)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 6) {
-                            ForEach(Array(filteredScans.enumerated()), id: \.element.id) { index, scan in
-                                OCRScanRow(
-                                    scan: scan,
-                                    isSelected: index == selectedIndex,
-                                    onCopy: {
-                                        ocrManager.copyScanToClipboard(scan)
-                                    },
-                                    onDelete: {
-                                        ocrManager.deleteScan(scan)
-                                        if selectedIndex >= filteredScans.count - 1 {
-                                            selectedIndex = max(0, filteredScans.count - 2)
-                                        }
-                                    }
-                                )
-                                .id(index)
-                            }
-                        }
-                        .padding(8)
-                    }
-                    .frame(height: min(CGFloat(filteredScans.count * 70 + 16), 400))
-                    .onChange(of: selectedIndex) { _, newValue in
-                        withAnimation {
-                            proxy.scrollTo(newValue, anchor: .center)
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            // Footer
-            HStack(spacing: 16) {
-                FooterHintView(icon: "return", text: "Copy")
-                FooterHintView(icon: "arrow.up.arrow.down", text: "Navigate")
-                FooterHintView(icon: "command", text: "⌫ Clear")
-
-                Spacer()
-
-                Text("\(filteredScans.count) scans")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        }
-        .frame(width: 400)
-        .background(Color.clear)
-        .onKeyPress(.upArrow) {
-            if selectedIndex > 0 {
-                selectedIndex -= 1
-            }
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            if selectedIndex < filteredScans.count - 1 {
-                selectedIndex += 1
-            }
-            return .handled
-        }
-        .onKeyPress(.return) {
-            if !filteredScans.isEmpty {
-                ocrManager.copyScanToClipboard(filteredScans[selectedIndex])
-            }
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            onClose()
-            return .handled
-        }
-        .onCommand(#selector(NSResponder.deleteBackward(_:))) {
-            ocrManager.clearHistory()
-        }
-    }
-}
-#endif
-
-
-#if false
-// MARK: - OCR Scan Row
-
-struct OCRScanRow: View {
-    let scan: OCRScan
-    let isSelected: Bool
-    let onCopy: () -> Void
-    let onDelete: () -> Void
-
-    var body: some View {
-        EmptyView()
-    }
-}
-#endif
-
 
 // MARK: - History Item Row
 

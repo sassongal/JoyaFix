@@ -43,6 +43,8 @@ class KeyboardBlocker {
         setupEventTap()
         showOverlay()
         print("🔒 Keyboard locked")
+        // Notify that lock state changed
+        NotificationCenter.default.post(name: NSNotification.Name("JoyaFixKeyboardLockStateChanged"), object: nil)
     }
     
     /// Unlocks the keyboard
@@ -53,6 +55,8 @@ class KeyboardBlocker {
         removeEventTap()
         hideOverlay()
         print("🔓 Keyboard unlocked")
+        // Notify that lock state changed
+        NotificationCenter.default.post(name: NSNotification.Name("JoyaFixKeyboardLockStateChanged"), object: nil)
     }
     
     /// Returns current lock state

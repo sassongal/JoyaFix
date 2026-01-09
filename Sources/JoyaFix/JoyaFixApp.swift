@@ -20,6 +20,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover?
     private var clipboardManager = ClipboardHistoryManager.shared
     private var cancellables = Set<AnyCancellable>()
+    
+    /// Resizes the popover based on the selected tab
+    func resizePopover(for tab: Int) {
+        guard let popover = popover else { return }
+        
+        let newSize: NSSize
+        switch tab {
+        case 0: // Clipboard
+            newSize = NSSize(width: 400, height: 500)
+        case 1: // Scratchpad
+            newSize = NSSize(width: 400, height: 500)
+        case 2: // Library
+            newSize = NSSize(width: 700, height: 600)
+        case 3: // Vision Lab
+            newSize = NSSize(width: 500, height: 650)
+        default:
+            newSize = NSSize(width: 400, height: 500)
+        }
+        
+        // Animate the size change
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.allowsImplicitAnimation = true
+            popover.contentSize = newSize
+        }
+    }
 
     /// Fail-safe logo loading for menubar - tries multiple methods
     private func loadMenubarLogo() -> NSImage? {
@@ -74,31 +100,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let button = statusItem?.button {
             print("✓ Status bar button exists")
-            // Fail-safe logo loading for menubar icon
-            if let logoImage = loadMenubarLogo() {
-                print("✓ Logo loaded successfully")
-                // Resize logo to menubar size (22px)
-                let resizedLogo = NSImage(size: NSSize(width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize))
-                resizedLogo.lockFocus()
-                logoImage.draw(in: NSRect(x: 0, y: 0, width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize),
-                              from: NSRect(origin: .zero, size: logoImage.size),
-                              operation: .sourceOver,
-                              fraction: 1.0)
-                resizedLogo.unlockFocus()
-                resizedLogo.isTemplate = true  // Enable template mode for Dark Mode support
-                button.image = resizedLogo
-                print("✓ Logo set on button")
-            } else {
-                // Fallback to text icon if logo not found
-                button.title = "א/A"
-                print("⚠️ Logo not found - using text fallback: 'א/A'")
-            }
-
+            updateMenubarIcon(button: button)
+            
             // Set up button action
             button.action = #selector(statusBarButtonClicked)
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             print("✓ Button actions configured")
+            
+            // Observe keyboard lock state changes
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(keyboardLockStateChanged),
+                name: NSNotification.Name("JoyaFixKeyboardLockStateChanged"),
+                object: nil
+            )
         } else {
             print("❌ Status bar button is nil!")
         }
@@ -115,6 +131,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Create popover
         setupPopover()
+        
+        // Listen for popover resize notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePopoverResize(_:)),
+            name: NSNotification.Name("JoyaFixResizePopover"),
+            object: nil
+        )
 
         // Start clipboard monitoring
         clipboardManager.startMonitoring()
@@ -164,6 +188,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPopover() {
         let popover = NSPopover()
+        // Initial size for Clipboard/Scratchpad tab (default)
         popover.contentSize = NSSize(width: 400, height: 500)
         popover.behavior = .transient
         popover.animates = true
@@ -231,6 +256,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func closePopover() {
         popover?.performClose(nil)
     }
+    
+    @objc private func handlePopoverResize(_ notification: Notification) {
+        if let tab = notification.userInfo?["tab"] as? Int {
+            resizePopover(for: tab)
+        }
+    }
+    
+    /// Updates the menubar icon with optional keyboard lock indicator
+    private func updateMenubarIcon(button: NSStatusBarButton) {
+        // Fail-safe logo loading for menubar icon
+        if let logoImage = loadMenubarLogo() {
+            print("✓ Logo loaded successfully")
+            // Resize logo to menubar size (22px)
+            let resizedLogo = NSImage(size: NSSize(width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize))
+            resizedLogo.lockFocus()
+            logoImage.draw(in: NSRect(x: 0, y: 0, width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize),
+                          from: NSRect(origin: .zero, size: logoImage.size),
+                          operation: .sourceOver,
+                          fraction: 1.0)
+            
+            // Add lock badge if keyboard is locked
+            if KeyboardBlocker.shared.isKeyboardLocked {
+                // Draw orange circle background
+                NSColor.orange.setFill()
+                let badgeRect = NSRect(x: JoyaFixConstants.menubarIconSize - 10, y: JoyaFixConstants.menubarIconSize - 10, width: 10, height: 10)
+                NSBezierPath(ovalIn: badgeRect).fill()
+                
+                // Draw white lock icon on top
+                if let lockIcon = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Keyboard Locked") {
+                    NSColor.white.set()
+                    let iconRect = NSRect(x: JoyaFixConstants.menubarIconSize - 8, y: JoyaFixConstants.menubarIconSize - 8, width: 6, height: 6)
+                    lockIcon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                }
+            }
+            
+            resizedLogo.unlockFocus()
+            resizedLogo.isTemplate = true  // Enable template mode for Dark Mode support
+            button.image = resizedLogo
+            print("✓ Logo set on button")
+        } else {
+            // Fallback to text icon if logo not found
+            let fallbackTitle = KeyboardBlocker.shared.isKeyboardLocked ? "🔒 א/A" : "א/A"
+            button.title = fallbackTitle
+            print("⚠️ Logo not found - using text fallback: '\(fallbackTitle)'")
+        }
+    }
+    
+    @objc private func keyboardLockStateChanged() {
+        if let button = statusItem?.button {
+            updateMenubarIcon(button: button)
+        }
+    }
 
     private func showContextMenu() {
         let menu = NSMenu()
@@ -247,21 +324,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-#if false
-        // Add OCR menu item
-        // Add OCR menu item (Disabled)
-        let ocrItem = NSMenuItem(
-            title: NSLocalizedString("menu.extract.text", comment: "Extract text") + " (" + NSLocalizedString("menu.coming.soon", comment: "Coming Soon") + ")",
-            action: nil, // Non-interactive
-            keyEquivalent: ""
-        )
-        // ocrItem.keyEquivalentModifierMask = [.command, .option]
-        ocrItem.target = self
-        ocrItem.isEnabled = false // Non-interactive
-        menu.addItem(ocrItem)
-#endif
-
-        
         // Add Prompt Enhancer menu item
         let promptItem = NSMenuItem(
             title: NSLocalizedString("menu.enhance.prompt", comment: "Enhance prompt"),
@@ -275,7 +337,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Smart Translate menu item (New Feature)
         let translateItem = NSMenuItem(
-            title: "Smart Translate (AI)",
+            title: NSLocalizedString("menu.smart.translate", comment: "Smart Translate"),
             action: #selector(smartTranslate),
             keyEquivalent: "t"
         )
@@ -384,26 +446,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyManager.shared.performTextConversion()
     }
 
-#if false
-    /// Extracts text from screen using OCR
-    // OCR functionality is currently disabled (code in waiting)
-    @objc func extractTextFromScreen() {
-        // ScreenCaptureManager now handles confirmation, OCR, saving to history, and copying to clipboard
-        // CRITICAL FIX: Must call MainActor-isolated method from MainActor context
-        // DISABLED: OCR feature is on hold
-        /*
-        Task { @MainActor in
-            ScreenCaptureManager.shared.startScreenCapture { extractedText in
-                if let text = extractedText, !text.isEmpty {
-                    print("✓ OCR completed: \(text.count) characters extracted and saved to history")
-                } else {
-                    print("⚠️ OCR was cancelled or failed")
-                }
-            }
-        }
-        */
-    }
-#endif
 
     
     /// Translates selected text using AI Context-Aware Translation

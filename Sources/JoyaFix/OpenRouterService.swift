@@ -187,7 +187,7 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         let base64Image = pngData.base64EncodedString()
         
         // Create vision prompt for "Nano Banano Style" description
-        let visionPrompt = "Describe this image with extreme detail for an AI image generator. Include style, color palette, lighting (e.g., Rembrandt, volumetric), and lens info. Follow the 'Nano Banano' artistic style: concise yet vivid."
+        let visionPrompt = "Describe this image with extreme detail for an AI image generator. Focus on lighting, style, lens, and composition. Style: Nano Banano artistic style (vivid and high-end)."
         
         return try await withCheckedThrowingContinuation { continuation in
             sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in

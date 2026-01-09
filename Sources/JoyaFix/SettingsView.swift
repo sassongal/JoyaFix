@@ -7,10 +7,6 @@ struct SettingsView: View {
     // Local state for editing (not saved until "Save Changes" clicked)
     @State private var localConvertKeyCode: UInt32
     @State private var localConvertModifiers: UInt32
-#if false
-    @State private var localOCRKeyCode: UInt32
-    @State private var localOCRModifiers: UInt32
-#endif
 
     @State private var localPromptKeyCode: UInt32
     @State private var localPromptModifiers: UInt32
@@ -21,16 +17,8 @@ struct SettingsView: View {
     @State private var localAIProvider: AIProvider
     @State private var localOpenRouterKey: String
     @State private var localOpenRouterModel: String
-#if false
-    @State private var localUseCloudOCR: Bool
-#endif
-
 
     @State private var isRecordingConvertHotkey = false
-#if false
-    @State private var isRecordingOCRHotkey = false
-#endif
-
     @State private var isRecordingPromptHotkey = false
     @State private var hasUnsavedChanges = false
     @State private var showSavedMessage = false
@@ -40,10 +28,6 @@ struct SettingsView: View {
         let settings = SettingsManager.shared
         _localConvertKeyCode = State(initialValue: settings.hotkeyKeyCode)
         _localConvertModifiers = State(initialValue: settings.hotkeyModifiers)
-#if false
-        _localOCRKeyCode = State(initialValue: settings.ocrHotkeyKeyCode)
-        _localOCRModifiers = State(initialValue: settings.ocrHotkeyModifiers)
-#endif
 
         _localPromptKeyCode = State(initialValue: settings.promptHotkeyKeyCode)
         _localPromptModifiers = State(initialValue: settings.promptHotkeyModifiers)
@@ -54,9 +38,6 @@ struct SettingsView: View {
         _localAIProvider = State(initialValue: settings.selectedAIProvider)
         _localOpenRouterKey = State(initialValue: settings.openRouterKey)
         _localOpenRouterModel = State(initialValue: settings.openRouterModel)
-#if false
-        _localUseCloudOCR = State(initialValue: settings.useCloudOCR)
-#endif
 
     }
 
@@ -168,10 +149,6 @@ struct SettingsView: View {
         // Save all settings to UserDefaults
         settings.hotkeyKeyCode = localConvertKeyCode
         settings.hotkeyModifiers = localConvertModifiers
-#if false
-        settings.ocrHotkeyKeyCode = localOCRKeyCode
-        settings.ocrHotkeyModifiers = localOCRModifiers
-#endif
 
         settings.promptHotkeyKeyCode = localPromptKeyCode
         settings.promptHotkeyModifiers = localPromptModifiers
@@ -182,9 +159,6 @@ struct SettingsView: View {
         settings.selectedAIProvider = localAIProvider
         settings.openRouterKey = localOpenRouterKey
         settings.openRouterModel = localOpenRouterModel
-#if false
-        settings.useCloudOCR = localUseCloudOCR
-#endif
 
 
         // Rebind hotkeys immediately
@@ -215,10 +189,6 @@ struct SettingsView: View {
         // Reset local state to defaults
         localConvertKeyCode = UInt32(kVK_ANSI_K)
         localConvertModifiers = UInt32(cmdKey | optionKey)
-#if false
-        localOCRKeyCode = UInt32(kVK_ANSI_X)
-        localOCRModifiers = UInt32(cmdKey | optionKey)
-#endif
 
         localPromptKeyCode = UInt32(kVK_ANSI_P)
         localPromptModifiers = UInt32(cmdKey | optionKey)
@@ -229,10 +199,6 @@ struct SettingsView: View {
         localAIProvider = .gemini
         localOpenRouterKey = ""
         localOpenRouterModel = "deepseek/deepseek-chat"
-#if false
-        localUseCloudOCR = false
-#endif
-
 
         hasUnsavedChanges = true
     }
