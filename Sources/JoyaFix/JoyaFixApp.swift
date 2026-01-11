@@ -28,15 +28,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let newSize: NSSize
         switch tab {
         case 0: // Clipboard
-            newSize = NSSize(width: 400, height: 500)
+            newSize = NSSize(width: 500, height: 600)
         case 1: // Scratchpad
-            newSize = NSSize(width: 400, height: 500)
+            newSize = NSSize(width: 500, height: 600)
         case 2: // Library
-            newSize = NSSize(width: 700, height: 600)
+            newSize = NSSize(width: 1200, height: 900)
         case 3: // Vision Lab
-            newSize = NSSize(width: 500, height: 650)
+            newSize = NSSize(width: 600, height: 700)
         default:
-            newSize = NSSize(width: 400, height: 500)
+            newSize = NSSize(width: 500, height: 600)
         }
         
         // Animate the size change
@@ -53,19 +53,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let image = NSImage(named: "FLATLOGO") {
             return image
         }
-        
+
         // Priority 2: Try from bundle with path
         if let logoPath = Bundle.main.path(forResource: "FLATLOGO", ofType: "png"),
            let logoImage = NSImage(contentsOfFile: logoPath) {
             return logoImage
         }
-        
+
+        // Priority 3: Try from source directory (for swift run during development)
+        let sourcePath = #file.replacingOccurrences(of: "/JoyaFixApp.swift", with: "/Resources/FLATLOGO.png")
+        if FileManager.default.fileExists(atPath: sourcePath),
+           let logoImage = NSImage(contentsOfFile: sourcePath) {
+            Logger.info("Loaded logo from source path (development mode)")
+            return logoImage
+        }
+
         return nil
     }
     
     // FIX: Prevent app from terminating when windows close (LSUIElement apps should stay running)
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    // CRITICAL FIX: Prevent app from hiding when ESC is pressed during keyboard lock
+    func applicationShouldHide(_ sender: NSApplication) -> Bool {
+        // If keyboard is locked, don't allow the app to hide (ESC should only unlock, not hide)
+        if KeyboardBlocker.shared.isKeyboardLocked {
+            return false
+        }
+        return true
     }
     
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -189,7 +206,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPopover() {
         let popover = NSPopover()
         // Initial size for Clipboard/Scratchpad tab (default)
-        popover.contentSize = NSSize(width: 400, height: 500)
+        popover.contentSize = NSSize(width: 500, height: 600)
         popover.behavior = .transient
         popover.animates = true
 
@@ -314,7 +331,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Add "Convert Selection Layout" menu item at the top
         let convertItem = NSMenuItem(
-            title: NSLocalizedString("menu.convert.selection", comment: "Convert selection"),
+            title: L("menu.convert.selection", comment: "Convert selection"),
             action: #selector(convertSelectionFromMenu),
             keyEquivalent: ""
         )
@@ -326,7 +343,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Prompt Enhancer menu item
         let promptItem = NSMenuItem(
-            title: NSLocalizedString("menu.enhance.prompt", comment: "Enhance prompt"),
+            title: L("menu.enhance.prompt", comment: "Enhance prompt"),
             action: #selector(enhancePrompt),
             keyEquivalent: "p"
         )
@@ -337,7 +354,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Smart Translate menu item (New Feature)
         let translateItem = NSMenuItem(
-            title: NSLocalizedString("menu.smart.translate", comment: "Smart Translate"),
+            title: L("menu.smart.translate", comment: "Smart Translate"),
             action: #selector(smartTranslate),
             keyEquivalent: "t"
         )
@@ -348,7 +365,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Keyboard Cleaner menu item
         let keyboardCleanerItem = NSMenuItem(
-            title: KeyboardBlocker.shared.isKeyboardLocked ? NSLocalizedString("menu.unlock.keyboard", comment: "Unlock keyboard") : NSLocalizedString("menu.keyboard.cleaner", comment: "Keyboard cleaner"),
+            title: KeyboardBlocker.shared.isKeyboardLocked ? L("menu.unlock.keyboard", comment: "Unlock keyboard") : L("menu.keyboard.cleaner", comment: "Keyboard cleaner"),
             action: #selector(toggleKeyboardLock),
             keyEquivalent: "l"
         )
@@ -358,7 +375,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(keyboardCleanerItem)
 
         let clearHistoryItem = NSMenuItem(
-            title: NSLocalizedString("menu.clear.history", comment: "Clear history"),
+            title: L("menu.clear.history", comment: "Clear history"),
             action: #selector(clearHistory),
             keyEquivalent: ""
         )
@@ -368,7 +385,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Add Settings menu item
         let settingsItem = NSMenuItem(
-            title: NSLocalizedString("menu.settings", comment: "Settings"),
+            title: L("menu.settings", comment: "Settings"),
             action: #selector(openSettings),
             keyEquivalent: ","
         )
@@ -379,7 +396,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add Keyboard Shortcuts menu item
         let shortcutsItem = NSMenuItem(
-            title: NSLocalizedString("menu.keyboard.shortcuts", comment: "Keyboard shortcuts"),
+            title: L("menu.keyboard.shortcuts", comment: "Keyboard shortcuts"),
             action: #selector(showKeyboardShortcuts),
             keyEquivalent: "?"
         )
@@ -392,7 +409,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Add About menu item
         let aboutItem = NSMenuItem(
-            title: NSLocalizedString("menu.about", comment: "About"),
+            title: L("menu.about", comment: "About"),
             action: #selector(showAbout),
             keyEquivalent: ""
         )
@@ -403,7 +420,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         let quitMenuItem = NSMenuItem(
-            title: NSLocalizedString("menu.quit", comment: "Quit"),
+            title: L("menu.quit", comment: "Quit"),
             action: #selector(quitApp),
             keyEquivalent: "q"
         )

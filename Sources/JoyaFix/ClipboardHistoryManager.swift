@@ -97,8 +97,8 @@ class ClipboardHistoryManager: ObservableObject {
                 self?.checkForClipboardChanges()
             }
         }
-        print("✓ Clipboard monitoring started")
-        
+        Logger.clipboard("Clipboard monitoring started", level: .info)
+
         // Start scheduled disk cleanup (runs every 24 hours)
         startScheduledCleanup()
     }
@@ -109,7 +109,7 @@ class ClipboardHistoryManager: ObservableObject {
         pollTimer = nil
         cleanupTimer?.invalidate()
         cleanupTimer = nil
-        print("✓ Clipboard monitoring stopped")
+        Logger.clipboard("Clipboard monitoring stopped", level: .info)
     }
 
     // MARK: - Clipboard Monitoring
@@ -192,16 +192,23 @@ class ClipboardHistoryManager: ObservableObject {
         let htmlData = pasteboard.data(forType: .html)
         
         if let rtf = rtfData {
-            print("📝 Captured RTF data (\(rtf.count) bytes)")
+            Logger.clipboard("Captured RTF data (\(rtf.count) bytes)", level: .debug)
         }
         if let html = htmlData {
-            print("🌐 Captured HTML data (\(html.count) bytes)")
+            Logger.clipboard("Captured HTML data (\(html.count) bytes)", level: .debug)
         }
         
-        // Check for password/sensitive data indicators
+        // Check for password/sensitive data indicators from various password managers
         let pasteboardTypes = pasteboard.types ?? []
-        let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
-                         pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
+        let sensitiveDataTypes: Set<NSPasteboard.PasteboardType> = [
+            NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+            NSPasteboard.PasteboardType("com.agilebits.onepassword"),
+            NSPasteboard.PasteboardType("com.lastpass.lastpass"),
+            NSPasteboard.PasteboardType("com.dashlane.dashlane"),
+            NSPasteboard.PasteboardType("com.bitwarden.desktop"),
+            NSPasteboard.PasteboardType("org.keepassx.keepassxc")
+        ]
+        let isSensitive = pasteboardTypes.contains(where: { sensitiveDataTypes.contains($0) })
         
         // יצירת פריט זמני (ללא נתיבים עדיין)
         return ClipboardItem(
@@ -353,10 +360,10 @@ class ClipboardHistoryManager: ObservableObject {
             do {
                 try data.write(to: fileURL)
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-                print("✓ Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)")
+                Logger.clipboard("Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)", level: .debug)
                 completion(fileURL.path)
             } catch {
-                print("❌ Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)")
+                Logger.clipboard("Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)", level: .error)
                 completion(nil)
             }
         }
@@ -481,11 +488,21 @@ class ClipboardHistoryManager: ObservableObject {
         // Reconstruct history: pinned items first, then unpinned
         history = pinnedItems + newUnpinnedItems
 
-        // Persist to UserDefaults
-        saveHistory()
+        // PERFORMANCE IMPROVEMENT: Save only the new item incrementally
+        do {
+            try databaseManager.saveClipboardItem(itemToAdd)
+            // Also cleanup old items from database
+            try databaseManager.deleteOldItems(keeping: maxHistoryCount)
+            Logger.clipboard("Saved item to database (incremental)", level: .debug)
+        } catch {
+            Logger.database("Failed to save clipboard item: \(error.localizedDescription)", level: .error)
+            showToast("Failed to save to database. Using fallback storage.", style: .warning, duration: 2.0)
+            // Fallback to full save
+            saveHistory()
+        }
 
         let formatInfo = (item.rtfDataPath != nil || item.rtfData != nil) ? " [RTF]" : ""
-        print("📋 Added to clipboard history: \(item.plainTextPreview.prefix(30))...\(formatInfo)")
+        Logger.clipboard("Added to clipboard history: \(item.plainTextPreview.prefix(30))...\(formatInfo)", level: .debug)
     }
 
     /// Clears all clipboard history (optionally keeping pinned items)
@@ -497,11 +514,11 @@ class ClipboardHistoryManager: ObservableObject {
         if keepPinned {
             itemsToRemove = history.filter { !$0.isPinned }
             history.removeAll { !$0.isPinned }
-            print("🗑️ Clipboard history cleared (kept pinned items)")
+            Logger.clipboard("Clipboard history cleared (kept pinned items)", level: .info)
         } else {
             itemsToRemove = history
             history.removeAll()
-            print("🗑️ Clipboard history cleared")
+            Logger.clipboard("Clipboard history cleared", level: .info)
         }
         
         // Clean up files
@@ -539,12 +556,12 @@ class ClipboardHistoryManager: ObservableObject {
             // Insert at the end of pinned section
             let pinnedCount = history.filter { $0.isPinned }.count
             history.insert(updatedItem, at: pinnedCount)
-            print("📌 Pinned: \(updatedItem.plainTextPreview.prefix(30))...")
+            Logger.clipboard("Pinned: \(updatedItem.plainTextPreview.prefix(30))...", level: .debug)
         } else {
             // Insert at the start of unpinned section (right after pinned items)
             let pinnedCount = history.filter { $0.isPinned }.count
             history.insert(updatedItem, at: pinnedCount)
-            print("📍 Unpinned: \(updatedItem.plainTextPreview.prefix(30))...")
+            Logger.clipboard("Unpinned: \(updatedItem.plainTextPreview.prefix(30))...", level: .debug)
         }
 
         // Persist changes
@@ -568,7 +585,7 @@ class ClipboardHistoryManager: ObservableObject {
         
         history.removeAll { $0.id == item.id }
         saveHistory()
-        print("🗑️ Deleted from history: \(item.plainTextPreview.prefix(30))...")
+        Logger.clipboard("Deleted from history: \(item.plainTextPreview.prefix(30))...", level: .debug)
     }
 
     // MARK: - Paste from History
@@ -588,7 +605,7 @@ class ClipboardHistoryManager: ObservableObject {
             // Plain text only - strip all formatting
             pasteboard.setString(item.textForPasting, forType: .string)
             writtenTypes.append(.string)
-            print("📋 Restored plain text only to clipboard: \(item.plainTextPreview.prefix(30))...")
+            Logger.clipboard("Restored plain text only to clipboard: \(item.plainTextPreview.prefix(30))...", level: .debug)
         } else {
             // Write image if available
             if let imagePath = item.imagePath, let imageData = loadRichData(from: imagePath) {
@@ -673,7 +690,7 @@ class ClipboardHistoryManager: ObservableObject {
         // CRITICAL FIX: Save to database instead of UserDefaults
         do {
             try databaseManager.saveClipboardHistory(history)
-            print("✓ Saved \(history.count) items to database")
+            Logger.clipboard("Saved \(history.count) items to database", level: .debug)
             
             // Clear fallback data if database save succeeded
             if UserDefaults.standard.data(forKey: userDefaultsKey) != nil {
@@ -686,28 +703,25 @@ class ClipboardHistoryManager: ObservableObject {
             let isIOError = DatabaseError.isIOError(error)
             
             if isLocked {
-                print("🔒 Database is locked - using fallback to UserDefaults")
-                print("   Error details: \(errorDescription)")
+                Logger.clipboard("Database is locked - using fallback to UserDefaults. Error: \(errorDescription)", level: .warning)
             } else if isIOError {
-                print("💾 Database I/O error - using fallback to UserDefaults")
-                print("   Error details: \(errorDescription)")
+                Logger.clipboard("Database I/O error - using fallback to UserDefaults. Error: \(errorDescription)", level: .warning)
             } else {
-                print("❌ Failed to save clipboard history to database: \(errorDescription)")
+                Logger.clipboard("Failed to save clipboard history to database: \(errorDescription)", level: .error)
             }
-            
+
             // Fallback to UserDefaults if database fails (Insurance Policy)
             let encoder = JSONEncoder()
             do {
                 let encoded = try encoder.encode(history)
                 UserDefaults.standard.set(encoded, forKey: userDefaultsKey)
-                print("⚠️ Fallback: Saved \(history.count) items to UserDefaults (\(encoded.count) bytes)")
-                
+                Logger.clipboard("Fallback: Saved \(history.count) items to UserDefaults (\(encoded.count) bytes)", level: .warning)
+
                 // Log fallback status for monitoring
                 UserDefaults.standard.set(true, forKey: "ClipboardHistoryFallbackActive")
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ClipboardHistoryFallbackTimestamp")
             } catch {
-                print("🔥 CRITICAL: Failed to save to both database and UserDefaults!")
-                print("   Encoding error: \(error.localizedDescription)")
+                Logger.clipboard("CRITICAL: Failed to save to both database and UserDefaults! Encoding error: \(error.localizedDescription)", level: .critical)
             }
         }
     }
@@ -778,10 +792,13 @@ class ClipboardHistoryManager: ObservableObject {
                 
                 if isLocked {
                     Logger.clipboard("Database is locked - using fallback from UserDefaults", level: .warning)
+                    showToast("Database temporarily locked. Using fallback storage.", style: .warning, duration: 2.0)
                 } else if isIOError {
                     Logger.clipboard("Database I/O error - using fallback from UserDefaults", level: .warning)
+                    showToast("Database I/O error. Using fallback storage.", style: .warning, duration: 2.0)
                 } else {
                     Logger.clipboard("Failed to load clipboard history from database: \(errorDescription)", level: .error)
+                    showToast("Failed to load clipboard history. Using fallback.", style: .error, duration: 3.0)
                 }
                 
                 // Fallback to UserDefaults if database fails
@@ -813,7 +830,7 @@ class ClipboardHistoryManager: ObservableObject {
     /// Includes corruption detection and safe error handling
     @MainActor
     private func migrateToDatabase() {
-        print("🔄 Migrating clipboard history from UserDefaults to database...")
+        Logger.clipboard("Migrating clipboard history from UserDefaults to database...", level: .info)
         
         let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
         if success {
@@ -840,7 +857,7 @@ class ClipboardHistoryManager: ObservableObject {
                 self?.cleanupOrphanedFiles()
             }
         }
-        print("✓ Scheduled disk cleanup started (runs every 24 hours)")
+        Logger.clipboard("Scheduled disk cleanup started (runs every 24 hours)", level: .info)
     }
     
     // MARK: - Cleanup

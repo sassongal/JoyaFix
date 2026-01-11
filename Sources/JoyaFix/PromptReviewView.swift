@@ -101,7 +101,7 @@ struct PromptReviewView: View {
             .padding(.horizontal)
             .padding(.bottom)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 700, height: 600)  // Larger for better prompt readability
         .background(Color(NSColor.windowBackgroundColor))
     }
 }

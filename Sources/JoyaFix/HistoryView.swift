@@ -6,6 +6,7 @@ import Carbon
 struct HistoryView: View {
     @ObservedObject var clipboardManager = ClipboardHistoryManager.shared
     @ObservedObject var promptManager = PromptLibraryManager.shared
+    @ObservedObject var toastManager = ToastManager.shared
     @State private var searchText = ""
     @State private var selectedIndex = 0
     @State private var selectedTab = 0 // 0 = Clipboard, 1 = OCR Scans, 2 = Library
@@ -107,7 +108,7 @@ struct HistoryView: View {
                 }
                 .tag(3)
         }
-        .frame(width: 400)
+        .frame(width: 500)
         .onChange(of: selectedTab) { oldValue, newValue in
             // Notify AppDelegate to resize popover when tab changes
             NotificationCenter.default.post(name: NSNotification.Name("JoyaFixResizePopover"), object: nil, userInfo: ["tab": newValue])
@@ -143,6 +144,14 @@ struct HistoryView: View {
                         showingEditor = false
                     }
                 )
+            }
+        }
+        // Premium toast notifications overlay
+        .overlay(alignment: .top) {
+            if let toast = toastManager.currentToast {
+                ToastView(message: toast)
+                    .padding(.top, 8)
+                    .zIndex(999)  // Above all other content
             }
         }
         .onAppear {
@@ -258,7 +267,7 @@ struct ClipboardHistoryTabView: View {
             .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         }
-        .frame(width: 400)
+        .frame(width: 500)
         .background(Color.clear) // Transparent to show blur
         .onAppear {
             isSearchFocused = true
@@ -924,7 +933,7 @@ struct PromptLibraryTabView: View {
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             }
         }
-        .frame(width: 600, height: 500)
+        .frame(width: 1200, height: 900)
         .background(Color.clear)
         .onKeyPress(.upArrow) {
             if selectedIndex > 0 {
@@ -1179,7 +1188,7 @@ struct PromptEditorView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 650, height: 550)  // More spacious for editing prompts
         .onAppear {
             isTitleFocused = true
         }
@@ -1240,7 +1249,7 @@ struct ScratchpadTabView: View {
             .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         }
-        .frame(width: 400)
+        .frame(width: 500)
     }
 }
 

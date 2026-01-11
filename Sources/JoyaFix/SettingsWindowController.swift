@@ -46,7 +46,8 @@ class SettingsWindowController {
                 // Don't set to nil so we can reuse it
             }
             
-            window.makeKeyAndOrderFront(nil)
+            // Premium entrance animation
+            window.showWithPremiumAnimation()
             window.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
             

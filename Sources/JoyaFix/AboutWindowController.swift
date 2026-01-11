@@ -45,7 +45,8 @@ class AboutWindowController {
                 // Window closed, but keep reference for reuse
             }
             
-            window.makeKeyAndOrderFront(nil)
+            // Premium entrance animation
+            window.showWithPremiumAnimation()
             window.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
             

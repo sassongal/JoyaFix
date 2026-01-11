@@ -43,6 +43,10 @@ struct GeneralSettingsTab: View {
     @State private var showImportError = false
     @State private var importErrorMessage = ""
     @State private var showLanguageRestartAlert = false
+
+    // Double-click prevention for file operations
+    @State private var isExporting = false
+    @State private var isImporting = false
     
     // Permission status tracking
     @State private var accessibilityGranted = false
@@ -257,12 +261,20 @@ struct GeneralSettingsTab: View {
                                     checkForUpdates()
                                 }) {
                                     HStack {
-                                        Image(systemName: "arrow.clockwise")
-                                        Text(NSLocalizedString("settings.check.updates.button", comment: "Check Now"))
+                                        if updateManager.isCheckingForUpdates {
+                                            ProgressView()
+                                                .scaleEffect(0.7)
+                                                .frame(width: 16, height: 16)
+                                        } else {
+                                            Image(systemName: "arrow.clockwise")
+                                        }
+                                        Text(updateManager.isCheckingForUpdates
+                                            ? NSLocalizedString("settings.check.updates.checking", comment: "Checking...")
+                                            : NSLocalizedString("settings.check.updates.button", comment: "Check Now"))
                                     }
                                 }
                                 .buttonStyle(.bordered)
-                                .disabled(isCheckingForUpdates)
+                                .disabled(updateManager.isCheckingForUpdates)
                             }
                             
                             Divider()
@@ -459,10 +471,17 @@ struct GeneralSettingsTab: View {
                                         Button(action: {
                                             testOpenRouterAPIKey()
                                         }) {
-                                            Text("Test")
-                                                .font(.caption)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 4)
+                                            HStack(spacing: 6) {
+                                                if isTestingOpenRouterKey {
+                                                    ProgressView()
+                                                        .scaleEffect(0.6)
+                                                        .frame(width: 12, height: 12)
+                                                }
+                                                Text(isTestingOpenRouterKey ? "Testing..." : "Test")
+                                                    .font(.caption)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 4)
                                         }
                                         .buttonStyle(.bordered)
                                         .disabled(isTestingOpenRouterKey || localOpenRouterKey.isEmpty)
@@ -573,24 +592,50 @@ struct GeneralSettingsTab: View {
                             
                             HStack(spacing: 12) {
                                 Button(action: {
-                                    exportSettings()
+                                    guard !isExporting else { return }  // Prevent double-click
+                                    isExporting = true
+                                    Task {
+                                        exportSettings()
+                                        try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
+                                        isExporting = false
+                                    }
                                 }) {
                                     HStack {
-                                        Image(systemName: "square.and.arrow.up")
-                                        Text("Export Settings...")
+                                        if isExporting {
+                                            ProgressView()
+                                                .scaleEffect(0.7)
+                                                .frame(width: 16, height: 16)
+                                        } else {
+                                            Image(systemName: "square.and.arrow.up")
+                                        }
+                                        Text(isExporting ? "Exporting..." : "Export Settings...")
                                     }
                                 }
                                 .buttonStyle(.bordered)
-                                
+                                .disabled(isExporting)
+
                                 Button(action: {
-                                    importSettings()
+                                    guard !isImporting else { return }  // Prevent double-click
+                                    isImporting = true
+                                    Task {
+                                        importSettings()
+                                        try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
+                                        isImporting = false
+                                    }
                                 }) {
                                     HStack {
-                                        Image(systemName: "square.and.arrow.down")
-                                        Text("Import Settings...")
+                                        if isImporting {
+                                            ProgressView()
+                                                .scaleEffect(0.7)
+                                                .frame(width: 16, height: 16)
+                                        } else {
+                                            Image(systemName: "square.and.arrow.down")
+                                        }
+                                        Text(isImporting ? "Importing..." : "Import Settings...")
                                     }
                                 }
                                 .buttonStyle(.bordered)
+                                .disabled(isImporting)
                             }
                             
                             if showExportSuccess {
@@ -726,23 +771,26 @@ struct GeneralSettingsTab: View {
     }
     
     // MARK: - Update Check
-    
-    @State private var isCheckingForUpdates = false
+
+    @ObservedObject private var updateManager = UpdateManager.shared
     @State private var showUpdateAlert = false
     @State private var updateInfo: UpdateInfo?
     @State private var showNoUpdateAlert = false
-    
+
     private func checkForUpdates() {
-        isCheckingForUpdates = true
-        
-        UpdateManager.shared.checkForUpdates { [self] info in
-            isCheckingForUpdates = false
-            
-            if let info = info {
-                updateInfo = info
-                showUpdateAlert = true
-            } else {
-                showNoUpdateAlert = true
+        Task {
+            do {
+                let info = try await updateManager.checkForUpdates()
+
+                if let info = info {
+                    updateInfo = info
+                    showUpdateAlert = true
+                } else {
+                    showNoUpdateAlert = true
+                }
+            } catch {
+                showToast("Couldn't check for updates. Please check your connection.", style: .error)
+                Logger.error("Update check failed: \(error.localizedDescription)")
             }
         }
     }
@@ -800,8 +848,10 @@ struct GeneralSettingsTab: View {
                 if !response.isEmpty {
                     openRouterKeyStatus = .valid
                     openRouterKeyErrorMessage = ""
+                    showToast("API key is valid and working!", style: .success)
                 } else {
                     openRouterKeyStatus = .invalid("API key test returned empty response")
+                    showToast("API key test returned empty response", style: .error)
                 }
             } catch {
                 let errorMessage: String
@@ -830,6 +880,7 @@ struct GeneralSettingsTab: View {
                 
                 openRouterKeyStatus = .invalid(errorMessage)
                 openRouterKeyErrorMessage = errorMessage
+                showToast(errorMessage, style: .error)
             }
         }
     }
@@ -1107,7 +1158,7 @@ struct SnippetEditView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextEditor(text: $content)
-                    .frame(height: 150)
+                    .frame(height: 220)  // Increased from 150px (47% more space)
                     .border(Color.gray.opacity(0.3), width: 1)
                     .onChange(of: content) { _, _ in
                         validationError = nil
@@ -1140,8 +1191,8 @@ struct SnippetEditView: View {
                 .disabled(trigger.isEmpty || content.isEmpty || validationError != nil)
             }
         }
-        .padding()
-        .frame(width: 400, height: 350)
+        .padding(24)  // Increased from default 20 for premium feel
+        .frame(width: 500, height: 480)  // 25% larger for better readability
     }
 }
 

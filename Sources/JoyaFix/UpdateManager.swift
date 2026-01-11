@@ -6,19 +6,24 @@ import Sparkle
 /// TODO: Migrate to SPUStandardUpdaterController for full Sparkle integration
 /// Currently uses custom JSON-based update checking as a fallback
 @MainActor
-class UpdateManager {
+class UpdateManager: ObservableObject {
     static let shared = UpdateManager()
-    
+
+    // MARK: - Published State
+
+    /// Loading state for update checks (used by UI)
+    @Published private(set) var isCheckingForUpdates = false
+
     // MARK: - Configuration
-    
+
     /// Sparkle updater controller (for future full integration)
     /// To fully integrate: Initialize SPUStandardUpdaterController in AppDelegate
     /// and connect it to the menu item "Check for Updates..."
     private var updaterController: SPUStandardUpdaterController?
-    
+
     /// GitHub URL for version check (placeholder - replace with actual repo URL)
     private let versionCheckURL = "https://raw.githubusercontent.com/sassongal/JoyaFix/master/version.json"
-    
+
     private init() {
         // Initialize Sparkle updater controller
         // Note: Full integration requires adding to Info.plist:
@@ -34,55 +39,62 @@ class UpdateManager {
     
     // MARK: - Version Checking
     
-    /// Checks for app updates asynchronously
-    /// - Parameter completion: Called with update info if available, or nil if no update or error
-    func checkForUpdates(completion: @escaping (UpdateInfo?) -> Void) {
+    /// Checks for app updates asynchronously (modern async/await version)
+    /// - Returns: UpdateInfo if an update is available, nil otherwise
+    /// - Throws: UpdateError on network or parsing failures
+    func checkForUpdates() async throws -> UpdateInfo? {
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+
         guard let url = URL(string: versionCheckURL) else {
-            print("❌ Invalid version check URL")
-            completion(nil)
-            return
+            Logger.error("Invalid version check URL")
+            throw UpdateError.invalidURL
         }
-        
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self else {
-                completion(nil)
-                return
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                Logger.error("Invalid response from update server")
+                throw UpdateError.invalidResponse
             }
-            
-            if let error = error {
-                print("⚠️ Update check failed: \(error.localizedDescription)")
-                completion(nil)
-                return
+
+            guard httpResponse.statusCode == 200 else {
+                Logger.error("Update check failed with status: \(httpResponse.statusCode)")
+                throw UpdateError.httpError(statusCode: httpResponse.statusCode)
             }
-            
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200,
-                  let data = data else {
-                print("⚠️ Invalid response from update server")
-                completion(nil)
-                return
+
+            let updateInfo = try JSONDecoder().decode(UpdateInfo.self, from: data)
+
+            // Compare versions
+            if isUpdateAvailable(localVersion: currentVersion, remoteVersion: updateInfo.version) {
+                Logger.info("Update available: \(updateInfo.version)")
+                return updateInfo
+            } else {
+                Logger.info("App is up to date (current: \(currentVersion))")
+                return nil
             }
-            
+        } catch let error as UpdateError {
+            throw error
+        } catch {
+            Logger.error("Update check failed: \(error.localizedDescription)")
+            throw UpdateError.networkError(error)
+        }
+    }
+
+    /// Legacy callback-based method (deprecated - use async version)
+    @available(*, deprecated, message: "Use async checkForUpdates() instead")
+    func checkForUpdates(completion: @escaping (UpdateInfo?) -> Void) {
+        Task {
             do {
-                let updateInfo = try JSONDecoder().decode(UpdateInfo.self, from: data)
-                
-                // Compare versions - wrap in Task to safely access MainActor methods
-                Task { @MainActor in
-                    if self.isUpdateAvailable(localVersion: self.currentVersion, remoteVersion: updateInfo.version) {
-                        print("✓ Update available: \(updateInfo.version)")
-                        completion(updateInfo)
-                    } else {
-                        print("ℹ️ App is up to date (current: \(self.currentVersion))")
-                        completion(nil)
-                    }
-                }
+                let updateInfo = try await checkForUpdates()
+                completion(updateInfo)
             } catch {
-                print("❌ Failed to parse update info: \(error.localizedDescription)")
+                // Show error toast
+                showToast("Couldn't check for updates. Please check your connection.", style: .error)
                 completion(nil)
             }
         }
-        
-        task.resume()
     }
     
     /// Cleans up old installation files before update
@@ -193,13 +205,35 @@ class UpdateManager {
     }
 }
 
+// MARK: - Update Error Types
+
+enum UpdateError: Error {
+    case invalidURL
+    case invalidResponse
+    case httpError(statusCode: Int)
+    case networkError(Error)
+
+    var localizedDescription: String {
+        switch self {
+        case .invalidURL:
+            return "Invalid update server URL"
+        case .invalidResponse:
+            return "Invalid response from update server"
+        case .httpError(let statusCode):
+            return "Update check failed with HTTP status \(statusCode)"
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
+        }
+    }
+}
+
 // MARK: - Update Info Model
 
 struct UpdateInfo: Codable {
     let version: String
     let releaseNotes: String?
     let downloadURL: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case version
         case releaseNotes = "release_notes"

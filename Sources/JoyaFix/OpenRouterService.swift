@@ -280,7 +280,11 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         request.setValue("JoyaFix", forHTTPHeaderField: "X-Title")
         request.setValue("https://joyafix.app", forHTTPHeaderField: "HTTP-Referer")
         
+        #if DEBUG
         Logger.network("Request headers: Content-Type=application/json, Authorization=Bearer ***\(apiKey.suffix(4)), X-Title=JoyaFix", level: .debug)
+        #else
+        Logger.network("Request headers: Content-Type=application/json, Authorization=Bearer [REDACTED], X-Title=JoyaFix", level: .debug)
+        #endif
         
         do {
             let requestBodyData = try JSONEncoder().encode(requestBody)
@@ -417,12 +421,12 @@ class OpenRouterService: NSObject, AIServiceProtocol {
             return settingsKey
         }
         
-        // Priority 3: Fallback to developer secret key (for development use only)
-        if !Secrets.defaultOpenRouterKey.isEmpty {
-            Logger.network("OpenRouter API key using developer default key", level: .debug)
-            return Secrets.defaultOpenRouterKey
+        // Priority 3: Check environment variable (for development use only)
+        if let envKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"], !envKey.isEmpty {
+            Logger.network("OpenRouter API key retrieved from environment variable", level: .debug)
+            return envKey
         }
-        
+
         Logger.network("OpenRouter API key not found in any source", level: .debug)
         return nil
     }

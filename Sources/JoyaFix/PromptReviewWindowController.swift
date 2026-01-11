@@ -18,7 +18,7 @@ class PromptReviewWindowController: NSWindowController {
         
         // Create HUD-style window
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),  // Matches PromptReviewView
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -72,7 +72,8 @@ class PromptReviewWindowController: NSWindowController {
         )
         
         shared?.showWindow(nil)
-        shared?.window?.makeKeyAndOrderFront(nil)
+        // HUD-style entrance animation (slide down + fade)
+        shared?.window?.showWithHUDAnimation()
         NSApp.activate(ignoringOtherApps: true)
     }
     

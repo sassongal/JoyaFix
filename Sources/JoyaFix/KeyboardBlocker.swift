@@ -144,7 +144,14 @@ class KeyboardBlocker {
                 // Immediately unlock on ESC press (no hold required)
                 unlock()
                 SoundManager.shared.playSuccess()
-                return nil // Consume ESC key to prevent it from closing windows
+
+                // Keep the app active after unlocking to prevent it from hiding
+                DispatchQueue.main.async {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+
+                // Consume the ESC event to prevent it from being processed further
+                return nil
             }
         }
         

@@ -284,7 +284,8 @@ class KeyboardShortcutsWindowController: NSWindowController {
         newWindow.contentView = hostingView
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
-        newWindow.makeKeyAndOrderFront(nil)
+        // Premium entrance animation
+        newWindow.showWithPremiumAnimation()
         
         self.shortcutsWindow = newWindow
         NSApp.activate(ignoringOtherApps: true)

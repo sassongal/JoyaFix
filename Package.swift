@@ -11,10 +11,10 @@ let package = Package(
         .executable(name: "JoyaFix", targets: ["JoyaFix"])
     ],
     dependencies: [
-        // OPTIMIZATION: Updated to latest stable versions
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.0"),  // Latest: 2.9.0
-        .package(url: "https://github.com/kean/Pulse", from: "4.0.0"),  // Latest: 5.0.0
-        .package(url: "https://github.com/groue/GRDB.swift", from: "6.0.0")  // Latest: 6.30.0
+        // Updated to latest stable versions (2026-01-09)
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.1"),  // Updated from 2.5.0 (latest: 2.8.1)
+        .package(url: "https://github.com/kean/Pulse", from: "4.0.0"),  // Keep 4.x (5.0 has breaking changes)
+        .package(url: "https://github.com/groue/GRDB.swift", from: "6.29.3")  // Updated from 6.0.0 (latest: 6.29.3)
     ],
     targets: [
         .executableTarget(

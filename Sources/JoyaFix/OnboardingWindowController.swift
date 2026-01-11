@@ -35,7 +35,8 @@ class OnboardingWindowController {
             // Prevent closing via close button (user must complete onboarding)
             window.standardWindowButton(.closeButton)?.isHidden = true
             
-            window.makeKeyAndOrderFront(nil)
+            // Premium entrance animation
+            window.showWithPremiumAnimation()
             window.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
             

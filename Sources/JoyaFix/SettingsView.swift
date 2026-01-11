@@ -78,7 +78,7 @@ struct SettingsView: View {
                     Label(NSLocalizedString("settings.snippets.title", comment: "Snippets"), systemImage: "text.bubble")
                 }
         }
-        .frame(width: 600, height: 550)
+        .frame(width: 750, height: 700)
     }
     
     // MARK: - Actions

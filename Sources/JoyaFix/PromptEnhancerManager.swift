@@ -59,6 +59,7 @@ Generate the CO-STAR prompt now.
         // Step 1: Check Accessibility permissions
         guard PermissionManager.shared.isAccessibilityTrusted() else {
             print("⚠️ Accessibility permission missing for prompt enhancement")
+            showToast("Accessibility permission required for prompt enhancement", style: .warning)
             showPermissionRequiredAlert()
             return
         }
@@ -71,6 +72,7 @@ Generate the CO-STAR prompt now.
             let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
             Logger.error("❌ \(providerName) API Key NOT found in Settings or Keychain.")
             print("⚠️ \(providerName) API key not found")
+            showToast("\(providerName) API key required. Please configure in Settings.", style: .error)
             showAPIKeyRequiredAlert()
             return
         }
@@ -80,14 +82,16 @@ Generate the CO-STAR prompt now.
             guard let selectedText = await ClipboardHelper.getSelectedText() else {
                 print("❌ No text selected or clipboard is empty")
                 Task { @MainActor in
+                    showToast("No text selected. Please select text to enhance.", style: .warning)
                     self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
                 }
                 return
             }
-            
+
             if selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 print("❌ Text is empty")
                  Task { @MainActor in
+                    showToast("Selected text is empty", style: .warning)
                     self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
                 }
                 return
@@ -104,14 +108,16 @@ Generate the CO-STAR prompt now.
                     let enhancedPrompt = try await service.generateResponse(prompt: metaPrompt)
                     
                     Logger.info("Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
-                    
+
                     // Play success sound when enhancement succeeds
                     SoundManager.shared.playSuccess()
-                    
+                    showToast("Prompt enhanced successfully!", style: .success)
+
                     // Step 7: Show review window instead of pasting immediately
                     self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
                 } catch {
                     Logger.network("Failed to enhance prompt: \(error.localizedDescription)", level: .error)
+                    showToast("Failed to enhance prompt. Please try again.", style: .error)
                     // Convert to GeminiServiceError for backward compatibility with error handling
                     let geminiError = self.convertToGeminiServiceError(error)
                     self.showErrorAlertWithDetails(error: geminiError)
@@ -222,12 +228,15 @@ Generate the CO-STAR prompt now.
             do {
                 let service = AIServiceFactory.createService()
                 let refinedPrompt = try await service.generateResponse(prompt: refinePrompt)
-                
+
+
                 // Play success sound when refinement succeeds
                 SoundManager.shared.playSuccess()
+                showToast("Prompt refined successfully!", style: .success)
                 completion(refinedPrompt)
             } catch {
                 Logger.network("Failed to refine prompt: \(error.localizedDescription)", level: .error)
+                showToast("Failed to refine prompt. Please try again.", style: .error)
                 completion(nil)
             }
         }

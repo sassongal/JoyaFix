@@ -252,7 +252,11 @@ class GeminiService: NSObject, AIServiceProtocol {
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         
         // Log request headers (sanitized)
+        #if DEBUG
         Logger.network("Request headers: Content-Type=application/json, x-goog-api-key=***\(apiKey.suffix(4))", level: .debug)
+        #else
+        Logger.network("Request headers: Content-Type=application/json, x-goog-api-key=[REDACTED]", level: .debug)
+        #endif
         
         do {
             let requestBodyData = try JSONEncoder().encode(requestBody)
@@ -455,11 +459,13 @@ extension GeminiService: URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        var secresult = SecTrustResultType.invalid
-        let status = SecTrustEvaluate(serverTrust, &secresult)
-        if status == errSecSuccess && (secresult == .unspecified || secresult == .proceed) {
+        // Use modern certificate validation API (macOS 10.14+)
+        var error: CFError?
+        if SecTrustEvaluateWithError(serverTrust, &error) {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
         } else {
+            let errorDescription = error?.localizedDescription ?? "unknown"
+            Logger.network("Certificate validation failed: \(errorDescription)", level: .error)
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
     }
