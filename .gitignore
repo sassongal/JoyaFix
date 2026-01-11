@@ -142,3 +142,4 @@ build/
 # Developer secrets (DO NOT COMMIT)
 Sources/JoyaFix/Secrets.swift
 
+cloudcode/
