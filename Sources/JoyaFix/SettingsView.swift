@@ -81,6 +81,12 @@ struct SettingsView: View {
                 .tabItem {
                     Label(NSLocalizedString("settings.snippets.title", comment: "Snippets"), systemImage: "text.bubble")
                 }
+            
+            // AI Persona Tab
+            AIPersonaTab(settings: settings, hasUnsavedChanges: $hasUnsavedChanges)
+                .tabItem {
+                    Label(NSLocalizedString("settings.ai.persona.title", comment: "AI Persona"), systemImage: "person.crop.circle")
+                }
         }
         .frame(minWidth: 750, idealWidth: 800, maxWidth: 900, minHeight: 700, idealHeight: 750, maxHeight: 900)
     }

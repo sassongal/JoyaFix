@@ -37,17 +37,34 @@
 "onboarding.ai.intro.feature2" = "Instant translation between languages";
 "onboarding.ai.intro.feature3" = "Professional prompt engineering";
 
-/* Onboarding - AI Choice (Screen 3) */
+/* Onboarding - The Magic (Screen 2) */
+"onboarding.the.magic.title" = "The Magic";
+"onboarding.the.magic.subtitle" = "AI-Powered Text Enhancement";
+"onboarding.the.magic.description" = "Transform your writing with AI. Improve grammar, enhance clarity, and translate between languages instantly.";
+"onboarding.the.magic.feature1" = "Smart text improvement and enhancement";
+"onboarding.the.magic.feature2" = "Instant translation between languages";
+"onboarding.the.magic.feature3" = "Professional prompt engineering";
+
+/* Onboarding - Privacy Choice (Screen 3) */
 "onboarding.ai.choice.title" = "Your Choice";
-"onboarding.ai.choice.subtitle" = "How would you like to use the AI features?";
+"onboarding.ai.choice.subtitle" = "Cloud or Local? Choose your privacy level.";
 "onboarding.ai.choice.cloud.title" = "Cloud (Gemini)";
 "onboarding.ai.choice.cloud.feature1" = "Very smart & capable";
 "onboarding.ai.choice.cloud.feature2" = "Fast responses";
 "onboarding.ai.choice.cloud.feature3" = "Requires internet";
-"onboarding.ai.choice.local.title" = "Local (Private)";
-"onboarding.ai.choice.local.feature1" = "100% privacy";
+"onboarding.ai.choice.local.title" = "Local (100% Private)";
+"onboarding.ai.choice.local.feature1" = "100% privacy - no data leaves your Mac";
 "onboarding.ai.choice.local.feature2" = "Works offline";
 "onboarding.ai.choice.local.feature3" = "One-time download";
+
+/* Onboarding - Your Agent (Screen 4) */
+"onboarding.agent.title" = "Your Agent";
+"onboarding.agent.subtitle" = "Configure Your AI Personality";
+"onboarding.agent.description" = "Customize how your AI assistant behaves. Set system instructions, creativity level, and response style.";
+"onboarding.agent.feature1" = "Customize system instructions";
+"onboarding.agent.feature2" = "Adjust creativity and tone";
+"onboarding.agent.feature3" = "Choose from preset personalities";
+"onboarding.agent.note" = "You can change this anytime in Settings → AI Persona";
 "onboarding.ai.choice.note" = "You can change this anytime in Settings";
 
 /* Onboarding - Local Model Setup (Screen 4) */
@@ -61,6 +78,8 @@
 "onboarding.local.setup.switch" = "Switch to Local AI";
 
 /* Onboarding - Permissions (Screen 5) */
+"onboarding.permissions.input.monitoring.title" = "Input Monitoring";
+"onboarding.permissions.input.monitoring.description" = "Required for keyboard shortcuts and text capture";
 "onboarding.permissions.required" = "Required";
 "onboarding.permissions.microphone.title" = "Microphone";
 "onboarding.permissions.microphone.description" = "Required for voice input feature. Allows the app to record audio for speech-to-text.";
@@ -304,6 +323,11 @@
 "agent.config.max.tokens.description" = "Maximum tokens in response";
 "agent.config.presets" = "Preset Agents";
 "agent.config.reset" = "Reset to Default";
+
+/* Settings - AI Persona */
+"settings.ai.persona.title" = "AI Persona";
+"settings.ai.persona.description" = "Configure your AI assistant's personality and behavior";
+"settings.ai.persona.explanation" = "The AI Persona (Agent) determines how the AI responds to your prompts. You can customize the system instructions, creativity level, and response length.";
 
 /* Prompt Enhancer Meta Prompt */
 "prompt.enhancer.meta.role" = "You are an expert Prompt Engineer.";

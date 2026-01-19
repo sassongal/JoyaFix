@@ -158,15 +158,18 @@ Generate the CO-STAR prompt now.
             let metaPrompt = self.createMetaPrompt(userText: selectedText)
             let providerName = getProviderDisplayName()
             
+            // Get active agent from settings
+            let activeAgent = settings.activeAgent
+            
             Task { @MainActor in
-                enhancementStatus = "Enhancing with \(providerName)..."
-                AILoadingOverlayWindowController.updateStatus("AI is analyzing your text...")
+                enhancementStatus = "Agent '\(activeAgent.name)' is working..."
+                AILoadingOverlayWindowController.updateStatus("Agent '\(activeAgent.name)' is analyzing your text...")
             }
             
             Task { @MainActor in
                 do {
                     let service = AIServiceFactory.createService()
-                    let enhancedPrompt = try await service.generateResponse(prompt: metaPrompt)
+                    let enhancedPrompt = try await service.generateResponse(prompt: metaPrompt, agent: activeAgent)
                     
                     Logger.info("Enhanced prompt: '\(enhancedPrompt.prefix(100))...'")
 
@@ -286,12 +289,15 @@ Generate the CO-STAR prompt now.
 3. \(refineRule3)
 """
         
+        // Get active agent from settings
+        let activeAgent = settings.activeAgent
+        
         Task { @MainActor in
-            enhancementStatus = "Refining prompt..."
-            showToast("Refining prompt...", style: .info)
+            enhancementStatus = "Agent '\(activeAgent.name)' is refining..."
+            showToast("Agent '\(activeAgent.name)' is refining prompt...", style: .info)
             do {
                 let service = AIServiceFactory.createService()
-                let refinedPrompt = try await service.generateResponse(prompt: refinePrompt)
+                let refinedPrompt = try await service.generateResponse(prompt: refinePrompt, agent: activeAgent)
 
                 // Play success sound when refinement succeeds
                 SoundManager.shared.playSuccess()

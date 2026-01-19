@@ -26,14 +26,11 @@ struct OnboardingView: View {
                 case 0:
                     WelcomeSlide()
                 case 1:
-                    AIIntroSlide()
+                    TheMagicSlide() // AI Text Enhancement & Translation
                 case 2:
-                    AIChoiceSlide(selectedProvider: $selectedAIProvider)
+                    AIChoiceSlide(selectedProvider: $selectedAIProvider) // Privacy Choice
                 case 3:
-                    LocalModelSetupSlide(
-                        selectedProvider: $selectedAIProvider,
-                        downloadManager: downloadManager
-                    )
+                    YourAgentSlide() // Agent Personality
                 case 4:
                     PermissionsSlide(
                         accessibilityGranted: $accessibilityGranted,
@@ -44,7 +41,7 @@ struct OnboardingView: View {
                 case 5:
                     ReadySlide(onComplete: {
                         // Save the selected AI provider
-                        settings.aiProvider = selectedAIProvider
+                        settings.selectedAIProvider = selectedAIProvider
                         hasCompletedOnboarding = true
                         onComplete()
                     })
@@ -224,9 +221,9 @@ struct WelcomeSlide: View {
     }
 }
 
-// MARK: - AI Intro Slide (Screen 2)
+// MARK: - The Magic Slide (Screen 2)
 
-struct AIIntroSlide: View {
+struct TheMagicSlide: View {
     @State private var iconScale: CGFloat = 0.8
     @State private var iconOpacity: Double = 0
     
@@ -261,7 +258,7 @@ struct AIIntroSlide: View {
             }
             
             VStack(spacing: 16) {
-                Text(NSLocalizedString("onboarding.ai.intro.title", comment: "AI intro title"))
+                Text(NSLocalizedString("onboarding.the.magic.title", comment: "The Magic title"))
                     .font(.system(size: 42, weight: .bold))
                     .foregroundStyle(
                         LinearGradient(
@@ -271,11 +268,11 @@ struct AIIntroSlide: View {
                         )
                     )
                 
-                Text(NSLocalizedString("onboarding.ai.intro.subtitle", comment: "AI intro subtitle"))
+                Text(NSLocalizedString("onboarding.the.magic.subtitle", comment: "The Magic subtitle"))
                     .font(.system(size: 20, weight: .medium))
                     .foregroundColor(.secondary)
                 
-                Text(NSLocalizedString("onboarding.ai.intro.description", comment: "AI intro description"))
+                Text(NSLocalizedString("onboarding.the.magic.description", comment: "The Magic description"))
                     .font(.system(size: 16))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -285,9 +282,9 @@ struct AIIntroSlide: View {
             
             // Feature highlights
             VStack(spacing: 12) {
-                FeatureBullet(icon: "text.bubble.fill", text: NSLocalizedString("onboarding.ai.intro.feature1", comment: "AI feature 1"))
-                FeatureBullet(icon: "globe", text: NSLocalizedString("onboarding.ai.intro.feature2", comment: "AI feature 2"))
-                FeatureBullet(icon: "wand.and.stars", text: NSLocalizedString("onboarding.ai.intro.feature3", comment: "AI feature 3"))
+                FeatureBullet(icon: "text.bubble.fill", text: NSLocalizedString("onboarding.the.magic.feature1", comment: "Magic feature 1"))
+                FeatureBullet(icon: "globe", text: NSLocalizedString("onboarding.the.magic.feature2", comment: "Magic feature 2"))
+                FeatureBullet(icon: "wand.and.stars", text: NSLocalizedString("onboarding.the.magic.feature3", comment: "Magic feature 3"))
             }
             .padding(.top, 16)
             
@@ -303,7 +300,7 @@ struct AIIntroSlide: View {
     }
 }
 
-// MARK: - AI Choice Slide (Screen 3)
+// MARK: - Privacy Choice Slide (Screen 3)
 
 struct AIChoiceSlide: View {
     @Binding var selectedProvider: AIProvider
@@ -602,6 +599,78 @@ struct LocalModelSetupSlide: View {
     }
 }
 
+// MARK: - Your Agent Slide (Screen 4)
+
+struct YourAgentSlide: View {
+    var body: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // Agent Icon
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 160, height: 160)
+                    .shadow(color: .blue.opacity(0.3), radius: 20, x: 0, y: 10)
+                
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 70))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 16) {
+                Text(NSLocalizedString("onboarding.agent.title", comment: "Your Agent title"))
+                    .font(.system(size: 36, weight: .bold))
+                
+                Text(NSLocalizedString("onboarding.agent.subtitle", comment: "Your Agent subtitle"))
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Text(NSLocalizedString("onboarding.agent.description", comment: "Your Agent description"))
+                    .font(.system(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 60)
+                    .padding(.top, 8)
+            }
+            
+            // Agent features
+            VStack(spacing: 12) {
+                FeatureBullet(icon: "slider.horizontal.3", text: NSLocalizedString("onboarding.agent.feature1", comment: "Agent feature 1"))
+                FeatureBullet(icon: "sparkles", text: NSLocalizedString("onboarding.agent.feature2", comment: "Agent feature 2"))
+                FeatureBullet(icon: "gearshape", text: NSLocalizedString("onboarding.agent.feature3", comment: "Agent feature 3"))
+            }
+            .padding(.top, 16)
+            
+            // Note
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(NSLocalizedString("onboarding.agent.note", comment: "Agent note"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 8)
+            
+            Spacer()
+        }
+        .padding(40)
+    }
+}
+
 // MARK: - Permissions Slide (Screen 5)
 
 struct PermissionsSlide: View {
@@ -636,7 +705,18 @@ struct PermissionsSlide: View {
                         isGranted: accessibilityGranted,
                         isRequired: true,
                         onGrant: {
-                            PermissionManager.shared.openAccessibilitySettings()
+                            PermissionDeepLinker.openAccessibility()
+                        }
+                    )
+                    
+                    PermissionRow(
+                        icon: "keyboard",
+                        title: NSLocalizedString("onboarding.permissions.input.monitoring.title", comment: "Input Monitoring permission title"),
+                        description: NSLocalizedString("onboarding.permissions.input.monitoring.description", comment: "Input Monitoring permission description"),
+                        isGranted: accessibilityGranted, // Input Monitoring is part of Accessibility
+                        isRequired: true,
+                        onGrant: {
+                            PermissionDeepLinker.openInputMonitoring()
                         }
                     )
                     
@@ -647,7 +727,7 @@ struct PermissionsSlide: View {
                         isGranted: screenRecordingGranted,
                         isRequired: false,
                         onGrant: {
-                            PermissionManager.shared.openScreenRecordingSettings()
+                            PermissionDeepLinker.openScreenRecording()
                         }
                     )
                     

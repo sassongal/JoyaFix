@@ -557,8 +557,13 @@ class LocalLLMService: AIServiceProtocol {
         
         // Use LLM.swift's getCompletion method which returns a String
         // getCompletion handles input processing internally
-        // Note: Temperature and maxTokens are handled by the prompt structure
-        // If the LLM library supports direct parameter setting, it would be done here
+        // Note: The LLM.swift library handles temperature and maxTokens internally based on the model configuration
+        // The agent's system instructions are already injected in the prompt structure in generateResponse()
+        // If the library supported direct parameter setting, we would do:
+        // llm.temperature = agent.temperature
+        // llm.maxTokens = agent.maxTokens
+        // For now, the system prompt injection provides the primary control over agent behavior
+        
         let response = await llm.getCompletion(from: prompt)
 
         let cleanedResponse = response.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
@@ -567,7 +572,7 @@ class LocalLLMService: AIServiceProtocol {
             throw AIServiceError.emptyResponse
         }
 
-        Logger.info("Local LLM inference completed with agent '\(agent.name)': \(cleanedResponse.count) chars")
+        Logger.info("Local LLM inference completed with agent '\(agent.name)' (temp: \(agent.temperature), maxTokens: \(agent.maxTokens)): \(cleanedResponse.count) chars")
         return cleanedResponse
     }
 

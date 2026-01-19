@@ -2353,3 +2353,150 @@ struct AgentConfigView: View {
     }
 }
 
+// MARK: - AI Persona Tab
+
+struct AIPersonaTab: View {
+    @ObservedObject var settings: SettingsManager
+    @Binding var hasUnsavedChanges: Bool
+    @State private var localAgent: JoyaAgent
+    
+    init(settings: SettingsManager, hasUnsavedChanges: Binding<Bool>) {
+        self.settings = settings
+        self._hasUnsavedChanges = hasUnsavedChanges
+        self._localAgent = State(initialValue: settings.activeAgent)
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Header
+                GroupBox(label: Label(NSLocalizedString("settings.ai.persona.title", comment: "AI Persona"), systemImage: "person.crop.circle")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(NSLocalizedString("settings.ai.persona.description", comment: "AI Persona description"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text(NSLocalizedString("settings.ai.persona.explanation", comment: "AI Persona explanation"))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
+                    }
+                    .padding(8)
+                }
+                
+                // Agent Configuration
+                GroupBox(label: Label(NSLocalizedString("agent.config.profile", comment: "Agent Profile"), systemImage: "slider.horizontal.3")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        TextField(NSLocalizedString("agent.config.name", comment: "Agent Name"), text: $localAgent.name)
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: localAgent.name) { _, _ in
+                                hasUnsavedChanges = true
+                            }
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(NSLocalizedString("agent.config.system.instructions", comment: "System Instructions"))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            TextEditor(text: $localAgent.systemInstructions)
+                                .frame(height: 120)
+                                .font(.system(.body, design: .monospaced))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.2)))
+                                .onChange(of: localAgent.systemInstructions) { _, _ in
+                                    hasUnsavedChanges = true
+                                }
+                        }
+                        
+                        Divider()
+                        
+                        // Parameters
+                        VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(NSLocalizedString("agent.config.creativity", comment: "Creativity (Temperature)"))
+                                    Spacer()
+                                    Text("\(localAgent.temperature, specifier: "%.1f")")
+                                        .foregroundColor(.secondary)
+                                }
+                                Slider(value: $localAgent.temperature, in: 0.1...1.0)
+                                    .onChange(of: localAgent.temperature) { _, _ in
+                                        hasUnsavedChanges = true
+                                    }
+                                
+                                Text(NSLocalizedString("agent.config.creativity.description", comment: "Lower = focused, Higher = creative"))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(NSLocalizedString("agent.config.max.tokens", comment: "Max Response Length"))
+                                    Spacer()
+                                    Text("\(localAgent.maxTokens)")
+                                        .foregroundColor(.secondary)
+                                }
+                                Slider(value: Binding(
+                                    get: { Double(localAgent.maxTokens) },
+                                    set: { localAgent.maxTokens = Int($0); hasUnsavedChanges = true }
+                                ), in: 256...4096, step: 256)
+                                
+                                Text(NSLocalizedString("agent.config.max.tokens.description", comment: "Maximum tokens in response"))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
+                
+                // Preset Agents
+                GroupBox(label: Label(NSLocalizedString("agent.config.presets", comment: "Preset Agents"), systemImage: "list.bullet")) {
+                    VStack(spacing: 8) {
+                        ForEach(JoyaAgent.predefinedAgents) { preset in
+                            Button(action: {
+                                localAgent = preset
+                                hasUnsavedChanges = true
+                            }) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(preset.name)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        Text(preset.systemInstructions)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                    Spacer()
+                                    if localAgent.id == preset.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                                .padding(8)
+                                .background(localAgent.id == preset.id ? Color.blue.opacity(0.1) : Color.clear)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(8)
+                }
+                
+                // Reset Button
+                HStack {
+                    Spacer()
+                    Button(NSLocalizedString("agent.config.reset", comment: "Reset to Default")) {
+                        localAgent = JoyaAgent.default
+                        hasUnsavedChanges = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding()
+        }
+        .onChange(of: localAgent) { _, newValue in
+            settings.activeAgent = newValue
+        }
+    }
+}
+

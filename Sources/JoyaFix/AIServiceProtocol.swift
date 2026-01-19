@@ -18,6 +18,25 @@ protocol AIServiceProtocol {
     func describeImage(image: NSImage) async throws -> String
 }
 
+// MARK: - Agent Support Extension
+
+extension AIServiceProtocol {
+    /// Generates a response with a specific agent configuration
+    /// Default implementation uses the agent's system instructions in the prompt
+    /// Services that support direct agent parameters should override this
+    func generateResponse(prompt: String, agent: JoyaAgent) async throws -> String {
+        // Default: Inject agent instructions into prompt
+        let enhancedPrompt = """
+        System: \(agent.systemInstructions)
+        
+        User: \(prompt)
+        
+        Assistant:
+        """
+        return try await generateResponse(prompt: enhancedPrompt)
+    }
+}
+
 /// Common error type for AI services
 enum AIServiceError: LocalizedError {
     case apiKeyNotFound

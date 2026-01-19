@@ -278,6 +278,16 @@ class SettingsManager: ObservableObject {
             UserDefaults.standard.set(selectedOllamaModel, forKey: Keys.selectedOllamaModel)
         }
     }
+    
+    // MARK: - AI Agent Settings
+    
+    @Published var activeAgent: JoyaAgent {
+        didSet {
+            if let encoded = try? JSONEncoder().encode(activeAgent) {
+                UserDefaults.standard.set(encoded, forKey: Keys.activeAgent)
+            }
+        }
+    }
 
     // MARK: - Keys
 
@@ -299,6 +309,7 @@ class SettingsManager: ObservableObject {
         static let selectedLocalModel = "selectedLocalModel"
         static let ollamaEndpoint = "ollamaEndpoint"
         static let selectedOllamaModel = "selectedOllamaModel"
+        static let activeAgent = "activeAgent"
     }
 
     // MARK: - Initialization
@@ -352,6 +363,14 @@ class SettingsManager: ObservableObject {
         // Load Ollama settings
         self.ollamaEndpoint = UserDefaults.standard.string(forKey: Keys.ollamaEndpoint) ?? "http://localhost:11434"
         self.selectedOllamaModel = UserDefaults.standard.string(forKey: Keys.selectedOllamaModel)
+        
+        // Load active agent
+        if let agentData = UserDefaults.standard.data(forKey: Keys.activeAgent),
+           let agent = try? JSONDecoder().decode(JoyaAgent.self, from: agentData) {
+            self.activeAgent = agent
+        } else {
+            self.activeAgent = JoyaAgent.default
+        }
 
         // Now initialize computed properties (after all stored properties are initialized)
         // Load Gemini key from Keychain (secure storage)

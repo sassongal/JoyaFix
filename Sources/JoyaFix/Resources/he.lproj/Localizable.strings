@@ -37,18 +37,35 @@
 "onboarding.ai.intro.feature2" = "תרגום מיידי בין שפות";
 "onboarding.ai.intro.feature3" = "הנדסת הנחיות מקצועית";
 
-/* Onboarding - AI Choice (מסך 3) */
+/* Onboarding - The Magic (מסך 2) */
+"onboarding.the.magic.title" = "הקסם";
+"onboarding.the.magic.subtitle" = "שיפור טקסט מונע AI";
+"onboarding.the.magic.description" = "שפר את הכתיבה שלך עם AI. שפר דקדוק, הגבר בהירות ותרגם בין שפות באופן מיידי.";
+"onboarding.the.magic.feature1" = "שיפור וחיזוק טקסט חכם";
+"onboarding.the.magic.feature2" = "תרגום מיידי בין שפות";
+"onboarding.the.magic.feature3" = "הנדסת הנחיות מקצועית";
+
+/* Onboarding - Privacy Choice (מסך 3) */
 "onboarding.ai.choice.title" = "הבחירה שלך";
-"onboarding.ai.choice.subtitle" = "איך תרצה להשתמש בתכונות ה-AI?";
+"onboarding.ai.choice.subtitle" = "ענן או מקומי? בחר את רמת הפרטיות שלך.";
 "onboarding.ai.choice.cloud.title" = "ענן (Gemini)";
-"onboarding.ai.choice.cloud.feature1" = "חכם מאוד";
-"onboarding.ai.choice.cloud.feature2" = "מהיר";
+"onboarding.ai.choice.cloud.feature1" = "חכם מאוד ויכולתי";
+"onboarding.ai.choice.cloud.feature2" = "תגובות מהירות";
 "onboarding.ai.choice.cloud.feature3" = "דורש אינטרנט";
-"onboarding.ai.choice.local.title" = "מקומי (פרטי)";
-"onboarding.ai.choice.local.feature1" = "100% פרטיות";
+"onboarding.ai.choice.local.title" = "מקומי (100% פרטי)";
+"onboarding.ai.choice.local.feature1" = "100% פרטיות - אין נתונים יוצאים מהמק שלך";
 "onboarding.ai.choice.local.feature2" = "עובד ללא אינטרנט";
 "onboarding.ai.choice.local.feature3" = "הורדה חד-פעמית";
 "onboarding.ai.choice.note" = "תוכל לשנות בכל עת בהגדרות";
+
+/* Onboarding - Your Agent (מסך 4) */
+"onboarding.agent.title" = "הסוכן שלך";
+"onboarding.agent.subtitle" = "הגדר את אישיות ה-AI שלך";
+"onboarding.agent.description" = "התאם אישית איך עוזר ה-AI שלך מתנהג. הגדר הנחיות מערכת, רמת יצירתיות וסגנון תשובה.";
+"onboarding.agent.feature1" = "התאם אישית הנחיות מערכת";
+"onboarding.agent.feature2" = "כוונן יצירתיות וטון";
+"onboarding.agent.feature3" = "בחר מאישיויות מוגדרות מראש";
+"onboarding.agent.note" = "תוכל לשנות זאת בכל עת בהגדרות → אישיות AI";
 
 /* Onboarding - Local Model Setup (מסך 4) */
 "onboarding.local.setup.title" = "הגדרת מודל מקומי";
@@ -101,6 +118,8 @@
 "onboarding.permissions.description" = "JoyaFix צריך את ההרשאות הבאות כדי לעבוד כראוי:";
 "onboarding.permissions.accessibility.title" = "נגישות";
 "onboarding.permissions.accessibility.description" = "נדרש לקיצורי מקלדת והמרת טקסט";
+"onboarding.permissions.input.monitoring.title" = "ניטור קלט";
+"onboarding.permissions.input.monitoring.description" = "נדרש לקיצורי מקלדת ולכידת טקסט";
 "onboarding.permissions.screen.recording.title" = "הקלטת מסך";
 "onboarding.permissions.screen.recording.description" = "נדרש לצילום מסך ל-OCR";
 "onboarding.permissions.grant.access" = "אשר גישה";
@@ -304,6 +323,11 @@
 "agent.config.max.tokens.description" = "מספר מקסימלי של טוקנים בתשובה";
 "agent.config.presets" = "סוכנים מוגדרים מראש";
 "agent.config.reset" = "איפוס לברירת מחדל";
+
+/* Settings - AI Persona */
+"settings.ai.persona.title" = "אישיות AI";
+"settings.ai.persona.description" = "הגדר את האישיות וההתנהגות של עוזר ה-AI שלך";
+"settings.ai.persona.explanation" = "אישיות ה-AI (סוכן) קובעת איך ה-AI מגיב להנחיות שלך. תוכל להתאים אישית את הנחיות המערכת, רמת היצירתיות ואורך התשובה.";
 
 /* Prompt Enhancer Meta Prompt */
 "prompt.enhancer.meta.role" = "You are an expert Prompt Engineer.";
