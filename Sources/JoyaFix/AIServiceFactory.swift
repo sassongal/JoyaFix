@@ -12,6 +12,8 @@ class AIServiceFactory {
             return GeminiService.shared
         case .openRouter:
             return OpenRouterService.shared
+        case .local:
+            return LocalLLMService.shared
         }
     }
 }

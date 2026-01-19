@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var localAIProvider: AIProvider
     @State private var localOpenRouterKey: String
     @State private var localOpenRouterModel: String
+    @State private var localSelectedModel: String?
 
     @State private var isRecordingConvertHotkey = false
     @State private var isRecordingPromptHotkey = false
@@ -40,7 +41,7 @@ struct SettingsView: View {
         _localAIProvider = State(initialValue: settings.selectedAIProvider)
         _localOpenRouterKey = State(initialValue: settings.openRouterKey)
         _localOpenRouterModel = State(initialValue: settings.openRouterModel)
-
+        _localSelectedModel = State(initialValue: settings.selectedLocalModel)
     }
 
     var body: some View {
@@ -61,7 +62,7 @@ struct SettingsView: View {
                 localAIProvider: $localAIProvider,
                 localOpenRouterKey: $localOpenRouterKey,
                 localOpenRouterModel: $localOpenRouterModel,
-
+                localSelectedModel: $localSelectedModel,
                 isRecordingConvertHotkey: $isRecordingConvertHotkey,
 
                 isRecordingPromptHotkey: $isRecordingPromptHotkey,
@@ -124,7 +125,23 @@ struct SettingsView: View {
                 }
             }
         }
-        
+
+        // Validate local model selection if Local is selected
+        if localAIProvider == .local {
+            if localSelectedModel == nil || localSelectedModel?.isEmpty == true {
+                let downloadManager = ModelDownloadManager.shared
+                if downloadManager.downloadedModels.isEmpty {
+                    let alert = NSAlert()
+                    alert.messageText = "No Local Model Available"
+                    alert.informativeText = "Please download a local model first before selecting the Local AI provider."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
+                    alert.runModal()
+                    return
+                }
+            }
+        }
+
         // CRITICAL FIX: Validate no duplicate hotkeys before saving
         let allHotkeys = [
             (localConvertKeyCode, localConvertModifiers, NSLocalizedString("settings.text.conversion.hotkey", comment: "Convert hotkey")),
@@ -163,7 +180,7 @@ struct SettingsView: View {
         settings.selectedAIProvider = localAIProvider
         settings.openRouterKey = localOpenRouterKey
         settings.openRouterModel = localOpenRouterModel
-
+        settings.selectedLocalModel = localSelectedModel
 
         // Rebind hotkeys immediately
         let result = HotkeyManager.shared.rebindHotkeys()

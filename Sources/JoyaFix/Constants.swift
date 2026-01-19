@@ -87,6 +87,8 @@ enum JoyaFixConstants {
         static let snippets = "JoyaFixSnippets"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let promptLibrary = "PromptLibrary"
+        static let selectedLocalModel = "selectedLocalModel"
+        static let downloadedLocalModels = "downloadedLocalModels"
     }
     
     // MARK: - Keychain
@@ -194,9 +196,35 @@ enum JoyaFixConstants {
     }
     
     // MARK: - File Paths
-    
+
     enum FilePaths {
         static let clipboardDataDirectory = "JoyaFix/ClipboardData"
+        static let localModelsDirectory = "JoyaFix/Models"
+    }
+
+    // MARK: - Local LLM Configuration
+
+    enum LocalLLM {
+        /// Directory name for storing models
+        static let modelsDirectory = "Models"
+
+        /// Minimum RAM required for local LLM (in bytes) - 3GB
+        static let minimumRAMRequired: UInt64 = 3_221_225_472
+
+        /// Default context window size
+        static let defaultContextSize = 4096
+
+        /// Default temperature for generation
+        static let defaultTemperature: Float = 0.7
+
+        /// Maximum tokens to generate
+        static let maxOutputTokens = 2048
+
+        /// Timeout for model loading (seconds)
+        static let modelLoadTimeout: TimeInterval = 60
+
+        /// Timeout for inference (seconds)
+        static let inferenceTimeout: TimeInterval = 120
     }
 }
 

@@ -31,7 +31,15 @@ enum AIServiceError: LocalizedError {
     case encodingError(Error)
     case decodingError(Error)
     case providerSpecific(String)
-    
+
+    // Local LLM specific errors
+    case modelNotFound(String)
+    case modelLoadFailed(String)
+    case insufficientMemory(required: UInt64, available: UInt64)
+    case inferenceError(String)
+    case modelNotDownloaded
+    case visionModelNotAvailable
+
     var errorDescription: String? {
         switch self {
         case .apiKeyNotFound:
@@ -56,6 +64,20 @@ enum AIServiceError: LocalizedError {
             return "Failed to decode response: \(error.localizedDescription)"
         case .providerSpecific(let message):
             return message
+        case .modelNotFound(let path):
+            return "Model file not found at: \(path)"
+        case .modelLoadFailed(let reason):
+            return "Failed to load model: \(reason)"
+        case .insufficientMemory(let required, let available):
+            let requiredGB = Double(required) / 1_073_741_824
+            let availableGB = Double(available) / 1_073_741_824
+            return String(format: "Insufficient memory. Required: %.1fGB, Available: %.1fGB", requiredGB, availableGB)
+        case .inferenceError(let reason):
+            return "Inference error: \(reason)"
+        case .modelNotDownloaded:
+            return "No local model downloaded. Please download a model in Settings."
+        case .visionModelNotAvailable:
+            return "Vision model not available. Please download a vision-capable model (LLaVA) in Settings."
         }
     }
 }

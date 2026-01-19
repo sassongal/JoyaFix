@@ -6,6 +6,7 @@ import Carbon
 enum AIProvider: String, Codable {
     case gemini
     case openRouter
+    case local
 }
 
 /// Settings manager for the application
@@ -232,6 +233,14 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    // MARK: - Local LLM Settings
+
+    @Published var selectedLocalModel: String? {
+        didSet {
+            UserDefaults.standard.set(selectedLocalModel, forKey: Keys.selectedLocalModel)
+        }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -249,6 +258,7 @@ class SettingsManager: ObservableObject {
         static let popoverLayoutSettings = "popoverLayoutSettings"
         static let toastSettings = "toastSettings"
         static let enableMenubarPreview = "enableMenubarPreview"
+        static let selectedLocalModel = "selectedLocalModel"
     }
 
     // MARK: - Initialization
@@ -295,7 +305,10 @@ class SettingsManager: ObservableObject {
         
         // Load menubar preview setting (required for initialization)
         self.enableMenubarPreview = UserDefaults.standard.object(forKey: Keys.enableMenubarPreview) as? Bool ?? true
-        
+
+        // Load local model selection
+        self.selectedLocalModel = UserDefaults.standard.string(forKey: Keys.selectedLocalModel)
+
         // Now initialize computed properties (after all stored properties are initialized)
         // Load Gemini key from Keychain (secure storage)
         // First try Keychain, then fallback to UserDefaults for migration

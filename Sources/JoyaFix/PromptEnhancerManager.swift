@@ -320,6 +320,9 @@ Generate the CO-STAR prompt now.
                 return true
             }
             return !settings.openRouterKey.isEmpty
+        case .local:
+            // Local models don't require an API key, just check if a model is selected
+            return settings.selectedLocalModel != nil
         }
     }
     
@@ -428,6 +431,20 @@ Generate the CO-STAR prompt now.
                 return .decodingError(err)
             case .providerSpecific(let message):
                 return .httpError(0, message)
+            case .modelNotFound(let path):
+                return .httpError(0, "Model not found at: \(path)")
+            case .modelLoadFailed(let reason):
+                return .httpError(0, "Failed to load model: \(reason)")
+            case .insufficientMemory(let required, let available):
+                let requiredGB = Double(required) / 1_073_741_824
+                let availableGB = Double(available) / 1_073_741_824
+                return .httpError(0, String(format: "Insufficient memory. Required: %.1fGB, Available: %.1fGB", requiredGB, availableGB))
+            case .inferenceError(let reason):
+                return .httpError(0, "Inference error: \(reason)")
+            case .modelNotDownloaded:
+                return .httpError(0, "No local model downloaded. Please download a model in Settings.")
+            case .visionModelNotAvailable:
+                return .httpError(0, "Vision model not available.")
             }
         }
         // Fallback for unknown errors

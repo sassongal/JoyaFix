@@ -18,6 +18,7 @@ struct GeneralSettingsTab: View {
     @Binding var localAIProvider: AIProvider
     @Binding var localOpenRouterKey: String
     @Binding var localOpenRouterModel: String
+    @Binding var localSelectedModel: String?
     @Binding var isRecordingConvertHotkey: Bool
     @Binding var isRecordingPromptHotkey: Bool
     @Binding var hasUnsavedChanges: Bool
@@ -382,6 +383,7 @@ struct GeneralSettingsTab: View {
                                 Picker("", selection: $localAIProvider) {
                                     Text("Gemini").tag(AIProvider.gemini)
                                     Text("OpenRouter").tag(AIProvider.openRouter)
+                                    Text("Local").tag(AIProvider.local)
                                 }
                                 .pickerStyle(.segmented)
                                 .onChange(of: localAIProvider) { _, _ in
@@ -437,7 +439,7 @@ struct GeneralSettingsTab: View {
                                             .foregroundColor(.secondary)
                                     }
                                 }
-                            } else {
+                            } else if localAIProvider == .openRouter {
                                 // OpenRouter Configuration
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("OpenRouter API Key")
@@ -547,6 +549,12 @@ struct GeneralSettingsTab: View {
                                         hasUnsavedChanges: $hasUnsavedChanges
                                     )
                                 }
+                            } else if localAIProvider == .local {
+                                // Local Model Configuration
+                                LocalModelManagementView(
+                                    selectedModelId: $localSelectedModel,
+                                    hasUnsavedChanges: $hasUnsavedChanges
+                                )
                             }
                         }
                         .padding(8)
@@ -1371,6 +1379,281 @@ struct ModelSelectionView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Local Model Management View
+
+struct LocalModelManagementView: View {
+    @ObservedObject var downloadManager = ModelDownloadManager.shared
+    @Binding var selectedModelId: String?
+    @Binding var hasUnsavedChanges: Bool
+
+    @State private var showModelPicker = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section Header
+            Text("Local Model")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Downloaded Models
+            if downloadManager.downloadedModels.isEmpty {
+                // No models downloaded
+                VStack(spacing: 12) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary)
+
+                    Text("No local models downloaded")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Button(action: { showModelPicker = true }) {
+                        HStack {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text("Download Model")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+            } else {
+                // Model Selection
+                VStack(alignment: .leading, spacing: 8) {
+                    Picker("Select Model", selection: Binding(
+                        get: { selectedModelId ?? "" },
+                        set: { newValue in
+                            selectedModelId = newValue.isEmpty ? nil : newValue
+                            hasUnsavedChanges = true
+                        }
+                    )) {
+                        Text("Select a model...").tag("")
+                        ForEach(downloadManager.downloadedModels) { model in
+                            HStack {
+                                Text(model.info.displayName)
+                                if model.info.supportsVision {
+                                    Image(systemName: "eye.fill")
+                                        .font(.caption2)
+                                }
+                            }
+                            .tag(model.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    // Model info
+                    if let selectedId = selectedModelId,
+                       let model = downloadManager.downloadedModels.first(where: { $0.id == selectedId }) {
+                        HStack(spacing: 8) {
+                            Text("Size: \(model.info.fileSizeFormatted)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+
+                            Text("RAM: \(model.info.requiredRAMFormatted)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+
+                            if model.info.supportsVision {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "eye.fill")
+                                        .font(.caption2)
+                                    Text("Vision")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+
+                // Manage Models Button
+                Button(action: { showModelPicker = true }) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle")
+                        Text("Manage Models...")
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+
+            // Download Progress
+            if downloadManager.isDownloading {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Downloading \(downloadManager.currentDownloadModel?.displayName ?? "model")...")
+                            .font(.caption)
+
+                        Spacer()
+
+                        Button("Cancel") {
+                            downloadManager.cancelDownload()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                    }
+
+                    ProgressView(value: downloadManager.downloadProgress)
+                        .progressViewStyle(.linear)
+
+                    Text("\(Int(downloadManager.downloadProgress * 100))%")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+            }
+
+            // Info text
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("Local models run entirely on your Mac without internet")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .sheet(isPresented: $showModelPicker) {
+            LocalModelPickerSheet(downloadManager: downloadManager)
+        }
+    }
+}
+
+// MARK: - Local Model Picker Sheet
+
+struct LocalModelPickerSheet: View {
+    @ObservedObject var downloadManager: ModelDownloadManager
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Local Models")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding()
+
+            Divider()
+
+            // Available Models List
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(LocalModelRegistry.availableModels) { model in
+                        LocalModelCard(
+                            model: model,
+                            downloadManager: downloadManager,
+                            isDownloaded: downloadManager.downloadedModels.contains { $0.id == model.id }
+                        )
+                    }
+                }
+                .padding()
+            }
+
+            // Footer with RAM info
+            VStack(spacing: 4) {
+                Divider()
+                HStack {
+                    Image(systemName: "memorychip")
+                        .foregroundColor(.secondary)
+                    Text("Available RAM: \(ByteCountFormatter.string(fromByteCount: Int64(downloadManager.availableRAM()), countStyle: .memory))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+            }
+        }
+        .frame(width: 500, height: 500)
+    }
+}
+
+// MARK: - Local Model Card
+
+struct LocalModelCard: View {
+    let model: LocalModelInfo
+    @ObservedObject var downloadManager: ModelDownloadManager
+    let isDownloaded: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Icon
+            Image(systemName: model.supportsVision ? "eye.circle.fill" : "cpu.fill")
+                .font(.title2)
+                .foregroundColor(isDownloaded ? .green : .secondary)
+                .frame(width: 40)
+
+            // Info
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(model.displayName)
+                        .font(.headline)
+
+                    if model.supportsVision {
+                        Text("Vision")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(4)
+                    }
+                }
+
+                Text(model.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+
+                HStack(spacing: 12) {
+                    Label(model.fileSizeFormatted, systemImage: "doc.fill")
+                    Label(model.requiredRAMFormatted + " RAM", systemImage: "memorychip")
+                }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            // Action Button
+            if isDownloaded {
+                Button(role: .destructive) {
+                    if let downloaded = downloadManager.downloadedModels.first(where: { $0.id == model.id }) {
+                        try? downloadManager.deleteModel(downloaded)
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.bordered)
+            } else if downloadManager.isDownloading && downloadManager.currentDownloadModel?.id == model.id {
+                ProgressView()
+                    .scaleEffect(0.8)
+            } else {
+                Button {
+                    Task {
+                        try? await downloadManager.downloadModel(model)
+                    }
+                } label: {
+                    Image(systemName: "arrow.down.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(downloadManager.isDownloading)
+            }
+        }
+        .padding()
+        .background(isDownloaded ? Color.green.opacity(0.1) : Color.secondary.opacity(0.05))
+        .cornerRadius(12)
     }
 }
 

@@ -14,7 +14,8 @@ let package = Package(
         // Updated to latest stable versions (2026-01-09)
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.1"),  // Updated from 2.5.0 (latest: 2.8.1)
         .package(url: "https://github.com/kean/Pulse", from: "4.0.0"),  // Keep 4.x (5.0 has breaking changes)
-        .package(url: "https://github.com/groue/GRDB.swift", from: "6.29.3")  // Updated from 6.0.0 (latest: 6.29.3)
+        .package(url: "https://github.com/groue/GRDB.swift", from: "6.29.3"),  // Updated from 6.0.0 (latest: 6.29.3)
+        .package(url: "https://github.com/eastriverlee/LLM.swift", branch: "main")  // Local LLM inference (llama.cpp)
     ],
     targets: [
         .executableTarget(
@@ -22,7 +23,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Pulse", package: "Pulse"),
-                .product(name: "GRDB", package: "GRDB.swift")
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "LLM", package: "LLM.swift")
             ],
             path: "Sources/JoyaFix", // הנתיב המעודכן לאחר המעבר
             exclude: ["Resources/Info.plist"],
