@@ -2,78 +2,139 @@ import Cocoa
 import ApplicationServices
 import Carbon
 
+// CRITICAL FIX: Global weak reference for C callback access (prevents retain cycle)
+// Use thread-safe access with a lock
+private let instanceLock = NSLock()
+private weak var globalKeyboardBlockerInstance: KeyboardBlocker?
+// Track if we're in an active lock state (for fail-safe event blocking during transitions)
+private var globalIsInActiveLockState = false
+
+// MARK: - Global C Callback Function
+// CRITICAL FIX: Defined outside the class to prevent Swift closure capture crashes
+private func globalKeyboardBlockerCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    instanceLock.lock()
+    defer { instanceLock.unlock() }
+
+    guard let blocker = globalKeyboardBlockerInstance else {
+        // SECURITY FIX: If instance is nil but we're in active lock state,
+        // block the event to prevent bypass during transition
+        if globalIsInActiveLockState {
+            return nil  // Block event during transition (fail-safe)
+        }
+        return Unmanaged.passUnretained(event)
+    }
+    return blocker.handleEvent(proxy: proxy, type: type, event: event)
+}
+
 class KeyboardBlocker {
     static let shared = KeyboardBlocker()
-    
+
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isLocked = false
-    private var isUnlocking = false  // NEW: Prevents hiding during unlock transition
-    
+    private var isUnlocking = false  // Prevents hiding during unlock transition
+
+    // CRITICAL FIX: Lock for state machine synchronization
+    private let stateLock = NSLock()
+
     // Overlay window for lock indicator
     private var overlayWindow: NSWindow?
-    
+
     // Unlock hotkey combination: Cmd+Option+L (same as lock)
     private let unlockKeyCode: CGKeyCode = CGKeyCode(kVK_ANSI_L)
     private let unlockModifiers: CGEventFlags = [.maskCommand, .maskAlternate]
-    
+
     private init() {}
     
     // MARK: - Public Interface
-    
-    /// Toggles keyboard lock state
+
+    /// Toggles keyboard lock state (thread-safe)
     func toggleLock() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+
         if isLocked {
-            unlock()
+            unlockInternal()
         } else {
-            lock()
+            lockInternal()
         }
     }
-    
-    /// Locks the keyboard
+
+    /// Locks the keyboard (thread-safe)
     func lock() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        lockInternal()
+    }
+
+    /// Internal lock implementation - assumes stateLock is held
+    private func lockInternal() {
         guard !isLocked else { return }
-        
-        // Check accessibility permissions
+
+        // Check accessibility permissions with user prompt if needed
         guard checkAccessibilityPermissions() else {
-            print("⚠️ Accessibility permissions required for keyboard blocking")
+            Logger.security("Accessibility permissions required for keyboard blocking", level: .warning)
             return
         }
-        
+
         isLocked = true
+        // Set global lock state for fail-safe event blocking
+        instanceLock.lock()
+        globalIsInActiveLockState = true
+        instanceLock.unlock()
+
         setupEventTap()
         showOverlay()
-        print("🔒 Keyboard locked")
+        Logger.info("Keyboard locked")
         // Notify that lock state changed
         NotificationCenter.default.post(name: NSNotification.Name("JoyaFixKeyboardLockStateChanged"), object: nil)
     }
-    
-    /// Unlocks the keyboard
+
+    /// Unlocks the keyboard (thread-safe)
     func unlock() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        unlockInternal()
+    }
+
+    /// Internal unlock implementation - assumes stateLock is held
+    private func unlockInternal() {
         guard isLocked else { return }
 
         // Set unlocking flag to prevent app from hiding during transition
         isUnlocking = true
         isLocked = false
+
+        // Clear global lock state
+        instanceLock.lock()
+        globalIsInActiveLockState = false
+        instanceLock.unlock()
+
         removeEventTap()
         hideOverlay()
-        print("🔓 Keyboard unlocked")
+        Logger.info("Keyboard unlocked")
         // Notify that lock state changed
         NotificationCenter.default.post(name: NSNotification.Name("JoyaFixKeyboardLockStateChanged"), object: nil)
 
-        // Clear unlocking flag after activation is complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.isUnlocking = false
+        // CRITICAL FIX: Use weak self to prevent retain cycle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.stateLock.lock()
+            self?.isUnlocking = false
+            self?.stateLock.unlock()
         }
     }
-    
-    /// Returns current lock state
+
+    /// Returns current lock state (thread-safe)
     var isKeyboardLocked: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         return isLocked
     }
 
-    /// Returns true if app should stay visible (locked or unlocking)
+    /// Returns true if app should stay visible (locked or unlocking) (thread-safe)
     var shouldPreventHiding: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         return isLocked || isUnlocking
     }
     
@@ -83,42 +144,65 @@ class KeyboardBlocker {
         // Remove existing tap if any
         removeEventTap()
         
+        // CRITICAL FIX: Set global weak reference to prevent retain cycle (thread-safe)
+        instanceLock.lock()
+        globalKeyboardBlockerInstance = self
+        instanceLock.unlock()
+        
         // Create event mask for keyboard events
         let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
         
         // Create event tap
+        // CRITICAL FIX: Use global C function pointer instead of closure to prevent retain cycle
         eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: CGEventMask(eventMask),
-            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-                let blocker = Unmanaged<KeyboardBlocker>.fromOpaque(refcon!).takeUnretainedValue()
-                return blocker.handleEvent(proxy: proxy, type: type, event: event)
-            },
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
+            callback: globalKeyboardBlockerCallback,
+            userInfo: nil // No need for userInfo with global reference
         )
         
         guard let eventTap = eventTap else {
-            print("❌ Failed to create event tap")
+            Logger.error("Failed to create event tap - keyboard blocking unavailable")
+            isLocked = false // Reset state since we couldn't lock
+            
+            // Notify user that keyboard blocking failed
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Failed to enable keyboard lock. Please check accessibility permissions.",
+                        style: .error,
+                        duration: 3.0
+                    )
+                )
+            }
             return
         }
         
         // Create run loop source
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         guard let runLoopSource = runLoopSource else {
-            print("❌ Failed to create run loop source")
+            Logger.error("Failed to create run loop source for keyboard blocker")
             return
         }
         
-        // Add to run loop
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        // CRITICAL FIX: Use main run loop explicitly for thread safety
+        // Ensure we're on the main thread (event tap setup should be on main thread)
+        assert(Thread.isMainThread, "setupEventTap must be called on main thread")
+        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         
         // Enable the tap
         CGEvent.tapEnable(tap: eventTap, enable: true)
     }
     
     private func removeEventTap() {
+        // CRITICAL FIX: Clear global reference thread-safely
+        instanceLock.lock()
+        globalKeyboardBlockerInstance = nil
+        instanceLock.unlock()
+        
         if let eventTap = eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
             CFMachPortInvalidate(eventTap)
@@ -126,14 +210,22 @@ class KeyboardBlocker {
         }
         
         if let runLoopSource = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            // CRITICAL FIX: Always remove from main run loop (not current run loop)
+            if Thread.isMainThread {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            } else {
+                DispatchQueue.main.sync {
+                    CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+                }
+            }
             self.runLoopSource = nil
         }
     }
     
     // MARK: - Event Handling
     
-    private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    // CRITICAL FIX: Changed to fileprivate to allow access from global callback function
+    fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         guard isLocked else {
             return Unmanaged.passUnretained(event)
         }
@@ -154,18 +246,18 @@ class KeyboardBlocker {
             
             // Check for ESC key (immediate unlock)
             if keyCode == Int64(kVK_Escape) {
-                print("🔑 ESC pressed - unlocking keyboard cleaner (isLocked: \(isLocked))")
+                Logger.debug("ESC pressed - unlocking keyboard cleaner")
 
                 // Immediately unlock on ESC press (no hold required)
                 unlock()
                 SoundManager.shared.playSuccess()
 
-                print("🔓 Keyboard cleaner unlocked successfully")
+                Logger.debug("Keyboard cleaner unlocked successfully")
 
                 // Keep the app active after unlocking to prevent it from hiding
                 DispatchQueue.main.async {
                     NSApp.activate(ignoringOtherApps: true)
-                    print("✓ App activated after ESC unlock")
+                    Logger.debug("App activated after ESC unlock")
 
                     // Show toast notification for user feedback
                     NotificationCenter.default.post(
@@ -189,12 +281,31 @@ class KeyboardBlocker {
     
     private func showOverlay() {
         DispatchQueue.main.async {
-            // Get all screens
+            // Get all screens and calculate combined frame properly
+            // (handles multi-monitor setups with negative coordinates)
             let screens = NSScreen.screens
-            let combinedFrame = screens.reduce(NSRect.zero) { result, screen in
-                return result.union(screen.frame)
+            guard !screens.isEmpty else { return }
+
+            // Calculate bounds that properly handle all screen geometries
+            var minX = CGFloat.infinity
+            var minY = CGFloat.infinity
+            var maxX = -CGFloat.infinity
+            var maxY = -CGFloat.infinity
+
+            for screen in screens {
+                minX = min(minX, screen.frame.minX)
+                minY = min(minY, screen.frame.minY)
+                maxX = max(maxX, screen.frame.maxX)
+                maxY = max(maxY, screen.frame.maxY)
             }
-            
+
+            let combinedFrame = NSRect(
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY
+            )
+
             // Create overlay window
             let window = NSWindow(
                 contentRect: combinedFrame,
@@ -226,10 +337,31 @@ class KeyboardBlocker {
     }
     
     // MARK: - Accessibility Check
-    
+
     private func checkAccessibilityPermissions() -> Bool {
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
-        return AXIsProcessTrustedWithOptions(options)
+        // First check without prompting
+        let checkOptions: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
+        let isTrusted = AXIsProcessTrustedWithOptions(checkOptions)
+
+        if !isTrusted {
+            // Show user-friendly message before system prompt
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Keyboard lock requires Accessibility permission. Please enable it in System Settings.",
+                        style: .warning,
+                        duration: 5.0
+                    )
+                )
+            }
+
+            // Now prompt with system dialog
+            let promptOptions: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+            _ = AXIsProcessTrustedWithOptions(promptOptions)
+        }
+
+        return isTrusted
     }
     
     deinit {

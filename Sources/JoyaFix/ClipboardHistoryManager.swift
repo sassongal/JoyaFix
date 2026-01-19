@@ -1,6 +1,7 @@
 import Cocoa
 import Foundation
 import Carbon
+import CryptoKit
 
 @MainActor
 class ClipboardHistoryManager: ObservableObject {
@@ -16,7 +17,10 @@ class ClipboardHistoryManager: ObservableObject {
     private var cleanupTimer: Timer?
     private var lastChangeCount: Int = 0
     private var lastCopiedText: String?
-    private var isInternalWrite: Bool = false // Flag to prevent internal writes from being recorded
+    // CRITICAL FIX: Use timestamp-based approach for internal write detection
+    // This avoids race conditions with the 0.5s poll interval
+    private var lastInternalWriteTime: Date?
+    private let internalWriteGracePeriod: TimeInterval = 0.5
 
     // Configuration
     private let settings = SettingsManager.shared
@@ -28,9 +32,19 @@ class ClipboardHistoryManager: ObservableObject {
     // OPTIMIZATION: Track last clipboard content to avoid unnecessary processing
     private var lastClipboardHash: String?
     
+    // OPTIMIZATION: Cache directory modification time to avoid re-scanning if directory hasn't changed
+    private var lastCleanupScan: Date?
+
+    // CRITICAL FIX: Track if data directory is valid for file operations
+    private var isDataDirectoryValid = false
+    
     // Migration flags
     private let migrationKey = "ClipboardHistoryMigrationCompleted"
     private let databaseMigrationKey = "ClipboardHistoryDatabaseMigrationCompleted"
+    
+    // CRITICAL FIX: Migration lock to prevent concurrent migration
+    private let migrationLock = NSLock()
+    private var isMigrating = false
     
     // Database manager for persistent storage (replaces UserDefaults)
     private let databaseManager = HistoryDatabaseManager.shared
@@ -57,8 +71,21 @@ class ClipboardHistoryManager: ObservableObject {
         // Create directory if it doesn't exist
         do {
             try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: nil)
+            isDataDirectoryValid = true
         } catch {
-            Logger.clipboard("Failed to create clipboard data directory: \(error.localizedDescription)", level: .warning)
+            Logger.clipboard("Failed to create clipboard data directory: \(error.localizedDescription)", level: .error)
+            isDataDirectoryValid = false
+            // Notify user of degraded functionality
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Clipboard file storage unavailable. Rich text and images may not be saved.",
+                        style: .warning,
+                        duration: 5.0
+                    )
+                )
+            }
         }
         
         // Load history (before migration) - must be on main thread
@@ -125,6 +152,20 @@ class ClipboardHistoryManager: ObservableObject {
     }
 
     // MARK: - Clipboard Monitoring
+    
+    /// CRITICAL FIX: Calculate SHA256 hash for reliable, deterministic deduplication
+    /// Replaces String.hashValue which is not deterministic and can cause false positives
+    private func calculateHash(for text: String) -> String {
+        let data = Data(text.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Calculate SHA256 hash for binary data (used for image deduplication)
+    nonisolated private func calculateDataHash(for data: Data) -> String {
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
 
     /// Checks if the clipboard has changed and processes new content
     private func checkForClipboardChanges() {
@@ -134,15 +175,18 @@ class ClipboardHistoryManager: ObservableObject {
         guard currentChangeCount != lastChangeCount else { return }
         lastChangeCount = currentChangeCount
 
-        // If this was an internal write (from our app), skip recording
-        if isInternalWrite {
-            isInternalWrite = false
+        // CRITICAL FIX: Use timestamp-based approach to detect internal writes
+        // This avoids race conditions with the 0.5s poll interval
+        if let lastWrite = lastInternalWriteTime,
+           Date().timeIntervalSince(lastWrite) < internalWriteGracePeriod {
+            lastInternalWriteTime = nil
             return
         }
 
-        // OPTIMIZATION: Quick hash check to avoid processing duplicate content
+        // CRITICAL FIX: Use SHA256 hash for reliable, deterministic deduplication
+        // String.hashValue is not deterministic and can cause false positives
         if let currentText = NSPasteboard.general.string(forType: .string) {
-            let currentHash = String(currentText.hashValue)
+            let currentHash = calculateHash(for: currentText)
             if currentHash == lastClipboardHash {
                 return  // Same content, skip processing
             }
@@ -153,17 +197,21 @@ class ClipboardHistoryManager: ObservableObject {
         
         guard let item = captureClipboardContent() else { return }
         
-        // Check if this is an image item.
-        // `captureImageContent` which is called inside `captureClipboardContent` already
-        // triggers the async saving process for images.
-        let isImageItem = item.rtfData == nil && item.htmlData == nil && item.imagePath == nil &&
-                          item.plainTextPreview == "Image"
-        if isImageItem {
+        // CRITICAL FIX: Don't return early for image items - let processAndSaveImageItem handle deduplication
+        // The async save will check for duplicates before adding to history
+        
+        // CRITICAL FIX: Enhanced validation - check for truly empty content and size limits
+        let trimmedText = item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            Logger.clipboard("Skipping empty clipboard item", level: .debug)
             return
         }
         
-        // Ignore empty strings
-        guard !item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Check for extremely long content that might cause memory issues
+        guard trimmedText.count < 10_000_000 else { // 10MB limit
+            Logger.clipboard("Skipping extremely large clipboard item (\(trimmedText.count) chars)", level: .warning)
+            return
+        }
 
         // Get full text for comparison.
         let itemFullText = item.textForPasting
@@ -174,7 +222,7 @@ class ClipboardHistoryManager: ObservableObject {
         }
 
         if isDuplicate {
-            Logger.clipboard("Skipping duplicate: \(item.plainTextPreview.prefix(30))...", level: .info)
+            safeLogPreview(item, message: "Skipping duplicate")
             return
         }
 
@@ -236,21 +284,25 @@ class ClipboardHistoryManager: ObservableObject {
         )
     }
     
-    // פונקציה חדשה לטיפול אסינכרוני
+    // CRITICAL FIX: Use Task with captured dataDirectory to avoid MainActor issues
     /// Processes and saves heavy data (RTF/HTML) to disk asynchronously, then adds item to history
     private func processAndSaveItem(_ tempItem: ClipboardItem) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        // Capture dataDirectory before entering Task to avoid MainActor isolation issues
+        let dataDir = dataDirectory
+        
+        Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
             
             var rtfPath: String?
             var htmlPath: String?
             
             // שמירה כבדה לדיסק - רצה ברקע!
+            // CRITICAL FIX: Use captured dataDir and nonisolated helper for file I/O
             if let rtf = tempItem.rtfData {
-                rtfPath = self.saveRichData(rtf, type: .rtf)
+                rtfPath = self.saveRichDataSync(data: rtf, type: .rtf, dataDirectory: dataDir)
             }
             if let html = tempItem.htmlData {
-                htmlPath = self.saveRichData(html, type: .html)
+                htmlPath = self.saveRichDataSync(data: html, type: .html, dataDirectory: dataDir)
             }
             
             let finalItem = ClipboardItem(
@@ -264,10 +316,26 @@ class ClipboardHistoryManager: ObservableObject {
                 isSensitive: tempItem.isSensitive
             )
             
-            // חזרה ל-Main Thread לעדכון ה-UI
-            DispatchQueue.main.async {
+            // CRITICAL FIX: Use MainActor.run for thread-safe UI updates
+            await MainActor.run {
                 self.addToHistory(finalItem)
             }
+        }
+    }
+    
+    /// CRITICAL FIX: Nonisolated helper for saving rich data (avoids MainActor isolation issues)
+    nonisolated private func saveRichDataSync(data: Data, type: RichDataType, dataDirectory: URL) -> String? {
+        let fileName = "\(UUID().uuidString).\(type.fileExtension)"
+        let fileURL = dataDirectory.appendingPathComponent(fileName)
+        
+        do {
+            try data.write(to: fileURL)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
+            Logger.clipboard("Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)", level: .debug)
+            return fileURL.path
+        } catch {
+            Logger.clipboard("Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)", level: .error)
+            return nil
         }
     }
     
@@ -277,10 +345,17 @@ class ClipboardHistoryManager: ObservableObject {
         let pasteboardTypes = pasteboard.types ?? []
         let isSensitive = pasteboardTypes.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) ||
                          pasteboardTypes.contains(NSPasteboard.PasteboardType("com.agilebits.onepassword"))
-        
+
+        // CRITICAL FIX: Generate unique hash for image deduplication
+        // This prevents all images from being treated as duplicates
+        let imageHash = calculateDataHash(for: imageData)
+        let hashPrefix = String(imageHash.prefix(8))
+
         // Get text representation if available (for image descriptions) - on main thread
-        let textPreview = pasteboard.string(forType: .string) ?? "Image"
-        
+        // Include hash in text preview for uniqueness
+        let baseText = pasteboard.string(forType: .string) ?? "Image"
+        let textPreview = baseText == "Image" ? "Image [\(hashPrefix)]" : baseText
+
         // Create temporary item - image will be saved asynchronously
         // We'll use processAndSaveImageItem for images since they need special handling
         let tempItem = ClipboardItem(
@@ -294,25 +369,47 @@ class ClipboardHistoryManager: ObservableObject {
             imagePath: nil, // Will be set after async save
             isSensitive: isSensitive
         )
-        
-        // Process image separately
-        processAndSaveImageItem(tempItem, imageData: imageData)
+
+        // Process image separately with the hash for deduplication
+        processAndSaveImageItem(tempItem, imageData: imageData, imageHash: imageHash)
         return tempItem
     }
     
     /// Processes and saves image data to disk asynchronously, then adds item to history
-    private func processAndSaveImageItem(_ tempItem: ClipboardItem, imageData: Data) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+    /// CRITICAL FIX: Added imageHash parameter for proper deduplication
+    private func processAndSaveImageItem(_ tempItem: ClipboardItem, imageData: Data, imageHash: String) {
+        // Capture dataDirectory before entering Task to avoid MainActor isolation issues
+        let dataDir = dataDirectory
+        // Capture current history hashes for deduplication check
+        let existingImageHashes = Set(history.compactMap { item -> String? in
+            // Extract hash from image items (stored in plainTextPreview as "Image [hash]")
+            guard item.isImage else { return nil }
+            let preview = item.plainTextPreview
+            if let startIndex = preview.range(of: "[")?.upperBound,
+               let endIndex = preview.range(of: "]")?.lowerBound {
+                return String(preview[startIndex..<endIndex])
+            }
+            return nil
+        })
+
+        // Check for duplicate before saving
+        let hashPrefix = String(imageHash.prefix(8))
+        if existingImageHashes.contains(hashPrefix) {
+            Logger.clipboard("Skipping duplicate image (hash: \(hashPrefix))", level: .debug)
+            return
+        }
+
+        Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            
-            // Save image to disk on background thread
-            let imagePath = self.saveImageData(imageData)
-            
+
+            // CRITICAL FIX: Use nonisolated helper for saving image data
+            let imagePath = self.saveImageDataSync(data: imageData, dataDirectory: dataDir)
+
             guard let savedImagePath = imagePath else {
                 Logger.clipboard("Failed to save image to disk", level: .error)
                 return
             }
-            
+
             let finalItem = ClipboardItem(
                 plainTextPreview: tempItem.plainTextPreview,
                 rtfData: nil,
@@ -324,21 +421,11 @@ class ClipboardHistoryManager: ObservableObject {
                 imagePath: savedImagePath,
                 isSensitive: tempItem.isSensitive
             )
-            
-            // חזרה ל-Main Thread לעדכון ה-UI ולבדיקת כפילויות
-            DispatchQueue.main.async {
-                // Check for duplicates (compare by image path for images)
-                let isDuplicate = self.history.contains { historyItem in
-                    historyItem.imagePath == savedImagePath
-                }
-                
-                if isDuplicate {
-                    Logger.clipboard("Skipping duplicate image: \(tempItem.plainTextPreview.prefix(30))...", level: .info)
-                    // Delete the saved image file since it's a duplicate
-                    try? FileManager.default.removeItem(atPath: savedImagePath)
-                    return
-                }
-                
+
+            // CRITICAL FIX: Use MainActor.run instead of DispatchQueue.main.async for proper concurrency
+            await MainActor.run { [weak self] in
+                guard let self = self else { return }
+
                 self.addToHistory(finalItem)
                 self.lastCopiedText = finalItem.textForPasting
             }
@@ -437,8 +524,13 @@ class ClipboardHistoryManager: ObservableObject {
     /// Saves image data to disk synchronously (for use in background thread)
     /// Returns the file path or nil on failure
     private func saveImageData(_ data: Data) -> String? {
+        return saveImageDataSync(data: data, dataDirectory: dataDirectory)
+    }
+    
+    /// CRITICAL FIX: Nonisolated helper for saving image data (avoids MainActor isolation issues)
+    nonisolated private func saveImageDataSync(data: Data, dataDirectory: URL) -> String? {
         let fileName = "\(UUID().uuidString).png"
-        let fileURL = self.dataDirectory.appendingPathComponent(fileName)
+        let fileURL = dataDirectory.appendingPathComponent(fileName)
         
         do {
             try data.write(to: fileURL)
@@ -468,9 +560,17 @@ class ClipboardHistoryManager: ObservableObject {
         var itemToAdd = item
         itemToAdd.isPinned = wasPinned
 
-        // Separate pinned and unpinned items
-        let pinnedItems = history.filter { $0.isPinned }
-        let unpinnedItems = history.filter { !$0.isPinned }
+        // OPTIMIZATION: Separate pinned and unpinned items in a single pass
+        var pinnedItems: [ClipboardItem] = []
+        var unpinnedItems: [ClipboardItem] = []
+        
+        for item in history {
+            if item.isPinned {
+                pinnedItems.append(item)
+            } else {
+                unpinnedItems.append(item)
+            }
+        }
 
         // Add new item at the top of unpinned section
         var newUnpinnedItems = [itemToAdd] + unpinnedItems
@@ -483,13 +583,13 @@ class ClipboardHistoryManager: ObservableObject {
             // מחיקת קבצים של פריטים שנזרקים מהרשימה!
             for oldItem in itemsToRemove {
                 if let path = oldItem.rtfDataPath {
-                    try? FileManager.default.removeItem(atPath: path)
+                    safeDeleteFile(at: path)
                 }
                 if let path = oldItem.htmlDataPath {
-                    try? FileManager.default.removeItem(atPath: path)
+                    safeDeleteFile(at: path)
                 }
                 if let path = oldItem.imagePath {
-                    try? FileManager.default.removeItem(atPath: path)
+                    safeDeleteFile(at: path)
                 }
             }
             
@@ -514,7 +614,7 @@ class ClipboardHistoryManager: ObservableObject {
         }
 
         let formatInfo = (item.rtfDataPath != nil || item.rtfData != nil) ? " [RTF]" : ""
-        Logger.clipboard("Added to clipboard history: \(item.plainTextPreview.prefix(30))...\(formatInfo)", level: .debug)
+        safeLogPreview(item, message: "Added to clipboard history\(formatInfo)")
     }
 
     /// Clears all clipboard history (optionally keeping pinned items)
@@ -536,13 +636,13 @@ class ClipboardHistoryManager: ObservableObject {
         // Clean up files
         for item in itemsToRemove {
             if let rtfPath = item.rtfDataPath {
-                try? FileManager.default.removeItem(atPath: rtfPath)
+                safeDeleteFile(at: rtfPath)
             }
             if let htmlPath = item.htmlDataPath {
-                try? FileManager.default.removeItem(atPath: htmlPath)
+                safeDeleteFile(at: htmlPath)
             }
             if let imagePath = item.imagePath {
-                try? FileManager.default.removeItem(atPath: imagePath)
+                safeDeleteFile(at: imagePath)
             }
         }
         
@@ -552,27 +652,24 @@ class ClipboardHistoryManager: ObservableObject {
 
     /// Toggles the pin status of a clipboard item
     /// MUST be called on MainActor to ensure thread safety for @Published history
+    /// CRITICAL FIX: Use atomic remove-and-return to prevent index race condition
     @MainActor
     func togglePin(for item: ClipboardItem) {
         guard let index = history.firstIndex(where: { $0.id == item.id }) else { return }
 
-        // Toggle the pin status
-        var updatedItem = history[index]
+        // CRITICAL FIX: Atomic remove-and-return to avoid index invalidation race
+        var updatedItem = history.remove(at: index)
         updatedItem.isPinned.toggle()
 
-        // Remove the old item
-        history.remove(at: index)
-
         // Re-insert based on new pin status
+        let pinnedCount = history.filter { $0.isPinned }.count
+        // Safe insertion: min ensures we don't exceed array bounds
+        let insertIndex = min(pinnedCount, history.count)
+        history.insert(updatedItem, at: insertIndex)
+
         if updatedItem.isPinned {
-            // Insert at the end of pinned section
-            let pinnedCount = history.filter { $0.isPinned }.count
-            history.insert(updatedItem, at: pinnedCount)
             Logger.clipboard("Pinned: \(updatedItem.plainTextPreview.prefix(30))...", level: .debug)
         } else {
-            // Insert at the start of unpinned section (right after pinned items)
-            let pinnedCount = history.filter { $0.isPinned }.count
-            history.insert(updatedItem, at: pinnedCount)
             Logger.clipboard("Unpinned: \(updatedItem.plainTextPreview.prefix(30))...", level: .debug)
         }
 
@@ -586,18 +683,18 @@ class ClipboardHistoryManager: ObservableObject {
     func deleteItem(_ item: ClipboardItem) {
         // Delete files from disk
         if let rtfPath = item.rtfDataPath {
-            try? FileManager.default.removeItem(atPath: rtfPath)
+            safeDeleteFile(at: rtfPath)
         }
         if let htmlPath = item.htmlDataPath {
-            try? FileManager.default.removeItem(atPath: htmlPath)
+            safeDeleteFile(at: htmlPath)
         }
         if let imagePath = item.imagePath {
-            try? FileManager.default.removeItem(atPath: imagePath)
+            safeDeleteFile(at: imagePath)
         }
         
         history.removeAll { $0.id == item.id }
         saveHistory()
-        Logger.clipboard("Deleted from history: \(item.plainTextPreview.prefix(30))...", level: .debug)
+        safeLogPreview(item, message: "Deleted from history")
     }
 
     // MARK: - Paste from History
@@ -605,7 +702,7 @@ class ClipboardHistoryManager: ObservableObject {
     /// Writes the selected history item back to the clipboard and optionally pastes it
     func pasteItem(_ item: ClipboardItem, simulatePaste: Bool = true, formattingOption: PasteFormattingOption = .normal) {
         // Mark this as an internal write to prevent it from being re-recorded
-        isInternalWrite = true
+        lastInternalWriteTime = Date()
 
         // Write to clipboard with proper formatting
         let pasteboard = NSPasteboard.general
@@ -710,7 +807,7 @@ class ClipboardHistoryManager: ObservableObject {
     /// Call this before writing to clipboard from within the app (e.g., TextConverter)
     /// to prevent the write from being recorded in history
     func notifyInternalWrite() {
-        isInternalWrite = true
+        lastInternalWriteTime = Date()
     }
 
     // MARK: - Persistence
@@ -743,6 +840,15 @@ class ClipboardHistoryManager: ObservableObject {
                 Logger.clipboard("Failed to save clipboard history to database: \(errorDescription)", level: .error)
             }
 
+            // CRITICAL FIX: Throttle fallback saves to prevent performance issues
+            // Only save if we haven't saved recently (throttle to once per minute)
+            let lastFallbackSave = UserDefaults.standard.double(forKey: "LastFallbackSave")
+            let now = Date().timeIntervalSince1970
+            guard now - lastFallbackSave > 60 else {
+                Logger.clipboard("Skipping fallback save (throttled - last save was \(Int(now - lastFallbackSave))s ago)", level: .debug)
+                return
+            }
+
             // Fallback to UserDefaults if database fails (Insurance Policy)
             let encoder = JSONEncoder()
             do {
@@ -752,7 +858,8 @@ class ClipboardHistoryManager: ObservableObject {
 
                 // Log fallback status for monitoring
                 UserDefaults.standard.set(true, forKey: "ClipboardHistoryFallbackActive")
-                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "ClipboardHistoryFallbackTimestamp")
+                UserDefaults.standard.set(now, forKey: "ClipboardHistoryFallbackTimestamp")
+                UserDefaults.standard.set(now, forKey: "LastFallbackSave")
             } catch {
                 Logger.clipboard("CRITICAL: Failed to save to both database and UserDefaults! Encoding error: \(error.localizedDescription)", level: .critical)
             }
@@ -831,7 +938,9 @@ class ClipboardHistoryManager: ObservableObject {
                     showToast("Database I/O error. Using fallback storage.", style: .warning, duration: 2.0)
                 } else {
                     Logger.clipboard("Failed to load clipboard history from database: \(errorDescription)", level: .error)
-                    showToast("Failed to load clipboard history. Using fallback.", style: .error, duration: 3.0)
+                    // CRITICAL: After all retries failed, show user notification
+                    Logger.clipboard("CRITICAL: Failed to load history after \(maxRetries) retries", level: .critical)
+                    showToast("Failed to load clipboard history. Some data may be unavailable.", style: .error, duration: 5.0)
                 }
                 
                 // Fallback to UserDefaults if database fails
@@ -848,6 +957,8 @@ class ClipboardHistoryManager: ObservableObject {
                     } catch {
                         Logger.clipboard("CRITICAL: Failed to decode fallback data: \(error.localizedDescription)", level: .error)
                         history = []
+                        // Show user notification about data loss
+                        showToast("Critical: Failed to load clipboard history. Data may be lost.", style: .error, duration: 5.0)
                     }
                 } else {
                     Logger.clipboard("No clipboard history found (first run)", level: .info)
@@ -861,12 +972,30 @@ class ClipboardHistoryManager: ObservableObject {
     
     /// Migrates clipboard history from UserDefaults to database (one-time migration)
     /// Includes corruption detection and safe error handling
+    /// CRITICAL FIX: Prevents concurrent migration with lock
     @MainActor
     private func migrateToDatabase() {
+        migrationLock.lock()
+        defer { migrationLock.unlock() }
+        
+        guard !isMigrating else {
+            Logger.clipboard("Migration already in progress, skipping", level: .warning)
+            return
+        }
+        
+        guard !UserDefaults.standard.bool(forKey: databaseMigrationKey) else {
+            Logger.clipboard("Migration already completed", level: .debug)
+            return
+        }
+        
+        isMigrating = true
+        defer { isMigrating = false }
+        
         Logger.clipboard("Migrating clipboard history from UserDefaults to database...", level: .info)
         
         let success = databaseManager.migrateClipboardHistoryFromUserDefaults()
         if success {
+            UserDefaults.standard.set(true, forKey: databaseMigrationKey)
             // Reload from database after migration
             loadHistory()
         } else {
@@ -885,79 +1014,179 @@ class ClipboardHistoryManager: ObservableObject {
         }
         
         // Schedule periodic cleanup (every 24 hours)
+        // CRITICAL FIX: Use weak self in both Timer and Task to prevent retain cycle
         cleanupTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            guard let self = self else { return }
+            Task { @MainActor [weak self] in
                 self?.cleanupOrphanedFiles()
             }
         }
         Logger.clipboard("Scheduled disk cleanup started (runs every 24 hours)", level: .info)
     }
     
-    // MARK: - Cleanup
+    // MARK: - File Deletion Helpers
     
+    /// CRITICAL FIX: Enhanced path validation to prevent path traversal attacks
+    /// Validates that the file path is within the dataDirectory with symlink resolution
+    /// Uses path component comparison (not string prefix) for security
+    nonisolated private func validateFilePath(_ path: String, relativeTo baseDirectory: URL) -> Bool {
+        let fileURL = URL(fileURLWithPath: path)
+
+        // Resolve symlinks to prevent symlink attacks
+        let resolvedPath = fileURL.resolvingSymlinksInPath()
+        let resolvedBase = baseDirectory.resolvingSymlinksInPath()
+
+        // CRITICAL FIX: Use path component comparison instead of string prefix
+        // String prefix is vulnerable: "/base/path".hasPrefix("/base/path") matches "/base/pathEvil"
+        let fileComponents = resolvedPath.pathComponents
+        let baseComponents = resolvedBase.pathComponents
+
+        // Base components must be a prefix of file components
+        guard fileComponents.count > baseComponents.count else {
+            return false  // File must be inside base, not equal to it
+        }
+
+        // Verify base path components are a prefix
+        for (index, baseComponent) in baseComponents.enumerated() {
+            guard index < fileComponents.count, fileComponents[index] == baseComponent else {
+                return false
+            }
+        }
+
+        // Check that remaining components don't contain ".."
+        let remainingComponents = fileComponents[baseComponents.count...]
+        guard !remainingComponents.contains("..") else {
+            return false
+        }
+
+        return true
+    }
+    
+    /// CRITICAL FIX: Safe file deletion with enhanced path validation to prevent path traversal attacks
+    /// Validates that the file path is within the dataDirectory before deletion
+    private func safeDeleteFile(at path: String) {
+        guard validateFilePath(path, relativeTo: dataDirectory) else {
+            Logger.clipboard("SECURITY: Invalid file path detected: \(path)", level: .error)
+            return
+        }
+        
+        let resolvedPath = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        
+        do {
+            try FileManager.default.removeItem(atPath: resolvedPath)
+        } catch {
+            Logger.clipboard("Failed to delete file \(path): \(error.localizedDescription)", level: .error)
+        }
+    }
+    
+    /// CRITICAL FIX: Safe logging helper that prevents sensitive data from being logged
+    /// Checks if item is sensitive and avoids logging preview text
+    private func safeLogPreview(_ item: ClipboardItem, message: String) {
+        if item.isSensitive {
+            Logger.clipboard("\(message) [SENSITIVE]", level: .info)
+        } else {
+            Logger.clipboard("\(message): \(item.plainTextPreview.prefix(30))...", level: .info)
+        }
+    }
+    
+    // MARK: - Cleanup
+
+    /// Snapshot structure for cleanup operations (defined at class level for nonisolated access)
+    private struct CleanupSnapshot: Sendable {
+        let validPaths: Set<String>
+        let dataDirectory: URL
+        let lastScan: Date?
+    }
+
     /// Cleans up orphaned files in the data directory that are not referenced in history
     /// This should be called after history is loaded to remove files that are no longer needed
     /// Runs on background thread to avoid blocking Main Thread
     @MainActor
     func cleanupOrphanedFiles() {
-        // Collect all valid file paths from history (on MainActor)
-        var validPaths = Set<String>()
-        for item in history {
-            if let rtfPath = item.rtfDataPath {
-                validPaths.insert(rtfPath)
+        // CRITICAL FIX: Create atomic snapshot with all necessary data
+        let snapshot = CleanupSnapshot(
+            validPaths: Set(history.flatMap { item -> [String] in
+                var paths: [String] = []
+                if let rtfPath = item.rtfDataPath { paths.append(rtfPath) }
+                if let htmlPath = item.htmlDataPath { paths.append(htmlPath) }
+                if let imagePath = item.imagePath { paths.append(imagePath) }
+                return paths
+            }),
+            dataDirectory: dataDirectory,
+            lastScan: lastCleanupScan
+        )
+        
+        // Check if rescan is needed (on MainActor)
+        if let lastScan = snapshot.lastScan,
+           let dirModTime = try? FileManager.default.attributesOfItem(
+               atPath: snapshot.dataDirectory.path
+           )[.modificationDate] as? Date,
+           dirModTime <= lastScan {
+            Logger.clipboard("Skipping cleanup - directory unchanged since last scan", level: .debug)
+            return
+        }
+        
+        // Run cleanup on background thread with captured snapshot
+        Task.detached(priority: .utility) {
+            await self.performCleanup(with: snapshot)
+        }
+    }
+    
+    /// Performs cleanup on background thread with captured snapshot
+    nonisolated private func performCleanup(with snapshot: CleanupSnapshot) async {
+        let fileManager = FileManager.default
+        guard let directoryContents = try? fileManager.contentsOfDirectory(
+            at: snapshot.dataDirectory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: []
+        ) else {
+            Logger.clipboard("Could not read data directory for cleanup", level: .warning)
+            return
+        }
+        
+        var deletedCount = 0
+        var totalSizeDeleted: Int64 = 0
+        
+        for fileURL in directoryContents {
+            let filePath = fileURL.path
+            
+            // Use resolved path for security
+            let resolvedPath = fileURL.resolvingSymlinksInPath().path
+            let resolvedDataDir = snapshot.dataDirectory.resolvingSymlinksInPath().path
+            
+            guard resolvedPath.hasPrefix(resolvedDataDir) else {
+                Logger.clipboard("SECURITY: Skipping file outside data directory: \(filePath)", level: .warning)
+                continue
             }
-            if let htmlPath = item.htmlDataPath {
-                validPaths.insert(htmlPath)
+            
+            // Check both original and resolved paths
+            if snapshot.validPaths.contains(filePath) || snapshot.validPaths.contains(resolvedPath) {
+                continue
             }
-            if let imagePath = item.imagePath {
-                validPaths.insert(imagePath)
+            
+            if let attributes = try? fileManager.attributesOfItem(atPath: filePath),
+               let fileSize = attributes[FileAttributeKey.size] as? Int64 {
+                totalSizeDeleted += fileSize
+            }
+            
+            do {
+                try fileManager.removeItem(at: fileURL)
+                deletedCount += 1
+                Logger.clipboard("Deleted orphaned file: \(fileURL.lastPathComponent)", level: .debug)
+            } catch {
+                Logger.clipboard("Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)", level: .error)
             }
         }
         
-        // Run cleanup on background thread to avoid blocking Main Thread
-        let dataDir = dataDirectory
-        Task.detached(priority: .utility) {
-            // Get all files in the data directory (on background thread)
-            let fileManager = FileManager.default
-            guard let directoryContents = try? fileManager.contentsOfDirectory(at: dataDir, includingPropertiesForKeys: nil, options: []) else {
-                Logger.clipboard("Could not read data directory for cleanup", level: .warning)
-                return
-            }
-            
-            var deletedCount = 0
-            var totalSizeDeleted: Int64 = 0
-            
-            // Check each file and delete if not in valid paths
-            for fileURL in directoryContents {
-                let filePath = fileURL.path
-                
-                // Skip if this file is referenced in history
-                if validPaths.contains(filePath) {
-                    continue
-                }
-                
-                // Get file size before deletion for reporting
-                if let attributes = try? fileManager.attributesOfItem(atPath: filePath),
-                   let fileSize = attributes[.size] as? Int64 {
-                    totalSizeDeleted += fileSize
-                }
-                
-                // Delete orphaned file
-                do {
-                    try fileManager.removeItem(at: fileURL)
-                    deletedCount += 1
-                    Logger.clipboard("Deleted orphaned file: \(fileURL.lastPathComponent)", level: .debug)
-                } catch {
-                    Logger.clipboard("Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)", level: .error)
-                }
-            }
-            
-            if deletedCount > 0 {
-                let sizeInMB = Double(totalSizeDeleted) / (1024 * 1024)
-                Logger.clipboard("Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB", level: .info)
-            } else {
-                Logger.clipboard("Cleanup completed: No orphaned files found", level: .info)
-            }
+        if deletedCount > 0 {
+            let sizeInMB = Double(totalSizeDeleted) / (1024 * 1024)
+            Logger.clipboard("Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB", level: .info)
+        } else {
+            Logger.clipboard("Cleanup completed: No orphaned files found", level: .info)
+        }
+        
+        await MainActor.run {
+            self.lastCleanupScan = Date()
         }
     }
     
@@ -965,91 +1194,120 @@ class ClipboardHistoryManager: ObservableObject {
     
     /// Migrates old clipboard history from UserDefaults (with embedded Data) to disk-based storage
     /// MUST be called on MainActor to ensure thread safety for @Published history
+    /// CRITICAL FIX: Uses async/await instead of blocking group.wait() to prevent main thread blocking
     @MainActor
     private func migrateOldHistory() {
         Logger.clipboard("Starting clipboard history migration...", level: .info)
         
-        let group = DispatchGroup()
-        var migratedCount = 0
-        var migratedItems: [ClipboardItem] = []
-        let itemsToMigrate = history
-        
-        for item in itemsToMigrate {
-            var updatedItem = item
-            var needsRTFMigration = false
-            var needsHTMLMigration = false
+        Task { @MainActor in
+            var migratedCount = 0
+            // CRITICAL FIX: Create snapshot to prevent race condition during migration
+            let itemsToMigrate = history
+            var migratedItems: [ClipboardItem] = []
             
-            // Check what needs migration
-            if let _ = item.rtfData, item.rtfDataPath == nil {
-                needsRTFMigration = true
-            }
-            if let _ = item.htmlData, item.htmlDataPath == nil {
-                needsHTMLMigration = true
-            }
+            // Process items in parallel batches to avoid blocking
+            let batchSize = 10
             
-            // If no migration needed, just add the item
-            if !needsRTFMigration && !needsHTMLMigration {
-                migratedItems.append(updatedItem)
-                continue
-            }
-            
-            // Migrate RTF data if present (synchronous for migration)
-            if needsRTFMigration, let rtfData = item.rtfData {
-                group.enter()
-                saveRichData(rtfData, type: .rtf) { rtfPath in
-                    if let rtfPath = rtfPath {
-                        updatedItem = ClipboardItem(
-                            plainTextPreview: item.plainTextPreview,
-                            rtfData: nil,
-                            htmlData: item.htmlData,
-                            timestamp: item.timestamp,
-                            isPinned: item.isPinned,
-                            rtfDataPath: rtfPath,
-                            htmlDataPath: item.htmlDataPath,
-                            imagePath: item.imagePath,
-                            isSensitive: item.isSensitive
-                        )
-                        migratedCount += 1
-                    }
-                    group.leave()
-                }
-            }
-            
-            // Migrate HTML data if present
-            if needsHTMLMigration, let htmlData = item.htmlData {
-                group.enter()
-                saveRichData(htmlData, type: .html) { htmlPath in
-                    if let htmlPath = htmlPath {
-                        updatedItem = ClipboardItem(
-                            plainTextPreview: updatedItem.plainTextPreview,
-                            rtfData: nil,
-                            htmlData: nil,
-                            timestamp: updatedItem.timestamp,
-                            isPinned: updatedItem.isPinned,
-                            rtfDataPath: updatedItem.rtfDataPath,
-                            htmlDataPath: htmlPath,
-                            imagePath: updatedItem.imagePath,
-                            isSensitive: updatedItem.isSensitive
-                        )
-                        if updatedItem.rtfDataPath == nil {
-                            migratedCount += 1
+            for batchStart in stride(from: 0, to: itemsToMigrate.count, by: batchSize) {
+                let batchEnd = min(batchStart + batchSize, itemsToMigrate.count)
+                let batch = Array(itemsToMigrate[batchStart..<batchEnd])
+                
+                await withTaskGroup(of: ClipboardItem.self) { group in
+                    for item in batch {
+                        let needsRTFMigration = item.rtfData != nil && item.rtfDataPath == nil
+                        let needsHTMLMigration = item.htmlData != nil && item.htmlDataPath == nil
+                        
+                        if !needsRTFMigration && !needsHTMLMigration {
+                            migratedItems.append(item)
+                            continue
+                        }
+                        
+                        group.addTask { [weak self] in
+                            guard let self = self else { return item }
+                            
+                            var updatedItem = item
+                            let dataDir = self.dataDirectory
+                            
+                            if needsRTFMigration, let rtfData = item.rtfData {
+                                let rtfPath = await Task.detached(priority: .utility) {
+                                    return self.saveRichDataSync(data: rtfData, type: .rtf, dataDirectory: dataDir)
+                                }.value
+                                
+                                if let rtfPath = rtfPath {
+                                    updatedItem = ClipboardItem(
+                                        plainTextPreview: item.plainTextPreview,
+                                        rtfData: nil,
+                                        htmlData: item.htmlData,
+                                        timestamp: item.timestamp,
+                                        isPinned: item.isPinned,
+                                        rtfDataPath: rtfPath,
+                                        htmlDataPath: item.htmlDataPath,
+                                        imagePath: item.imagePath,
+                                        isSensitive: item.isSensitive
+                                    )
+                                    await MainActor.run {
+                                        migratedCount += 1
+                                    }
+                                }
+                            }
+                            
+                            if needsHTMLMigration, let htmlData = updatedItem.htmlData {
+                                let htmlPath = await Task.detached(priority: .utility) {
+                                    return self.saveRichDataSync(data: htmlData, type: .html, dataDirectory: dataDir)
+                                }.value
+                                
+                                if let htmlPath = htmlPath {
+                                    updatedItem = ClipboardItem(
+                                        plainTextPreview: updatedItem.plainTextPreview,
+                                        rtfData: nil,
+                                        htmlData: nil,
+                                        timestamp: updatedItem.timestamp,
+                                        isPinned: updatedItem.isPinned,
+                                        rtfDataPath: updatedItem.rtfDataPath,
+                                        htmlDataPath: htmlPath,
+                                        imagePath: updatedItem.imagePath,
+                                        isSensitive: updatedItem.isSensitive
+                                    )
+                                    if updatedItem.rtfDataPath == nil {
+                                        await MainActor.run {
+                                            migratedCount += 1
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            return updatedItem
                         }
                     }
-                    group.leave()
+                    
+                    // Collect results
+                    for await result in group {
+                        migratedItems.append(result)
+                    }
                 }
             }
             
-            // Wait for migrations to complete before adding item
-            group.wait()
-            migratedItems.append(updatedItem)
-        }
-        
-        if migratedCount > 0 {
-            history = migratedItems
-            saveHistory()
-            Logger.clipboard("Migration completed: \(migratedCount) items migrated to disk storage", level: .info)
-        } else {
-            Logger.clipboard("No items needed migration", level: .info)
+            if migratedCount > 0 {
+                // CRITICAL FIX: Merge migrated items with current history to handle concurrent updates
+                let currentHistory = self.history
+                var mergedItems = migratedItems
+                
+                // Add any new items that were added during migration
+                for currentItem in currentHistory {
+                    if !mergedItems.contains(where: { $0.id == currentItem.id }) {
+                        mergedItems.append(currentItem)
+                    }
+                }
+                
+                // Sort by timestamp
+                mergedItems.sort { $0.timestamp > $1.timestamp }
+                
+                history = mergedItems
+                saveHistory()
+                Logger.clipboard("Migration completed: \(migratedCount) items migrated to disk storage", level: .info)
+            } else {
+                Logger.clipboard("No items needed migration", level: .info)
+            }
         }
     }
 }

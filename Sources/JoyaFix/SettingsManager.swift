@@ -8,8 +8,11 @@ enum AIProvider: String, Codable {
     case openRouter
 }
 
+/// Settings manager for the application
+/// Note: Uses @Published properties which should be accessed from Main thread
+/// for SwiftUI compatibility. The singleton pattern ensures consistent access.
 class SettingsManager: ObservableObject {
-    static let shared = SettingsManager()
+    @MainActor static let shared = SettingsManager()
 
     // MARK: - Published Properties
 
@@ -61,14 +64,70 @@ class SettingsManager: ObservableObject {
         }
     }
 
-    @Published var geminiKey: String {
-        didSet {
-            // Store securely in Keychain instead of UserDefaults
-            if !geminiKey.isEmpty {
-                try? KeychainHelper.storeGeminiKey(geminiKey)
-            } else {
-                try? KeychainHelper.deleteGeminiKey()
+    // CRITICAL FIX: Use backing storage with custom getter/setter for proper validation
+    private var _geminiKey: String = ""
+    
+    var geminiKey: String {
+        get { _geminiKey }
+        set {
+            // CRITICAL FIX: Allow empty (for deletion) but validate non-empty keys
+            if !newValue.isEmpty {
+                // Validate minimum length
+                guard newValue.count >= 20 else {
+                    Logger.error("Invalid Gemini key format: key too short (minimum 20 characters)")
+                    return // Don't update if validation fails
+                }
+                
+                // Validate format: Remove leading/trailing whitespace
+                let trimmedKey = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmedKey.count == newValue.count else {
+                    Logger.error("Invalid key format: key contains leading/trailing whitespace")
+                    return
+                }
+                
+                // Additional validation: check for common invalid patterns
+                guard !trimmedKey.contains("\n") && !trimmedKey.contains("\r") else {
+                    Logger.error("Invalid key format: key contains newline characters")
+                    return
+                }
+                
+                // For Gemini: validate it looks like a valid API key (starts with "AIza" typically)
+                if !trimmedKey.hasPrefix("AIza") {
+                    Logger.warning("Gemini key doesn't match expected format (typically starts with 'AIza')")
+                    // Don't reject, but warn - user might have a different key format
+                }
             }
+            
+            let oldValue = _geminiKey
+            _geminiKey = newValue
+            
+            // Store securely in Keychain
+            if newValue.isEmpty {
+                try? KeychainHelper.deleteGeminiKey()
+            } else {
+                do {
+                    try KeychainHelper.storeGeminiKey(newValue)
+                } catch {
+                    Logger.error("Failed to store Gemini key: \(error.localizedDescription)")
+
+                    // CRITICAL FIX: Show user feedback on Keychain failure
+                    NotificationCenter.default.post(
+                        name: .showToast,
+                        object: ToastMessage(
+                            text: "Failed to save API key securely. Please try again.",
+                            style: .error,
+                            duration: 3.0
+                        )
+                    )
+
+                    // Revert to old value on error
+                    _geminiKey = oldValue
+                    return
+                }
+            }
+
+            // Notify observers of change
+            objectWillChange.send()
         }
     }
 
@@ -81,14 +140,67 @@ class SettingsManager: ObservableObject {
         }
     }
     
-    @Published var openRouterKey: String {
-        didSet {
-            // Store securely in Keychain instead of UserDefaults
-            if !openRouterKey.isEmpty {
-                try? KeychainHelper.storeOpenRouterKey(openRouterKey)
-            } else {
-                try? KeychainHelper.deleteOpenRouterKey()
+    // CRITICAL FIX: Use backing storage with custom getter/setter for proper validation
+    private var _openRouterKey: String = ""
+    
+    var openRouterKey: String {
+        get { _openRouterKey }
+        set {
+            // CRITICAL FIX: Allow empty (for deletion) but validate non-empty keys
+            if !newValue.isEmpty {
+                // Validate minimum length
+                guard newValue.count >= 20 else {
+                    Logger.error("Invalid OpenRouter key format: key too short (minimum 20 characters)")
+                    return // Don't update if validation fails
+                }
+                
+                // Validate format: Remove leading/trailing whitespace
+                let trimmedKey = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmedKey.count == newValue.count else {
+                    Logger.error("Invalid key format: key contains leading/trailing whitespace")
+                    return
+                }
+                
+                // Additional validation: check for common invalid patterns
+                guard !trimmedKey.contains("\n") && !trimmedKey.contains("\r") else {
+                    Logger.error("Invalid key format: key contains newline characters")
+                    return
+                }
+                
+                // OpenRouter keys are typically longer (sk- prefix is common but not required)
+                // Just validate basic format, don't enforce specific prefix
             }
+            
+            let oldValue = _openRouterKey
+            _openRouterKey = newValue
+            
+            // Store securely in Keychain
+            if newValue.isEmpty {
+                try? KeychainHelper.deleteOpenRouterKey()
+            } else {
+                do {
+                    try KeychainHelper.storeOpenRouterKey(newValue)
+                } catch {
+                    Logger.error("Failed to store OpenRouter key: \(error.localizedDescription)")
+
+                    // CRITICAL FIX: Show user feedback on Keychain failure
+                    NotificationCenter.default.post(
+                        name: .showToast,
+                        object: ToastMessage(
+                            text: "Failed to save API key securely. Please try again.",
+                            style: .error,
+                            duration: 3.0
+                        )
+                    )
+
+                    // Revert to old value on error
+                    _openRouterKey = oldValue
+                    return
+                }
+            }
+
+            // Notify observers of change
+            objectWillChange.send()
         }
     }
     
@@ -152,21 +264,7 @@ class SettingsManager: ObservableObject {
         self.promptHotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.promptHotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_P)
         self.promptHotkeyModifiers = UserDefaults.standard.object(forKey: Keys.promptHotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
         
-        // Load Gemini key from Keychain (secure storage)
-        // First try Keychain, then fallback to UserDefaults for migration
-        if let keychainKey = try? KeychainHelper.retrieveGeminiKey() {
-            self.geminiKey = keychainKey
-        } else if let userDefaultsKey = UserDefaults.standard.string(forKey: Keys.geminiKey), !userDefaultsKey.isEmpty {
-            // Migrate from UserDefaults to Keychain
-            self.geminiKey = userDefaultsKey
-            try? KeychainHelper.storeGeminiKey(userDefaultsKey)
-            // Remove from UserDefaults after migration
-            UserDefaults.standard.removeObject(forKey: Keys.geminiKey)
-        } else {
-            self.geminiKey = ""
-        }
-        
-        // Load AI Provider selection
+        // Load AI Provider selection first (required for initialization)
         if let providerString = UserDefaults.standard.string(forKey: Keys.selectedAIProvider),
            let providerData = providerString.data(using: .utf8),
            let provider = try? JSONDecoder().decode(AIProvider.self, from: providerData) {
@@ -176,17 +274,10 @@ class SettingsManager: ObservableObject {
             self.selectedAIProvider = .gemini
         }
         
-        // Load OpenRouter key from Keychain
-        if let keychainKey = try? KeychainHelper.retrieveOpenRouterKey() {
-            self.openRouterKey = keychainKey
-        } else {
-            self.openRouterKey = ""
-        }
-        
-        // Load OpenRouter model (default to deepseek/deepseek-chat)
+        // Load OpenRouter model (required for initialization)
         self.openRouterModel = UserDefaults.standard.string(forKey: Keys.openRouterModel) ?? "deepseek/deepseek-chat"
         
-        // Load popover layout settings
+        // Load popover layout settings (required for initialization)
         if let data = UserDefaults.standard.data(forKey: Keys.popoverLayoutSettings),
            let settings = try? JSONDecoder().decode(PopoverLayoutSettings.self, from: data) {
             self.popoverLayoutSettings = settings
@@ -194,7 +285,7 @@ class SettingsManager: ObservableObject {
             self.popoverLayoutSettings = PopoverLayoutSettings()
         }
         
-        // Load toast settings
+        // Load toast settings (required for initialization)
         if let data = UserDefaults.standard.data(forKey: Keys.toastSettings),
            let settings = try? JSONDecoder().decode(ToastSettings.self, from: data) {
             self.toastSettings = settings
@@ -202,8 +293,31 @@ class SettingsManager: ObservableObject {
             self.toastSettings = ToastSettings()
         }
         
-        // Load menubar preview setting
+        // Load menubar preview setting (required for initialization)
         self.enableMenubarPreview = UserDefaults.standard.object(forKey: Keys.enableMenubarPreview) as? Bool ?? true
+        
+        // Now initialize computed properties (after all stored properties are initialized)
+        // Load Gemini key from Keychain (secure storage)
+        // First try Keychain, then fallback to UserDefaults for migration
+        if let keychainKey = try? KeychainHelper.retrieveGeminiKey() {
+            self._geminiKey = keychainKey
+        } else if let userDefaultsKey = UserDefaults.standard.string(forKey: Keys.geminiKey), !userDefaultsKey.isEmpty {
+            // Migrate from UserDefaults to Keychain
+            self._geminiKey = userDefaultsKey
+            try? KeychainHelper.storeGeminiKey(userDefaultsKey)
+            // Remove from UserDefaults after migration
+            UserDefaults.standard.removeObject(forKey: Keys.geminiKey)
+        } else {
+            self._geminiKey = ""
+        }
+        
+        // Load OpenRouter key from Keychain
+        if let keychainKey = try? KeychainHelper.retrieveOpenRouterKey() {
+            self._openRouterKey = keychainKey
+        } else {
+            self._openRouterKey = ""
+        }
+        
     }
 
     // MARK: - Hotkey Helpers

@@ -6,16 +6,70 @@ import GRDB
 /// Uses SQLite with GRDB for efficient, thread-safe storage
 class HistoryDatabaseManager {
     static let shared = HistoryDatabaseManager()
-    
+
     private var dbQueue: DatabaseQueue?
     private let databaseURL: URL
-    
-    // Serial queue for database operations
-    private let dbQueueSerial = DispatchQueue(label: "com.joyafix.database", qos: .utility)
+
+    // CRITICAL FIX: Thread-safe recovery attempts counter to prevent race conditions
+    private let recoveryLock = NSLock()
+    private var _recoveryAttempts = 0
+    private let maxRecoveryAttempts = 3
+
+    /// Thread-safe access to recovery attempts counter
+    private var recoveryAttempts: Int {
+        get {
+            recoveryLock.lock()
+            defer { recoveryLock.unlock() }
+            return _recoveryAttempts
+        }
+        set {
+            recoveryLock.lock()
+            defer { recoveryLock.unlock() }
+            _recoveryAttempts = newValue
+        }
+    }
+
+    /// Atomically increment recovery attempts and return new value
+    private func incrementRecoveryAttempts() -> Int {
+        recoveryLock.lock()
+        defer { recoveryLock.unlock() }
+        _recoveryAttempts += 1
+        return _recoveryAttempts
+    }
+
+    /// Reset recovery attempts counter (thread-safe)
+    private func resetRecoveryAttempts() {
+        recoveryLock.lock()
+        defer { recoveryLock.unlock() }
+        _recoveryAttempts = 0
+    }
     
     private init() {
-        // Create database in Application Support directory
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        // CRITICAL FIX: Safe unwrap with fallback to prevent crash
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            // Fallback to user's home directory if Application Support is unavailable
+            Logger.database("CRITICAL: Application Support directory unavailable, using fallback", level: .error)
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser
+            let dbDirectory = homeDir.appendingPathComponent(
+                "Library/Application Support/JoyaFix",
+                isDirectory: true
+            )
+            
+            // Create directory if it doesn't exist
+            try? FileManager.default.createDirectory(
+                at: dbDirectory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            
+            databaseURL = dbDirectory.appendingPathComponent("history.db")
+            initializeDatabase()
+            return
+        }
+        
         let dbDirectory = appSupport.appendingPathComponent("JoyaFix", isDirectory: true)
         
         // Create directory if it doesn't exist
@@ -30,6 +84,19 @@ class HistoryDatabaseManager {
     /// Initializes the database and creates tables if needed
     /// Includes integrity check and corruption recovery
     private func initializeDatabase() {
+        initializeDatabase(maxRetries: 3)
+    }
+    
+    /// Internal initialization with retry limit to prevent infinite recursion
+    private func initializeDatabase(maxRetries: Int) {
+        guard maxRetries > 0 else {
+            Logger.database("CRITICAL: Failed to initialize database after multiple attempts", level: .critical)
+            dbQueue = nil
+            // CRITICAL: Prevent infinite recovery loops (thread-safe)
+            resetRecoveryAttempts()
+            return
+        }
+        
         // Check if database file exists and verify integrity before opening
         let fileExists = FileManager.default.fileExists(atPath: databaseURL.path)
         
@@ -37,12 +104,25 @@ class HistoryDatabaseManager {
             // Perform integrity check on existing database
             if !checkDatabaseIntegrity() {
                 Logger.database("Database integrity check failed - attempting recovery...", level: .warning)
+                
+                // CRITICAL: Limit recovery attempts to prevent infinite loops (thread-safe)
+                let currentAttempts = incrementRecoveryAttempts()
+                guard currentAttempts <= maxRecoveryAttempts else {
+                    Logger.database("CRITICAL: Too many recovery attempts (\(currentAttempts)), resetting database", level: .critical)
+                    resetDatabase()
+                    resetRecoveryAttempts()
+                    initializeDatabase(maxRetries: maxRetries - 1)
+                    return
+                }
                 if !recoverFromCorruption() {
                     Logger.database("Database recovery failed - resetting database", level: .error)
                     resetDatabase()
-                    // Re-initialize after reset
-                    initializeDatabase()
+                    resetRecoveryAttempts()
+                    // Re-initialize after reset with decremented retry count
+                    initializeDatabase(maxRetries: maxRetries - 1)
                     return
+                } else {
+                    resetRecoveryAttempts() // Reset on success
                 }
             }
         }
@@ -111,13 +191,25 @@ class HistoryDatabaseManager {
             
             // If corruption detected, attempt recovery
             if case DatabaseError.databaseCorrupted = error {
+                // CRITICAL: Limit recovery attempts
+                guard recoveryAttempts < maxRecoveryAttempts else {
+                    Logger.database("CRITICAL: Too many recovery attempts, resetting database", level: .critical)
+                    resetDatabase()
+                    recoveryAttempts = 0
+                    initializeDatabase(maxRetries: maxRetries - 1)
+                    return
+                }
+                
+                recoveryAttempts += 1
                 if recoverFromCorruption() {
-                    // Retry initialization after recovery
-                    initializeDatabase()
+                    recoveryAttempts = 0 // Reset on success
+                    // Retry initialization after recovery with decremented retry count
+                    initializeDatabase(maxRetries: maxRetries - 1)
                     return
                 } else {
                     resetDatabase()
-                    initializeDatabase()
+                    recoveryAttempts = 0
+                    initializeDatabase(maxRetries: maxRetries - 1)
                     return
                 }
             }
@@ -184,44 +276,56 @@ class HistoryDatabaseManager {
 
             
             do {
-                recoveredClipboardItems = try tempQueue.read { db in
-                    let rows = try? Row.fetchAll(db, sql: """
-                        SELECT * FROM clipboard_history
-                        ORDER BY is_pinned DESC, timestamp DESC
-                    """)
+                // Try PRAGMA quick_check to see if database is readable
+                let quickCheck = try? tempQueue.read { db -> String? in
+                    return try String.fetchOne(db, sql: "PRAGMA quick_check")
+                }
+                
+                if quickCheck?.lowercased() == "ok" {
+                    // Database is actually OK, just try normal read
+                    recoveredClipboardItems = try tempQueue.read { db in
+                        let rows = try Row.fetchAll(db, sql: """
+                            SELECT * FROM clipboard_history
+                            ORDER BY is_pinned DESC, timestamp DESC
+                        """)
+                        
+                        return rows.compactMap { row -> ClipboardItem? in
+                            return try? parseClipboardItem(from: row)
+                        }
+                    }
+                } else {
+                    // Database is corrupted, try to read what we can
+                    Logger.database("Database quick check failed, attempting partial recovery", level: .warning)
                     
-                    return rows?.compactMap { row -> ClipboardItem? in
-                        guard let idString = row["id"] as String?,
-                              let id = UUID(uuidString: idString),
-                              let plainText = row["plain_text_preview"] as String?,
-                              let timestamp = row["timestamp"] as Double? else {
-                            return nil
+                    recoveredClipboardItems = try tempQueue.read { db in
+                        // Try to read with error handling per row
+                        var recovered: [ClipboardItem] = []
+                        
+                        // Try to fetch all rows, but handle errors per row
+                        // Use try? to catch any errors during fetch
+                        if let rows = try? Row.fetchAll(db, sql: """
+                            SELECT * FROM clipboard_history
+                            ORDER BY is_pinned DESC, timestamp DESC
+                        """) {
+                            // Process each row individually, catching errors per row
+                            for row in rows {
+                                if let item = try? parseClipboardItem(from: row) {
+                                    recovered.append(item)
+                                } else {
+                                    Logger.database("Skipped corrupted row during recovery", level: .warning)
+                                }
+                            }
                         }
                         
-                        let date = Date(timeIntervalSince1970: timestamp)
-                        let fullText = row["full_text"] as String?
-                        let rtfPath = row["rtf_data_path"] as String?
-                        let htmlPath = row["html_data_path"] as String?
-                        let imagePath = row["image_path"] as String?
-                        let isPinned = (row["is_pinned"] as Int? ?? 0) == 1
-                        let isSensitive = (row["is_sensitive"] as Int? ?? 0) == 1
-                        
-                        return ClipboardItem(
-                            id: id,
-                            plainTextPreview: plainText,
-                            fullText: fullText,
-                            rtfDataPath: rtfPath,
-                            htmlDataPath: htmlPath,
-                            imagePath: imagePath,
-                            timestamp: date,
-                            isPinned: isPinned,
-                            isSensitive: isSensitive
-                        )
-                    } ?? []
+                        return recovered
+                    }
                 }
+                
                 Logger.database("Recovered \(recoveredClipboardItems.count) clipboard items", level: .info)
             } catch {
                 Logger.database("Could not recover clipboard history: \(error.localizedDescription)", level: .warning)
+                // CRITICAL FIX: Continue with empty array instead of potentially crashing
+                recoveredClipboardItems = []
             }
             
 #if false
@@ -269,28 +373,17 @@ class HistoryDatabaseManager {
             do {
                 dbQueue = try DatabaseQueue(path: databaseURL.path)
                 
+                // Create tables first
+                try dbQueue?.write { db in
+                    try createTables(db: db)
+                }
+                
                 // Restore recovered data
                 if !recoveredClipboardItems.isEmpty {
                     do {
                         try dbQueue?.write { db in
                             for item in recoveredClipboardItems {
-                                try? db.execute(sql: """
-                                    INSERT INTO clipboard_history (
-                                        id, plain_text_preview, full_text, rtf_data_path, html_data_path,
-                                        image_path, timestamp, is_pinned, is_sensitive, created_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """, arguments: [
-                                    item.id.uuidString,
-                                    item.plainTextPreview,
-                                    item.fullText,
-                                    item.rtfDataPath,
-                                    item.htmlDataPath,
-                                    item.imagePath,
-                                    item.timestamp.timeIntervalSince1970,
-                                    item.isPinned ? 1 : 0,
-                                    item.isSensitive ? 1 : 0,
-                                    Date().timeIntervalSince1970
-                                ])
+                                try? insertClipboardItem(item, into: db)
                             }
                         }
                         Logger.database("Restored \(recoveredClipboardItems.count) clipboard items", level: .info)
@@ -617,6 +710,82 @@ class HistoryDatabaseManager {
 #endif
 
     
+    // MARK: - Helper Functions for Recovery
+    
+    /// Parses a ClipboardItem from a database row
+    private func parseClipboardItem(from row: Row) throws -> ClipboardItem {
+        guard let idString = row["id"] as String?,
+              let id = UUID(uuidString: idString),
+              let plainText = row["plain_text_preview"] as String?,
+              let timestamp = row["timestamp"] as Double? else {
+            throw DatabaseError.invalidData
+        }
+        
+        let date = Date(timeIntervalSince1970: timestamp)
+        let fullText = row["full_text"] as String?
+        let rtfPath = row["rtf_data_path"] as String?
+        let htmlPath = row["html_data_path"] as String?
+        let imagePath = row["image_path"] as String?
+        let isPinned = (row["is_pinned"] as Int? ?? 0) == 1
+        let isSensitive = (row["is_sensitive"] as Int? ?? 0) == 1
+        
+        return ClipboardItem(
+            id: id,
+            plainTextPreview: plainText,
+            fullText: fullText,
+            rtfDataPath: rtfPath,
+            htmlDataPath: htmlPath,
+            imagePath: imagePath,
+            timestamp: date,
+            isPinned: isPinned,
+            isSensitive: isSensitive
+        )
+    }
+    
+    /// Creates database tables
+    private func createTables(db: Database) throws {
+        // Create clipboard_history table
+        try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS clipboard_history (
+                id TEXT PRIMARY KEY,
+                plain_text_preview TEXT NOT NULL,
+                full_text TEXT,
+                rtf_data_path TEXT,
+                html_data_path TEXT,
+                image_path TEXT,
+                timestamp REAL NOT NULL,
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                is_sensitive INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL
+            )
+        """)
+        
+        // Create indexes for faster queries
+        try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_clipboard_timestamp ON clipboard_history(timestamp DESC)")
+        try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_clipboard_pinned ON clipboard_history(is_pinned)")
+    }
+    
+    /// Inserts a clipboard item into the database
+    private func insertClipboardItem(_ item: ClipboardItem, into db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO clipboard_history (
+                id, plain_text_preview, full_text, rtf_data_path, html_data_path,
+                image_path, timestamp, is_pinned, is_sensitive, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, arguments: [
+            item.id.uuidString,
+            item.plainTextPreview,
+            item.fullText,
+            item.rtfDataPath,
+            item.htmlDataPath,
+            item.imagePath,
+            item.timestamp.timeIntervalSince1970,
+            item.isPinned ? 1 : 0,
+            item.isSensitive ? 1 : 0,
+            Date().timeIntervalSince1970
+        ])
+    }
+    
     // MARK: - Database Health Check
     
     /// Checks if database indexes exist and creates them if missing (migration support)
@@ -668,6 +837,7 @@ enum DatabaseError: Error {
     case databaseLocked
     case ioError(String)
     case databaseCorrupted(String)
+    case invalidData
     
     /// Checks if error is a database lock error
     static func isDatabaseLocked(_ error: Error) -> Bool {
