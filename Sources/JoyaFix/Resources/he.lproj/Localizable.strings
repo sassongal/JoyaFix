@@ -307,6 +307,31 @@
 "ollama.vision.suggestion" = "לתיאור תמונות, השתמש ב-LLaVA (ollama pull llava) או עבור ל-Gemini.";
 "ollama.text.only.warning" = "מודל זה הוא טקסט בלבד. לתיאור תמונות, השתמש ב-LLaVA או Gemini.";
 
+/* Ollama Configuration View */
+"ollama.config.title" = "הגדרות Ollama";
+"ollama.status.connected" = "מחובר";
+"ollama.status.not.running" = "לא רץ";
+"ollama.endpoint.url" = "כתובת Endpoint";
+"ollama.test.button" = "בדוק";
+"ollama.connected" = "מחובר ל-Ollama";
+"ollama.testing" = "בודק חיבור...";
+"ollama.select.model" = "בחר מודל";
+"ollama.refresh" = "רענן";
+"ollama.no.models" = "לא נמצאו מודלים ב-Ollama";
+"ollama.browse.library" = "עיין בספריית Ollama";
+"ollama.pull.hint" = "משוך מודל עם: ollama pull gemma2:2b";
+"ollama.select.placeholder" = "בחר מודל...";
+"ollama.available" = "זמין";
+"ollama.text.only" = "טקסט בלבד";
+"ollama.not.running.title" = "Ollama לא רץ";
+"ollama.instructions.title" = "כדי להשתמש ב-Ollama, בצע את הצעדים הבאים:";
+"ollama.instructions.step1" = "1. התקן Ollama מ-ollama.ai";
+"ollama.instructions.step2" = "2. פתח טרמינל והרץ: ollama serve";
+"ollama.instructions.step3" = "3. משוך מודל: ollama pull gemma2:2b";
+"ollama.instructions.step4" = "4. לחץ על רענן למעלה";
+"ollama.download.button" = "הורד Ollama";
+"ollama.check.status" = "בדוק סטטוס";
+
 /* Vision Capability Messages */
 "vision.local.not.supported" = "המודל המקומי הנבחר אינו תומך בראייה. הורד LLaVA לתיאור תמונות.";
 "vision.ollama.not.supported" = "מודל ה-Ollama הנבחר אינו תומך בראייה. השתמש ב-LLaVA או עבור ל-Gemini.";
@@ -422,6 +447,7 @@
 /* Download Integrity */
 "download.verification.failed" = "אימות ההורדה נכשל. אי-התאמה בגודל הקובץ.";
 "download.verification.corrupted" = "הקובץ שהורד נראה פגום. אנא נסה שוב.";
+"download.corrupted.retry" = "ההורדה פגומה. אנא נסה שוב.";
 
 /* Snippet Guide */
 "snippets.guide.basic.title" = "שימוש בסיסי";

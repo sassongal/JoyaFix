@@ -307,6 +307,31 @@
 "ollama.vision.suggestion" = "For vision tasks, use LLaVA (ollama pull llava) or switch to Gemini.";
 "ollama.text.only.warning" = "This model is text-only. For image description, use LLaVA or Gemini.";
 
+/* Ollama Configuration View */
+"ollama.config.title" = "Ollama Configuration";
+"ollama.status.connected" = "Connected";
+"ollama.status.not.running" = "Not Running";
+"ollama.endpoint.url" = "Endpoint URL";
+"ollama.test.button" = "Test";
+"ollama.connected" = "Connected to Ollama";
+"ollama.testing" = "Testing connection...";
+"ollama.select.model" = "Select Model";
+"ollama.refresh" = "Refresh";
+"ollama.no.models" = "No models found in Ollama";
+"ollama.browse.library" = "Browse Ollama Library";
+"ollama.pull.hint" = "Pull a model with: ollama pull gemma2:2b";
+"ollama.select.placeholder" = "Select a model...";
+"ollama.available" = "Available";
+"ollama.text.only" = "Text only";
+"ollama.not.running.title" = "Ollama is not running";
+"ollama.instructions.title" = "To use Ollama, follow these steps:";
+"ollama.instructions.step1" = "1. Install Ollama from ollama.ai";
+"ollama.instructions.step2" = "2. Open Terminal and run: ollama serve";
+"ollama.instructions.step3" = "3. Pull a model: ollama pull gemma2:2b";
+"ollama.instructions.step4" = "4. Click Refresh above";
+"ollama.download.button" = "Download Ollama";
+"ollama.check.status" = "Check Status";
+
 /* Vision Capability Messages */
 "vision.local.not.supported" = "Selected local model doesn't support vision. Download LLaVA for image description.";
 "vision.ollama.not.supported" = "Selected Ollama model doesn't support vision. Use LLaVA or switch to Gemini.";
@@ -422,6 +447,7 @@
 /* Download Integrity */
 "download.verification.failed" = "Download verification failed. File size mismatch.";
 "download.verification.corrupted" = "Downloaded file appears to be corrupted. Please try again.";
+"download.corrupted.retry" = "Download corrupted. Please try again.";
 
 /* Snippet Guide */
 "snippets.guide.basic.title" = "Basic Usage";

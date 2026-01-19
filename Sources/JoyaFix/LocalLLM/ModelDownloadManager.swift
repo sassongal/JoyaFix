@@ -422,11 +422,11 @@ class ModelDownloadManager: NSObject, ObservableObject {
             try? FileManager.default.removeItem(at: tempLocation)
             Logger.info("Deleted corrupted temp file")
             
-            // Show error toast
+            // Show error toast with clear message
             NotificationCenter.default.post(
                 name: .showToast,
                 object: ToastMessage(
-                    text: NSLocalizedString("download.verification.failed", comment: "Download verification failed"),
+                    text: NSLocalizedString("download.corrupted.retry", comment: "Download corrupted. Please try again."),
                     style: .error,
                     duration: 5.0
                 )

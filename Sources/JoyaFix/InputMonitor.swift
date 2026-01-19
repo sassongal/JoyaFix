@@ -74,8 +74,8 @@ class InputMonitor {
     /// macOS can disable event taps if the app becomes unresponsive or due to system events
     private var watchdogTimer: Timer?
     
-    /// How often to check the event tap status (60 seconds)
-    private let watchdogInterval: TimeInterval = 60.0
+    /// How often to check the event tap status (30 seconds)
+    private let watchdogInterval: TimeInterval = 30.0
     
     /// Counter for consecutive recovery attempts
     private var recoveryAttempts = 0

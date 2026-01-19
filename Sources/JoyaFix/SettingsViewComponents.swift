@@ -1934,7 +1934,7 @@ struct OllamaConfigurationView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Section Header
             HStack {
-                Text("Ollama Configuration")
+                Text(NSLocalizedString("ollama.config.title", comment: "Ollama Configuration"))
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
@@ -1945,7 +1945,7 @@ struct OllamaConfigurationView: View {
                     Circle()
                         .fill(ollamaService.isOllamaRunning ? Color.green : Color.red)
                         .frame(width: 8, height: 8)
-                    Text(ollamaService.isOllamaRunning ? "Connected" : "Not Running")
+                    Text(ollamaService.isOllamaRunning ? NSLocalizedString("ollama.status.connected", comment: "Connected") : NSLocalizedString("ollama.status.not.running", comment: "Not Running"))
                         .font(.caption2)
                         .foregroundColor(ollamaService.isOllamaRunning ? .green : .red)
                 }
@@ -1953,7 +1953,7 @@ struct OllamaConfigurationView: View {
             
             // Endpoint configuration
             VStack(alignment: .leading, spacing: 8) {
-                Text("Endpoint URL")
+                Text(NSLocalizedString("ollama.endpoint.url", comment: "Endpoint URL"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 
@@ -1968,7 +1968,7 @@ struct OllamaConfigurationView: View {
                             hasUnsavedChanges = true
                         }
                     
-                    Button("Test") {
+                    Button(NSLocalizedString("ollama.test.button", comment: "Test")) {
                         testConnection()
                     }
                     .buttonStyle(.bordered)
@@ -1981,7 +1981,7 @@ struct OllamaConfigurationView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Connected to Ollama")
+                        Text(NSLocalizedString("ollama.connected", comment: "Connected to Ollama"))
                             .font(.caption2)
                             .foregroundColor(.green)
                     }
@@ -1997,7 +1997,7 @@ struct OllamaConfigurationView: View {
                     HStack(spacing: 4) {
                         ProgressView()
                             .scaleEffect(0.6)
-                        Text("Testing connection...")
+                        Text(NSLocalizedString("ollama.testing", comment: "Testing connection..."))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -2012,7 +2012,7 @@ struct OllamaConfigurationView: View {
             if ollamaService.isOllamaRunning {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Select Model")
+                        Text(NSLocalizedString("ollama.select.model", comment: "Select Model"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
@@ -2021,7 +2021,7 @@ struct OllamaConfigurationView: View {
                         Button(action: refreshModels) {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.clockwise")
-                                Text("Refresh")
+                                Text(NSLocalizedString("ollama.refresh", comment: "Refresh"))
                             }
                             .font(.caption)
                         }
@@ -2030,7 +2030,7 @@ struct OllamaConfigurationView: View {
                     
                     if ollamaService.availableModels.isEmpty {
                         VStack(spacing: 8) {
-                            Text("No models found in Ollama")
+                            Text(NSLocalizedString("ollama.no.models", comment: "No models found"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
@@ -2041,13 +2041,13 @@ struct OllamaConfigurationView: View {
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "link")
-                                    Text("Browse Ollama Library")
+                                    Text(NSLocalizedString("ollama.browse.library", comment: "Browse Ollama Library"))
                                 }
                                 .font(.caption)
                             }
                             .buttonStyle(.bordered)
                             
-                            Text("Pull a model with: ollama pull gemma2:2b")
+                            Text(NSLocalizedString("ollama.pull.hint", comment: "Pull a model"))
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .textSelection(.enabled)
@@ -2056,14 +2056,14 @@ struct OllamaConfigurationView: View {
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(8)
                     } else {
-                        Picker("Model", selection: Binding(
+                        Picker(NSLocalizedString("settings.openrouter.model", comment: "Model"), selection: Binding(
                             get: { settings.selectedOllamaModel ?? "" },
                             set: { newValue in
                                 settings.selectedOllamaModel = newValue.isEmpty ? nil : newValue
                                 hasUnsavedChanges = true
                             }
                         )) {
-                            Text("Select a model...").tag("")
+                            Text(NSLocalizedString("ollama.select.placeholder", comment: "Select a model...")).tag("")
                             ForEach(ollamaService.availableModels) { model in
                                 HStack {
                                     Text(model.displayName)
@@ -2087,12 +2087,12 @@ struct OllamaConfigurationView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.caption2)
-                                    Text("Available")
+                                    Text(NSLocalizedString("ollama.available", comment: "Available"))
                                         .font(.caption2)
                                 }
                                 .foregroundColor(.green)
                                 
-                                Text("Size: \(model.sizeFormatted)")
+                                Text("\(NSLocalizedString("settings.local.info.size", comment: "Size:")) \(model.sizeFormatted)")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                                 
@@ -2100,7 +2100,7 @@ struct OllamaConfigurationView: View {
                                     HStack(spacing: 4) {
                                         Image(systemName: "eye.fill")
                                             .font(.caption2)
-                                        Text("Vision")
+                                        Text(NSLocalizedString("settings.local.info.vision", comment: "Vision"))
                                             .font(.caption2)
                                     }
                                     .foregroundColor(.blue)
@@ -2108,7 +2108,7 @@ struct OllamaConfigurationView: View {
                                     HStack(spacing: 4) {
                                         Image(systemName: "text.alignleft")
                                             .font(.caption2)
-                                        Text("Text only")
+                                        Text(NSLocalizedString("ollama.text.only", comment: "Text only"))
                                             .font(.caption2)
                                     }
                                     .foregroundColor(.secondary)
@@ -2135,20 +2135,20 @@ struct OllamaConfigurationView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
-                        Text("Ollama is not running")
+                        Text(NSLocalizedString("ollama.not.running.title", comment: "Ollama is not running"))
                             .font(.caption)
                             .fontWeight(.medium)
                     }
                     
-                    Text("To use Ollama, follow these steps:")
+                    Text(NSLocalizedString("ollama.instructions.title", comment: "To use Ollama"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("1. Install Ollama from ollama.ai")
-                        Text("2. Open Terminal and run: ollama serve")
-                        Text("3. Pull a model: ollama pull gemma2:2b")
-                        Text("4. Click Refresh above")
+                        Text(NSLocalizedString("ollama.instructions.step1", comment: "Step 1"))
+                        Text(NSLocalizedString("ollama.instructions.step2", comment: "Step 2"))
+                        Text(NSLocalizedString("ollama.instructions.step3", comment: "Step 3"))
+                        Text(NSLocalizedString("ollama.instructions.step4", comment: "Step 4"))
                     }
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -2161,7 +2161,7 @@ struct OllamaConfigurationView: View {
                         }) {
                             HStack(spacing: 4) {
                                 Image(systemName: "link")
-                                Text("Get Ollama")
+                                Text(NSLocalizedString("ollama.download.button", comment: "Download Ollama"))
                             }
                             .font(.caption)
                         }
@@ -2170,7 +2170,7 @@ struct OllamaConfigurationView: View {
                         Button(action: refreshModels) {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.clockwise")
-                                Text("Retry")
+                                Text(NSLocalizedString("ollama.check.status", comment: "Check Status"))
                             }
                             .font(.caption)
                         }
@@ -2197,7 +2197,7 @@ struct OllamaConfigurationView: View {
                     } else {
                         Image(systemName: "magnifyingglass")
                     }
-                    Text(downloadManager.isScanning ? "Scanning..." : "Scan for Models on This Mac")
+                    Text(downloadManager.isScanning ? NSLocalizedString("settings.local.scanning", comment: "Scanning...") : NSLocalizedString("settings.local.scan.models", comment: "Scan for Models"))
                 }
                 .font(.caption)
             }
@@ -2209,7 +2209,7 @@ struct OllamaConfigurationView: View {
                 Image(systemName: "info.circle")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                Text("Ollama runs locally - 100% private, no internet required")
+                Text(NSLocalizedString("settings.local.info.privacy", comment: "Local models privacy"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

@@ -364,12 +364,22 @@ class SettingsManager: ObservableObject {
         self.ollamaEndpoint = UserDefaults.standard.string(forKey: Keys.ollamaEndpoint) ?? "http://localhost:11434"
         self.selectedOllamaModel = UserDefaults.standard.string(forKey: Keys.selectedOllamaModel)
         
-        // Load active agent
-        if let agentData = UserDefaults.standard.data(forKey: Keys.activeAgent),
-           let agent = try? JSONDecoder().decode(JoyaAgent.self, from: agentData) {
-            self.activeAgent = agent
+        // Load active agent with graceful fallback
+        if let agentData = UserDefaults.standard.data(forKey: Keys.activeAgent) {
+            do {
+                let agent = try JSONDecoder().decode(JoyaAgent.self, from: agentData)
+                self.activeAgent = agent
+                Logger.info("Loaded active agent: \(agent.name)")
+            } catch {
+                // Decoding failed (possibly old data format), reset to default
+                Logger.warning("Failed to decode activeAgent, resetting to default: \(error.localizedDescription)")
+                self.activeAgent = JoyaAgent.default
+                // Clear corrupted data
+                UserDefaults.standard.removeObject(forKey: Keys.activeAgent)
+            }
         } else {
             self.activeAgent = JoyaAgent.default
+            Logger.info("No saved agent found, using default: \(JoyaAgent.default.name)")
         }
 
         // Now initialize computed properties (after all stored properties are initialized)
