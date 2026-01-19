@@ -167,7 +167,50 @@ class OpenRouterService: NSObject, AIServiceProtocol {
             group.addTask {
                 try await withCheckedThrowingContinuation { continuation in
                     Task { @MainActor in
-                        self.sendPrompt(prompt, attempt: 0) { result in
+                        self.sendPrompt(prompt, systemMessage: nil, attempt: 0) { result in
+                            switch result {
+                            case .success(let text):
+                                continuation.resume(returning: text)
+                            case .failure(let error):
+                                let aiError = self.convertToAIServiceError(error)
+                                continuation.resume(throwing: aiError)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Timeout task - 90 seconds max
+            group.addTask {
+                try await Task.sleep(nanoseconds: 90_000_000_000)
+                throw AIServiceError.networkError(NSError(
+                    domain: "OpenRouterService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request timed out. Please try again."]
+                ))
+            }
+
+            guard let result = try await group.next() else {
+                group.cancelAll()
+                throw AIServiceError.networkError(NSError(
+                    domain: "OpenRouterService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request completed with no result. Please try again."]
+                ))
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+    
+    /// Generates a response with agent configuration using proper system message
+    /// OpenRouter supports explicit system role, so we use it directly
+    func generateResponse(prompt: String, agent: JoyaAgent) async throws -> String {
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    Task { @MainActor in
+                        self.sendPrompt(prompt, systemMessage: agent.systemInstructions, attempt: 0) { result in
                             switch result {
                             case .success(let text):
                                 continuation.resume(returning: text)
@@ -299,7 +342,7 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         performRequest(requestBody: requestBody, apiKey: apiKey, attempt: attempt, context: "Vision Image Description", completion: completion)
     }
     
-    private func sendPrompt(_ prompt: String, attempt: Int, completion: @escaping (Result<String, OpenRouterServiceError>) -> Void) {
+    private func sendPrompt(_ prompt: String, systemMessage: String?, attempt: Int, completion: @escaping (Result<String, OpenRouterServiceError>) -> Void) {
         guard let apiKey = getAPIKey() else {
             Logger.security("OpenRouter API key not found", level: .error)
             completion(.failure(.apiKeyNotFound))
@@ -308,11 +351,21 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         
         let model = settings.openRouterModel.isEmpty ? "deepseek/deepseek-chat" : settings.openRouterModel
         
+        // Build messages array with optional system message
+        var messages: [OpenRouterRequest.Message] = []
+        
+        // Add system message if provided (agent instructions)
+        if let systemMessage = systemMessage, !systemMessage.isEmpty {
+            messages.append(OpenRouterRequest.Message(role: "system", content: systemMessage))
+            Logger.info("OpenRouter: Using system message from agent configuration")
+        }
+        
+        // Add user message
+        messages.append(OpenRouterRequest.Message(role: "user", content: prompt))
+        
         let requestBody = OpenRouterRequest(
             model: model,
-            messages: [
-                OpenRouterRequest.Message(role: "user", content: prompt)
-            ]
+            messages: messages
         )
         
         performRequest(requestBody: requestBody, apiKey: apiKey, attempt: attempt, context: "OpenRouter Request", completion: completion)

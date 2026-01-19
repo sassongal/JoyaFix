@@ -188,6 +188,21 @@ class GeminiService: NSObject, AIServiceProtocol {
         }
     }
     
+    /// Generates a response with agent configuration
+    /// Gemini doesn't have a separate system role, so we inject agent instructions into the prompt
+    func generateResponse(prompt: String, agent: JoyaAgent) async throws -> String {
+        // Construct the full prompt with agent's system instructions
+        let fullPrompt = """
+        System: \(agent.systemInstructions)
+        
+        User: \(prompt)
+        
+        Assistant:
+        """
+        Logger.info("Gemini: Using agent '\(agent.name)' with injected system instructions")
+        return try await generateResponse(prompt: fullPrompt)
+    }
+    
     /// Describes an image using Gemini's vision capabilities with timeout protection
     func describeImage(image: NSImage) async throws -> String {
         // Convert NSImage to base64

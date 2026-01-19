@@ -28,7 +28,7 @@ struct LocalModelInfo: Codable, Identifiable, Hashable {
     }
     
     /// Initialize with all parameters
-    init(id: String, name: String, displayName: String, description: String, downloadURL: URL, fileSize: UInt64, requiredRAM: UInt64, supportsVision: Bool, quantization: String, contextLength: Int, sha256Checksum: String? = nil, fileSizeTolerance: Double = 0.01) {
+    init(id: String, name: String, displayName: String, description: String, downloadURL: URL, fileSize: UInt64, requiredRAM: UInt64, supportsVision: Bool, quantization: String, contextLength: Int, sha256Checksum: String? = nil, fileSizeTolerance: Double = 0.0) {
         self.id = id
         self.name = name
         self.displayName = displayName
@@ -132,7 +132,7 @@ struct LocalModelRegistry {
             quantization: "Q4_K_M",
             contextLength: 8192,
             sha256Checksum: nil,  // Placeholder - to be updated with actual checksum
-            fileSizeTolerance: 0.01  // 1% tolerance for size verification
+            fileSizeTolerance: 0.0  // Exact match for GGUF integrity
         ),
         LocalModelInfo(
             id: "gemma-2-2b-instruct",
@@ -146,7 +146,7 @@ struct LocalModelRegistry {
             quantization: "Q4_K_M",
             contextLength: 8192,
             sha256Checksum: nil,  // Placeholder - to be updated with actual checksum
-            fileSizeTolerance: 0.01  // 1% tolerance for size verification
+            fileSizeTolerance: 0.0  // Exact match for GGUF integrity
         ),
         LocalModelInfo(
             id: "llava-1.5-7b",
@@ -160,7 +160,7 @@ struct LocalModelRegistry {
             quantization: "Q4_K",
             contextLength: 4096,
             sha256Checksum: nil,  // Placeholder - to be updated with actual checksum
-            fileSizeTolerance: 0.01  // 1% tolerance for size verification
+            fileSizeTolerance: 0.0  // Exact match for GGUF integrity
         )
     ]
 

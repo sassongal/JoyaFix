@@ -406,33 +406,62 @@ class ModelDownloadManager: NSObject, ObservableObject {
 
     // MARK: - Integrity Verification
     
-    /// Verifies that the downloaded file size is within acceptable tolerance
+    /// Verifies that the downloaded file size matches exactly (required for GGUF integrity)
+    /// For GGUF files, exact match is preferred as they have a fixed size from the source.
     private func verifyFileSize(expected: UInt64, actual: UInt64, tolerance: Double, tempLocation: URL) throws {
-        // Calculate tolerance range
-        let lowerBound = UInt64(Double(expected) * (1.0 - tolerance))
-        let upperBound = UInt64(Double(expected) * (1.0 + tolerance))
+        // For GGUF files, we prefer exact match (tolerance = 0)
+        // If tolerance is > 0, allow a small variance for server reliability
+        let useExactMatch = tolerance == 0
         
-        Logger.info("File size verification: expected \(expected) bytes (±\(Int(tolerance * 100))%), actual \(actual) bytes")
-        Logger.info("Acceptable range: \(lowerBound) - \(upperBound) bytes")
-        
-        guard actual >= lowerBound && actual <= upperBound else {
-            Logger.error("File size mismatch! Expected: \(expected), Actual: \(actual)")
+        if useExactMatch {
+            Logger.info("File size verification (exact match): expected \(expected) bytes, actual \(actual) bytes")
             
-            // Delete the corrupted temp file
-            try? FileManager.default.removeItem(at: tempLocation)
-            Logger.info("Deleted corrupted temp file")
-            
-            // Show error toast with clear message
-            NotificationCenter.default.post(
-                name: .showToast,
-                object: ToastMessage(
-                    text: NSLocalizedString("download.corrupted.retry", comment: "Download corrupted. Please try again."),
-                    style: .error,
-                    duration: 5.0
+            guard actual == expected else {
+                Logger.error("File size mismatch! Expected exactly: \(expected), Actual: \(actual)")
+                
+                // Delete the corrupted temp file
+                try? FileManager.default.removeItem(at: tempLocation)
+                Logger.info("Deleted corrupted temp file")
+                
+                // Show error toast with clear message
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: NSLocalizedString("download.corrupted.retry", comment: "Download corrupted. Please try again."),
+                        style: .error,
+                        duration: 5.0
+                    )
                 )
-            )
+                
+                throw ModelDownloadError.corruptedFile
+            }
+        } else {
+            // Calculate tolerance range
+            let lowerBound = UInt64(Double(expected) * (1.0 - tolerance))
+            let upperBound = UInt64(Double(expected) * (1.0 + tolerance))
             
-            throw ModelDownloadError.fileSizeMismatch(expected: expected, actual: actual)
+            Logger.info("File size verification: expected \(expected) bytes (±\(Int(tolerance * 100))%), actual \(actual) bytes")
+            Logger.info("Acceptable range: \(lowerBound) - \(upperBound) bytes")
+            
+            guard actual >= lowerBound && actual <= upperBound else {
+                Logger.error("File size mismatch! Expected: \(expected), Actual: \(actual)")
+                
+                // Delete the corrupted temp file
+                try? FileManager.default.removeItem(at: tempLocation)
+                Logger.info("Deleted corrupted temp file")
+                
+                // Show error toast with clear message
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: NSLocalizedString("download.corrupted.retry", comment: "Download corrupted. Please try again."),
+                        style: .error,
+                        duration: 5.0
+                    )
+                )
+                
+                throw ModelDownloadError.fileSizeMismatch(expected: expected, actual: actual)
+            }
         }
         
         Logger.info("File size verification passed")
@@ -703,6 +732,7 @@ enum ModelDownloadError: LocalizedError {
     case fileSizeMismatch(expected: UInt64, actual: UInt64)
     case checksumMismatch(expected: String, actual: String)
     case verificationFailed(String)
+    case corruptedFile  // New: Generic corrupted file error
 
     var errorDescription: String? {
         switch self {
@@ -724,6 +754,8 @@ enum ModelDownloadError: LocalizedError {
             return "Checksum verification failed. Expected: \(expected.prefix(16))..., Got: \(actual.prefix(16))..."
         case .verificationFailed(let reason):
             return NSLocalizedString("download.verification.corrupted", comment: "Downloaded file corrupted") + " \(reason)"
+        case .corruptedFile:
+            return NSLocalizedString("download.corrupted.retry", comment: "Download corrupted. Please try again.")
         }
     }
 }

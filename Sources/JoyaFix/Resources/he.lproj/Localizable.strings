@@ -470,3 +470,25 @@
 /* Settings - Check Updates */
 "settings.check.updates.checking" = "בודק...";
 
+/* Agent Configuration */
+"agent.config.profile" = "פרופיל הסוכן";
+"agent.config.name" = "שם הסוכן";
+"agent.config.system.instructions" = "הנחיות מערכת";
+"agent.config.parameters" = "פרמטרים";
+"agent.config.creativity" = "יצירתיות (Temperature)";
+"agent.config.creativity.description" = "נמוך = ממוקד ועקבי יותר, גבוה = יצירתי ומגוון יותר";
+"agent.config.max.tokens" = "אורך תגובה מקסימלי";
+"agent.config.max.tokens.description" = "מספר הטוקנים המקסימלי בתגובת ה-AI";
+"agent.config.presets" = "סוכנים מוגדרים מראש";
+"agent.config.reset" = "איפוס לברירת מחדל";
+
+/* AI Persona Settings Tab */
+"settings.ai.persona.title" = "דמות AI";
+"settings.ai.persona.description" = "הגדר כיצד עוזר ה-AI מתנהג ומגיב.";
+"settings.ai.persona.explanation" = "דמות ה-AI מגדירה את האישיות, סגנון הכתיבה וההתנהגות של JoyaFix בעת שיפור הטקסט שלך.";
+"settings.ai.persona.active" = "דמות פעילה";
+"settings.ai.persona.current.name" = "נוכחי:";
+"settings.ai.persona.edit" = "ערוך דמות";
+"settings.ai.persona.quick.presets" = "הגדרות מהירות";
+"settings.ai.persona.preset.applied" = "הוחל: %@";
+

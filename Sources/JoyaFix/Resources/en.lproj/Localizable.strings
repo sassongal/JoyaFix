@@ -470,3 +470,25 @@
 /* Settings - Check Updates */
 "settings.check.updates.checking" = "Checking...";
 
+/* Agent Configuration */
+"agent.config.profile" = "Agent Profile";
+"agent.config.name" = "Agent Name";
+"agent.config.system.instructions" = "System Instructions";
+"agent.config.parameters" = "Parameters";
+"agent.config.creativity" = "Creativity (Temperature)";
+"agent.config.creativity.description" = "Lower = more focused and consistent, Higher = more creative and varied";
+"agent.config.max.tokens" = "Max Response Length";
+"agent.config.max.tokens.description" = "Maximum number of tokens in the AI response";
+"agent.config.presets" = "Preset Agents";
+"agent.config.reset" = "Reset to Default";
+
+/* AI Persona Settings Tab */
+"settings.ai.persona.title" = "AI Persona";
+"settings.ai.persona.description" = "Configure how the AI assistant behaves and responds.";
+"settings.ai.persona.explanation" = "The AI persona defines the personality, writing style, and behavior of JoyaFix when enhancing your text.";
+"settings.ai.persona.active" = "Active Persona";
+"settings.ai.persona.current.name" = "Current:";
+"settings.ai.persona.edit" = "Edit Persona";
+"settings.ai.persona.quick.presets" = "Quick Presets";
+"settings.ai.persona.preset.applied" = "Preset applied: %@";
+
