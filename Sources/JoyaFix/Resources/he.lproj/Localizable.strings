@@ -28,6 +28,49 @@
 "onboarding.welcome.title" = "ברוכים הבאים ל-JoyaFix";
 "onboarding.welcome.subtitle" = "כלי המק שלך האולטימטיבי";
 "onboarding.welcome.description" = "שפר את זרימת העבודה שלך עם המרת טקסט חכמה,\nOCR, קטעי טקסט ועוד.";
+
+/* Onboarding - AI Intro (מסך 2) */
+"onboarding.ai.intro.title" = "הלב של האפליקציה";
+"onboarding.ai.intro.subtitle" = "מופעל על ידי בינה מלאכותית";
+"onboarding.ai.intro.description" = "אנחנו משתמשים ב-AI כדי לעזור לך לכתוב טוב יותר, לתרגם טקסט ולשפר את ההנחיות שלך. זה כמו עוזר כתיבה שתמיד מוכן.";
+"onboarding.ai.intro.feature1" = "שיפור ועריכת טקסט חכמה";
+"onboarding.ai.intro.feature2" = "תרגום מיידי בין שפות";
+"onboarding.ai.intro.feature3" = "הנדסת הנחיות מקצועית";
+
+/* Onboarding - AI Choice (מסך 3) */
+"onboarding.ai.choice.title" = "הבחירה שלך";
+"onboarding.ai.choice.subtitle" = "איך תרצה להשתמש בתכונות ה-AI?";
+"onboarding.ai.choice.cloud.title" = "ענן (Gemini)";
+"onboarding.ai.choice.cloud.feature1" = "חכם מאוד";
+"onboarding.ai.choice.cloud.feature2" = "מהיר";
+"onboarding.ai.choice.cloud.feature3" = "דורש אינטרנט";
+"onboarding.ai.choice.local.title" = "מקומי (פרטי)";
+"onboarding.ai.choice.local.feature1" = "100% פרטיות";
+"onboarding.ai.choice.local.feature2" = "עובד ללא אינטרנט";
+"onboarding.ai.choice.local.feature3" = "הורדה חד-פעמית";
+"onboarding.ai.choice.note" = "תוכל לשנות בכל עת בהגדרות";
+
+/* Onboarding - Local Model Setup (מסך 4) */
+"onboarding.local.setup.title" = "הגדרת מודל מקומי";
+"onboarding.local.setup.description" = "הורד מודל AI מקומי שירוץ לגמרי על המק שלך. המידע שלך לא יוצא מהמחשב.";
+"onboarding.local.setup.skip.description" = "בחרת ב-AI בענן. תוכל לדלג על שלב זה או להוריד מודל מקומי כגיבוי.";
+"onboarding.local.setup.download" = "הורד מודל מומלץ";
+"onboarding.local.setup.downloaded" = "הורד";
+"onboarding.local.setup.cancel" = "בטל";
+"onboarding.local.setup.switch.hint" = "רוצה פרטיות מלאה?";
+"onboarding.local.setup.switch" = "עבור ל-AI מקומי";
+
+/* Onboarding - Permissions (מסך 5) */
+"onboarding.permissions.required" = "נדרש";
+"onboarding.permissions.microphone.title" = "מיקרופון";
+"onboarding.permissions.microphone.description" = "נדרש לתכונת הקלט הקולי. מאפשר לאפליקציה להקליט שמע להמרת דיבור לטקסט.";
+"onboarding.permissions.speech.title" = "זיהוי דיבור";
+"onboarding.permissions.speech.description" = "נדרש לקלט קולי. מאפשר תמלול בעברית ובאנגלית.";
+
+/* Onboarding - Ready (מסך 6) */
+"onboarding.ready.hotkey.hint" = "קיצור הדרך הראשי שלך לתכונות AI:";
+
+/* Legacy Onboarding (שמירה לתאימות) */
 "onboarding.features.title" = "תכונות חזקות";
 "onboarding.features.subtitle" = "גלה מה הופך את JoyaFix למיוחד";
 "onboarding.feature.convert.title" = "תיקון עברית/אנגלית";
@@ -224,6 +267,31 @@
 
 /* Keyboard Lock Overlay */
 "keyboard.lock.overlay.message" = "המקלדת נעולה - החזק ESC למשך 3 שניות לשחרור";
+
+/* Local LLM - Hardware & RAM */
+"local.llm.intel.warning" = "זוהה מק עם Intel. ה-AI המקומי עשוי לרוץ לאט יותר מאשר במקים עם Apple Silicon.";
+"local.llm.unknown.hardware.warning" = "לא ניתן לזהות את סוג החומרה. הביצועים עשויים להשתנות.";
+"local.llm.insufficient.ram" = "אין מספיק זיכרון פנוי. סגור אפליקציות אחרות כדי להשתמש ב-AI מקומי.";
+"local.llm.critical.ram" = "זיכרון המערכת נמוך מאוד. אנא סגור כמה אפליקציות.";
+"local.llm.auto.unloaded" = "מודל AI מקומי נפרק כדי לשחרר זיכרון (15 דקות ללא פעילות).";
+"local.llm.performance.fast" = "מהיר";
+"local.llm.performance.good" = "טוב";
+"local.llm.performance.moderate" = "בינוני";
+"local.llm.performance.slow" = "איטי";
+"local.llm.performance.unknown" = "לא ידוע";
+"local.llm.not.recommended.intel" = "מודל גדול - עשוי להיות איטי במק Intel";
+
+/* Ollama Service */
+"ollama.not.running" = "Ollama לא רץ. הפעל אותו עם 'ollama serve' בטרמינל.";
+"ollama.model.not.selected" = "לא נבחר מודל Ollama. בחר מודל בהגדרות.";
+"ollama.vision.not.supported" = "מודל זה תומך בטקסט בלבד, לא בתמונות.";
+"ollama.vision.suggestion" = "לתיאור תמונות, השתמש ב-LLaVA (ollama pull llava) או עבור ל-Gemini.";
+"ollama.text.only.warning" = "מודל זה הוא טקסט בלבד. לתיאור תמונות, השתמש ב-LLaVA או Gemini.";
+
+/* Vision Capability Messages */
+"vision.local.not.supported" = "המודל המקומי הנבחר אינו תומך בראייה. הורד LLaVA לתיאור תמונות.";
+"vision.ollama.not.supported" = "מודל ה-Ollama הנבחר אינו תומך בראייה. השתמש ב-LLaVA או עבור ל-Gemini.";
+"vision.openrouter.not.supported" = "מודל ה-OpenRouter הנבחר אינו תומך בראייה. בחר מודל עם יכולת ראייה.";
 
 /* Prompt Enhancer Meta Prompt */
 "prompt.enhancer.meta.role" = "You are an expert Prompt Engineer.";

@@ -597,6 +597,63 @@ class HistoryDatabaseManager {
         }
     }
     
+    /// Loads clipboard history from database with pagination support
+    /// PERFORMANCE: Enables lazy loading - only loads what's needed for display
+    /// - Parameters:
+    ///   - limit: Maximum number of items to load (default: 50)
+    ///   - offset: Number of items to skip (for pagination)
+    /// - Returns: Array of ClipboardItems for the requested page
+    func loadClipboardHistory(limit: Int, offset: Int = 0) throws -> [ClipboardItem] {
+        guard let queue = dbQueue else {
+            throw DatabaseError.notInitialized
+        }
+        
+        return try queue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM clipboard_history
+                ORDER BY is_pinned DESC, timestamp DESC
+                LIMIT ? OFFSET ?
+            """, arguments: [limit, offset])
+            
+            return rows.compactMap { row -> ClipboardItem? in
+                return try? parseClipboardItem(from: row)
+            }
+        }
+    }
+    
+    /// Returns the total count of clipboard history items
+    /// Used for pagination UI to know total pages
+    func getClipboardHistoryCount() throws -> Int {
+        guard let queue = dbQueue else {
+            throw DatabaseError.notInitialized
+        }
+        
+        return try queue.read { db in
+            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM clipboard_history") ?? 0
+            return count
+        }
+    }
+    
+    /// Loads pinned items separately (always loaded first, not paginated)
+    /// PERFORMANCE: Pinned items are always available for quick access
+    func loadPinnedItems() throws -> [ClipboardItem] {
+        guard let queue = dbQueue else {
+            throw DatabaseError.notInitialized
+        }
+        
+        return try queue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM clipboard_history
+                WHERE is_pinned = 1
+                ORDER BY timestamp DESC
+            """)
+            
+            return rows.compactMap { row -> ClipboardItem? in
+                return try? parseClipboardItem(from: row)
+            }
+        }
+    }
+    
     // MARK: - OCR History Operations
     
 #if false

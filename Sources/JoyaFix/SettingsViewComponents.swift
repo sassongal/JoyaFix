@@ -363,10 +363,13 @@ struct GeneralSettingsTab: View {
                                         alert.informativeText = """
                                         Choose your AI provider:
                                         
-                                        • Gemini: Google's AI service (free tier available)
+                                        • Gemini: Google's AI service (free tier available, supports vision)
                                         • OpenRouter: Access to multiple AI models (free and paid options)
+                                        • Local: Run models directly on your Mac using LLM.swift
+                                        • Ollama: Use models installed via Ollama (ollama.ai)
                                         
-                                        You can switch between providers at any time in Settings.
+                                        Local & Ollama: 100% private, runs on your Mac without internet.
+                                        You can switch between providers at any time.
                                         """
                                         alert.alertStyle = .informational
                                         alert.addButton(withTitle: "OK")
@@ -384,6 +387,7 @@ struct GeneralSettingsTab: View {
                                     Text("Gemini").tag(AIProvider.gemini)
                                     Text("OpenRouter").tag(AIProvider.openRouter)
                                     Text("Local").tag(AIProvider.local)
+                                    Text("Ollama").tag(AIProvider.ollama)
                                 }
                                 .pickerStyle(.segmented)
                                 .onChange(of: localAIProvider) { _, _ in
@@ -391,6 +395,12 @@ struct GeneralSettingsTab: View {
                                     // Reset API key status when switching providers
                                     if localAIProvider == .openRouter {
                                         openRouterKeyStatus = .unknown
+                                    }
+                                    // Check Ollama status when switching to it
+                                    if localAIProvider == .ollama {
+                                        Task {
+                                            await OllamaService.shared.checkOllamaStatus()
+                                        }
                                     }
                                 }
                             }
@@ -555,6 +565,9 @@ struct GeneralSettingsTab: View {
                                     selectedModelId: $localSelectedModel,
                                     hasUnsavedChanges: $hasUnsavedChanges
                                 )
+                            } else if localAIProvider == .ollama {
+                                // Ollama Configuration
+                                OllamaConfigurationView(hasUnsavedChanges: $hasUnsavedChanges)
                             }
                         }
                         .padding(8)
@@ -1436,9 +1449,36 @@ struct LocalModelManagementView: View {
                         ForEach(downloadManager.downloadedModels) { model in
                             HStack {
                                 Text(model.info.displayName)
+                                
+                                // Source indicator
+                                switch model.source {
+                                case .downloaded:
+                                    Text("(Downloaded)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                case .ollama:
+                                    Text("(Ollama)")
+                                        .font(.caption2)
+                                        .foregroundColor(.purple)
+                                case .external:
+                                    Text("(External)")
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                }
+                                
                                 if model.info.supportsVision {
                                     Image(systemName: "eye.fill")
                                         .font(.caption2)
+                                }
+                                // V/X indicator for file existence
+                                if model.exists {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.green)
+                                } else {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption2)
+                                        .foregroundColor(.red)
                                 }
                             }
                             .tag(model.id)
@@ -1449,23 +1489,65 @@ struct LocalModelManagementView: View {
                     // Model info
                     if let selectedId = selectedModelId,
                        let model = downloadManager.downloadedModels.first(where: { $0.id == selectedId }) {
-                        HStack(spacing: 8) {
-                            Text("Size: \(model.info.fileSizeFormatted)")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                // File status indicator
+                                if model.exists {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.caption2)
+                                        Text(model.statusDisplay)
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.green)
+                                } else {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption2)
+                                        Text("File missing")
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.red)
+                                }
 
-                            Text("RAM: \(model.info.requiredRAMFormatted)")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                                Text("Size: \(model.info.fileSizeFormatted)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
 
-                            if model.info.supportsVision {
+                                Text("RAM: \(model.info.requiredRAMFormatted)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+
+                                if model.info.supportsVision {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "eye.fill")
+                                            .font(.caption2)
+                                        Text("Vision")
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.blue)
+                                }
+                            }
+                            
+                            // Source-specific info
+                            if model.source == .ollama {
                                 HStack(spacing: 4) {
-                                    Image(systemName: "eye.fill")
+                                    Image(systemName: "info.circle")
                                         .font(.caption2)
-                                    Text("Vision")
+                                    Text("This model is managed by Ollama")
                                         .font(.caption2)
                                 }
-                                .foregroundColor(.blue)
+                                .foregroundColor(.purple)
+                            } else if model.source == .external && model.isExternal {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "info.circle")
+                                        .font(.caption2)
+                                    Text("External model found at: \(model.localPath)")
+                                        .font(.caption2)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .foregroundColor(.orange)
                             }
                         }
                     }
@@ -1473,14 +1555,36 @@ struct LocalModelManagementView: View {
 
                 Divider()
 
-                // Manage Models Button
-                Button(action: { showModelPicker = true }) {
-                    HStack {
-                        Image(systemName: "arrow.down.circle")
-                        Text("Manage Models...")
+                // Action Buttons
+                HStack(spacing: 12) {
+                    // Manage Models Button
+                    Button(action: { showModelPicker = true }) {
+                        HStack {
+                            Image(systemName: "arrow.down.circle")
+                            Text("Manage Models...")
+                        }
                     }
+                    .buttonStyle(.bordered)
+                    
+                    // Scan for Models Button
+                    Button(action: {
+                        Task {
+                            await downloadManager.refreshLocalModels()
+                        }
+                    }) {
+                        HStack {
+                            if downloadManager.isScanning {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                            } else {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            Text(downloadManager.isScanning ? "Scanning..." : "Scan for Models")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(downloadManager.isScanning)
                 }
-                .buttonStyle(.bordered)
             }
 
             // Download Progress
@@ -1533,6 +1637,10 @@ struct LocalModelManagementView: View {
 struct LocalModelPickerSheet: View {
     @ObservedObject var downloadManager: ModelDownloadManager
     @Environment(\.dismiss) var dismiss
+    
+    private var llmService: LocalLLMService {
+        LocalLLMService.shared
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1548,6 +1656,33 @@ struct LocalModelPickerSheet: View {
             .padding()
 
             Divider()
+            
+            // Hardware info banner
+            HStack(spacing: 8) {
+                Image(systemName: llmService.isOptimalHardware ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                    .foregroundColor(llmService.isOptimalHardware ? .green : .orange)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Hardware: \(llmService.hardwareArchitecture.displayName)")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    if let warning = llmService.hardwareArchitecture.performanceWarning {
+                        Text(warning)
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    } else {
+                        Text("Optimal for local AI models")
+                            .font(.caption2)
+                            .foregroundColor(.green)
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(llmService.isOptimalHardware ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
 
             // Available Models List
             ScrollView {
@@ -1576,7 +1711,7 @@ struct LocalModelPickerSheet: View {
                 .padding()
             }
         }
-        .frame(width: 500, height: 500)
+        .frame(width: 550, height: 550)
     }
 }
 
@@ -1586,13 +1721,51 @@ struct LocalModelCard: View {
     let model: LocalModelInfo
     @ObservedObject var downloadManager: ModelDownloadManager
     let isDownloaded: Bool
+    
+    private var llmService: LocalLLMService {
+        LocalLLMService.shared
+    }
+
+    /// Check if the downloaded model file actually exists on disk
+    private var fileExists: Bool {
+        guard isDownloaded,
+              let downloaded = downloadManager.downloadedModels.first(where: { $0.id == model.id }) else {
+            return false
+        }
+        return downloaded.exists
+    }
+    
+    /// Whether this model is recommended for current hardware
+    private var isRecommended: Bool {
+        llmService.isModelRecommended(model)
+    }
+    
+    /// Performance estimate for this model
+    private var performanceEstimate: String {
+        llmService.getPerformanceEstimate(for: model)
+    }
+    
+    /// Color for performance badge
+    private var performanceColor: Color {
+        let estimate = performanceEstimate
+        if estimate.contains("Fast") || estimate.contains("מהיר") {
+            return .green
+        } else if estimate.contains("Good") || estimate.contains("טוב") {
+            return .blue
+        } else if estimate.contains("Moderate") || estimate.contains("בינוני") {
+            return .orange
+        } else if estimate.contains("Slow") || estimate.contains("איטי") {
+            return .red
+        }
+        return .secondary
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             // Icon
             Image(systemName: model.supportsVision ? "eye.circle.fill" : "cpu.fill")
                 .font(.title2)
-                .foregroundColor(isDownloaded ? .green : .secondary)
+                .foregroundColor(isDownloaded ? (fileExists ? .green : .red) : .secondary)
                 .frame(width: 40)
 
             // Info
@@ -1609,12 +1782,60 @@ struct LocalModelCard: View {
                             .background(Color.blue.opacity(0.2))
                             .cornerRadius(4)
                     }
+                    
+                    // Performance estimate badge
+                    Text(performanceEstimate)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(performanceColor.opacity(0.2))
+                        .foregroundColor(performanceColor)
+                        .cornerRadius(4)
+
+                    // File existence indicator (V or X)
+                    if isDownloaded {
+                        if fileExists {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                                .help("Model file exists on disk")
+                        } else {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .help("Model file not found on disk - please re-download")
+                        }
+                    }
                 }
 
                 Text(model.description)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
+
+                // Show warning if file is missing
+                if isDownloaded && !fileExists {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                        Text("File missing - please re-download")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                }
+                
+                // Show warning for non-recommended models on Intel
+                if !isRecommended && !llmService.isOptimalHardware {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                        Text(NSLocalizedString("local.llm.not.recommended.intel", comment: "Not recommended for Intel"))
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                }
 
                 HStack(spacing: 12) {
                     Label(model.fileSizeFormatted, systemImage: "doc.fill")
@@ -1627,7 +1848,7 @@ struct LocalModelCard: View {
             Spacer()
 
             // Action Button
-            if isDownloaded {
+            if isDownloaded && fileExists {
                 Button(role: .destructive) {
                     if let downloaded = downloadManager.downloadedModels.first(where: { $0.id == model.id }) {
                         try? downloadManager.deleteModel(downloaded)
@@ -1636,6 +1857,27 @@ struct LocalModelCard: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.bordered)
+            } else if isDownloaded && !fileExists {
+                // File is missing - show re-download button
+                Button {
+                    // First remove the broken entry
+                    if let downloaded = downloadManager.downloadedModels.first(where: { $0.id == model.id }) {
+                        try? downloadManager.deleteModel(downloaded)
+                    }
+                    // Then start fresh download
+                    Task {
+                        try? await downloadManager.downloadModel(model)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Re-download")
+                            .font(.caption)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(downloadManager.isDownloading)
             } else if downloadManager.isDownloading && downloadManager.currentDownloadModel?.id == model.id {
                 ProgressView()
                     .scaleEffect(0.8)
@@ -1652,8 +1894,349 @@ struct LocalModelCard: View {
             }
         }
         .padding()
-        .background(isDownloaded ? Color.green.opacity(0.1) : Color.secondary.opacity(0.05))
+        .background(isDownloaded ? (fileExists ? Color.green.opacity(0.1) : Color.red.opacity(0.1)) : Color.secondary.opacity(0.05))
         .cornerRadius(12)
+    }
+}
+
+// MARK: - Ollama Configuration View
+
+struct OllamaConfigurationView: View {
+    @ObservedObject var ollamaService = OllamaService.shared
+    @ObservedObject var settings = SettingsManager.shared
+    @ObservedObject var downloadManager = ModelDownloadManager.shared
+    @Binding var hasUnsavedChanges: Bool
+    
+    @State private var localEndpoint: String = ""
+    @State private var isTestingConnection = false
+    @State private var connectionStatus: ConnectionStatus = .unknown
+    
+    enum ConnectionStatus {
+        case unknown
+        case testing
+        case connected
+        case failed(String)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section Header
+            HStack {
+                Text("Ollama Configuration")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                // Status indicator
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(ollamaService.isOllamaRunning ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                    Text(ollamaService.isOllamaRunning ? "Connected" : "Not Running")
+                        .font(.caption2)
+                        .foregroundColor(ollamaService.isOllamaRunning ? .green : .red)
+                }
+            }
+            
+            // Endpoint configuration
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Endpoint URL")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                
+                HStack(spacing: 8) {
+                    TextField("http://localhost:11434", text: $localEndpoint)
+                        .textFieldStyle(.roundedBorder)
+                        .onAppear {
+                            localEndpoint = settings.ollamaEndpoint
+                        }
+                        .onChange(of: localEndpoint) { _, newValue in
+                            settings.ollamaEndpoint = newValue
+                            hasUnsavedChanges = true
+                        }
+                    
+                    Button("Test") {
+                        testConnection()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isTestingConnection)
+                }
+                
+                // Connection status message
+                switch connectionStatus {
+                case .connected:
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Connected to Ollama")
+                            .font(.caption2)
+                            .foregroundColor(.green)
+                    }
+                case .failed(let message):
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+                case .testing:
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text("Testing connection...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                case .unknown:
+                    EmptyView()
+                }
+            }
+            
+            Divider()
+            
+            // Model Selection
+            if ollamaService.isOllamaRunning {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Select Model")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        Button(action: refreshModels) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Refresh")
+                            }
+                            .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    
+                    if ollamaService.availableModels.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("No models found in Ollama")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Button(action: {
+                                if let url = URL(string: "https://ollama.ai/library") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "link")
+                                    Text("Browse Ollama Library")
+                                }
+                                .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            
+                            Text("Pull a model with: ollama pull gemma2:2b")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        .padding()
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(8)
+                    } else {
+                        Picker("Model", selection: Binding(
+                            get: { settings.selectedOllamaModel ?? "" },
+                            set: { newValue in
+                                settings.selectedOllamaModel = newValue.isEmpty ? nil : newValue
+                                hasUnsavedChanges = true
+                            }
+                        )) {
+                            Text("Select a model...").tag("")
+                            ForEach(ollamaService.availableModels) { model in
+                                HStack {
+                                    Text(model.displayName)
+                                    if model.supportsVision {
+                                        Image(systemName: "eye.fill")
+                                            .font(.caption2)
+                                    }
+                                    Text("(\(model.sizeFormatted))")
+                                        .foregroundColor(.secondary)
+                                }
+                                .tag(model.name)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        
+                        // Model info
+                        if let selectedModel = settings.selectedOllamaModel,
+                           let model = ollamaService.availableModels.first(where: { $0.name == selectedModel }) {
+                            HStack(spacing: 8) {
+                                // Status indicator
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.caption2)
+                                    Text("Available")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(.green)
+                                
+                                Text("Size: \(model.sizeFormatted)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                
+                                if model.supportsVision {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "eye.fill")
+                                            .font(.caption2)
+                                        Text("Vision")
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.blue)
+                                } else {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "text.alignleft")
+                                            .font(.caption2)
+                                        Text("Text only")
+                                            .font(.caption2)
+                                    }
+                                    .foregroundColor(.secondary)
+                                }
+                            }
+                            
+                            // Vision warning for text-only models
+                            if !model.supportsVision {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "info.circle")
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                    Text(NSLocalizedString("ollama.text.only.warning", comment: "Text only warning"))
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Ollama not running instructions
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Ollama is not running")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    
+                    Text("To use Ollama, follow these steps:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("1. Install Ollama from ollama.ai")
+                        Text("2. Open Terminal and run: ollama serve")
+                        Text("3. Pull a model: ollama pull gemma2:2b")
+                        Text("4. Click Refresh above")
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            if let url = URL(string: "https://ollama.ai") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "link")
+                                Text("Get Ollama")
+                            }
+                            .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button(action: refreshModels) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Retry")
+                            }
+                            .font(.caption)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
+            Divider()
+            
+            // Scan for models button
+            Button(action: {
+                Task {
+                    await downloadManager.refreshLocalModels()
+                }
+            }) {
+                HStack {
+                    if downloadManager.isScanning {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    Text(downloadManager.isScanning ? "Scanning..." : "Scan for Models on This Mac")
+                }
+                .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .disabled(downloadManager.isScanning)
+            
+            // Info text
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("Ollama runs locally - 100% private, no internet required")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .onAppear {
+            Task {
+                await ollamaService.checkOllamaStatus()
+                if ollamaService.isOllamaRunning {
+                    _ = try? await ollamaService.fetchAvailableModels()
+                }
+            }
+        }
+    }
+    
+    private func testConnection() {
+        isTestingConnection = true
+        connectionStatus = .testing
+        
+        Task {
+            await ollamaService.checkOllamaStatus()
+            
+            if ollamaService.isOllamaRunning {
+                connectionStatus = .connected
+                _ = try? await ollamaService.fetchAvailableModels()
+            } else {
+                connectionStatus = .failed("Cannot connect to Ollama at \(localEndpoint)")
+            }
+            
+            isTestingConnection = false
+        }
+    }
+    
+    private func refreshModels() {
+        Task {
+            await ollamaService.checkOllamaStatus()
+            if ollamaService.isOllamaRunning {
+                _ = try? await ollamaService.fetchAvailableModels()
+            }
+        }
     }
 }
 

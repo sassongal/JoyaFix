@@ -22,16 +22,77 @@ struct LocalModelInfo: Codable, Identifiable, Hashable {
     }
 }
 
-/// Represents a downloaded model on disk
+/// Source of a discovered model
+enum ModelSource: String, Codable {
+    case downloaded      // Downloaded via JoyaFix
+    case ollama          // Discovered in Ollama
+    case external        // Found in system (e.g., ~/.ollama/models or other GGUF files)
+}
+
+/// Represents a downloaded or discovered model on disk
 struct DownloadedModel: Codable, Identifiable {
     let id: String
     let info: LocalModelInfo
     let localPath: String
     let downloadedAt: Date
+    
+    /// Whether this model was discovered externally (not downloaded through JoyaFix)
+    var isExternal: Bool
+    
+    /// Source of the model
+    var source: ModelSource
+    
+    /// Ollama model name (if from Ollama)
+    var ollamaModelName: String?
 
     var exists: Bool {
-        FileManager.default.fileExists(atPath: localPath)
+        // For Ollama models, we check differently
+        if source == .ollama {
+            return true // Ollama manages existence
+        }
+        return FileManager.default.fileExists(atPath: localPath)
     }
+    
+    /// Display status for UI
+    var statusDisplay: String {
+        switch source {
+        case .downloaded:
+            return exists ? "Downloaded" : "File missing"
+        case .ollama:
+            return "Available in Ollama"
+        case .external:
+            return exists ? "Available on system" : "File missing"
+        }
+    }
+    
+    // Legacy initializer for backward compatibility
+    init(id: String, info: LocalModelInfo, localPath: String, downloadedAt: Date) {
+        self.id = id
+        self.info = info
+        self.localPath = localPath
+        self.downloadedAt = downloadedAt
+        self.isExternal = false
+        self.source = .downloaded
+        self.ollamaModelName = nil
+    }
+    
+    // Full initializer
+    init(id: String, info: LocalModelInfo, localPath: String, downloadedAt: Date, isExternal: Bool, source: ModelSource, ollamaModelName: String? = nil) {
+        self.id = id
+        self.info = info
+        self.localPath = localPath
+        self.downloadedAt = downloadedAt
+        self.isExternal = isExternal
+        self.source = source
+        self.ollamaModelName = ollamaModelName
+    }
+}
+
+/// Hardware optimization level for models
+enum ModelOptimization: String, Codable {
+    case appleSiliconOptimized = "apple_silicon"  // Best for M1/M2/M3
+    case universal = "universal"                   // Works well on all hardware
+    case intelCompatible = "intel"                 // Optimized for Intel
 }
 
 /// Registry of available models for download
@@ -77,5 +138,43 @@ struct LocalModelRegistry {
 
     static func model(withId id: String) -> LocalModelInfo? {
         availableModels.first { $0.id == id }
+    }
+    
+    /// Gets the recommended model for the detected hardware
+    static func recommendedModel() -> LocalModelInfo? {
+        // Gemma 2B is recommended for all hardware - small, fast, efficient
+        return model(withId: "gemma-2-2b-instruct")
+    }
+    
+    /// Gets models sorted by recommendation for the hardware
+    @MainActor
+    static func modelsSortedByRecommendation() -> [LocalModelInfo] {
+        let service = LocalLLMService.shared
+        
+        // Sort: recommended first, then by file size (smaller = faster)
+        return availableModels.sorted { model1, model2 in
+            let rec1 = service.isModelRecommended(model1)
+            let rec2 = service.isModelRecommended(model2)
+            
+            if rec1 != rec2 {
+                return rec1  // Recommended models first
+            }
+            
+            // Then by file size (smaller first)
+            return model1.fileSize < model2.fileSize
+        }
+    }
+    
+    /// Gets models that are suitable for Intel Macs
+    static func intelCompatibleModels() -> [LocalModelInfo] {
+        // Models under 2.5GB work reasonably well on Intel
+        return availableModels.filter { $0.fileSize <= 2_500_000_000 }
+    }
+    
+    /// Checks if a model is suitable for the current system's RAM
+    static func isModelSuitableForSystem(_ model: LocalModelInfo) -> Bool {
+        let availableRAM = ProcessInfo.processInfo.physicalMemory
+        // Model should use at most 60% of physical RAM
+        return model.requiredRAM <= UInt64(Double(availableRAM) * 0.6)
     }
 }

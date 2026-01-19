@@ -28,6 +28,49 @@
 "onboarding.welcome.title" = "Welcome to JoyaFix";
 "onboarding.welcome.subtitle" = "Your Ultimate Mac Utility";
 "onboarding.welcome.description" = "Transform your workflow with smart text conversion,\nOCR, snippets, and more.";
+
+/* Onboarding - AI Intro (Screen 2) */
+"onboarding.ai.intro.title" = "The Heart of the App";
+"onboarding.ai.intro.subtitle" = "Powered by Artificial Intelligence";
+"onboarding.ai.intro.description" = "We use AI to help you write better, translate text, and enhance your prompts. It's like having a writing assistant always ready.";
+"onboarding.ai.intro.feature1" = "Smart text improvement and enhancement";
+"onboarding.ai.intro.feature2" = "Instant translation between languages";
+"onboarding.ai.intro.feature3" = "Professional prompt engineering";
+
+/* Onboarding - AI Choice (Screen 3) */
+"onboarding.ai.choice.title" = "Your Choice";
+"onboarding.ai.choice.subtitle" = "How would you like to use the AI features?";
+"onboarding.ai.choice.cloud.title" = "Cloud (Gemini)";
+"onboarding.ai.choice.cloud.feature1" = "Very smart & capable";
+"onboarding.ai.choice.cloud.feature2" = "Fast responses";
+"onboarding.ai.choice.cloud.feature3" = "Requires internet";
+"onboarding.ai.choice.local.title" = "Local (Private)";
+"onboarding.ai.choice.local.feature1" = "100% privacy";
+"onboarding.ai.choice.local.feature2" = "Works offline";
+"onboarding.ai.choice.local.feature3" = "One-time download";
+"onboarding.ai.choice.note" = "You can change this anytime in Settings";
+
+/* Onboarding - Local Model Setup (Screen 4) */
+"onboarding.local.setup.title" = "Local Model Setup";
+"onboarding.local.setup.description" = "Download a local AI model to run entirely on your Mac. Your data never leaves your computer.";
+"onboarding.local.setup.skip.description" = "You've chosen cloud AI. You can skip this step or download a local model as backup.";
+"onboarding.local.setup.download" = "Download Recommended Model";
+"onboarding.local.setup.downloaded" = "Downloaded";
+"onboarding.local.setup.cancel" = "Cancel";
+"onboarding.local.setup.switch.hint" = "Want complete privacy?";
+"onboarding.local.setup.switch" = "Switch to Local AI";
+
+/* Onboarding - Permissions (Screen 5) */
+"onboarding.permissions.required" = "Required";
+"onboarding.permissions.microphone.title" = "Microphone";
+"onboarding.permissions.microphone.description" = "Required for voice input feature. Allows the app to record audio for speech-to-text.";
+"onboarding.permissions.speech.title" = "Speech Recognition";
+"onboarding.permissions.speech.description" = "Required for voice input. Allows transcription in Hebrew and English.";
+
+/* Onboarding - Ready (Screen 6) */
+"onboarding.ready.hotkey.hint" = "Your main shortcut for AI features:";
+
+/* Legacy Onboarding (keeping for compatibility) */
 "onboarding.features.title" = "Powerful Features";
 "onboarding.features.subtitle" = "Discover what makes JoyaFix special";
 "onboarding.feature.convert.title" = "Fix Hebrew/English";
@@ -224,6 +267,31 @@
 
 /* Keyboard Lock Overlay */
 "keyboard.lock.overlay.message" = "Keyboard Locked - Hold ESC for 3 seconds to Unlock";
+
+/* Local LLM - Hardware & RAM */
+"local.llm.intel.warning" = "Intel Mac detected. Local AI may run slower than on Apple Silicon Macs.";
+"local.llm.unknown.hardware.warning" = "Could not detect hardware type. Performance may vary.";
+"local.llm.insufficient.ram" = "Not enough free memory. Close other apps to use local AI.";
+"local.llm.critical.ram" = "System memory critically low. Please close some applications.";
+"local.llm.auto.unloaded" = "Local AI model unloaded to free memory (15 min idle).";
+"local.llm.performance.fast" = "Fast";
+"local.llm.performance.good" = "Good";
+"local.llm.performance.moderate" = "Moderate";
+"local.llm.performance.slow" = "Slow";
+"local.llm.performance.unknown" = "Unknown";
+"local.llm.not.recommended.intel" = "Large model - may be slow on Intel Mac";
+
+/* Ollama Service */
+"ollama.not.running" = "Ollama is not running. Please start it with 'ollama serve' in Terminal.";
+"ollama.model.not.selected" = "No Ollama model selected. Please select a model in Settings.";
+"ollama.vision.not.supported" = "This model supports text only, not images.";
+"ollama.vision.suggestion" = "For vision tasks, use LLaVA (ollama pull llava) or switch to Gemini.";
+"ollama.text.only.warning" = "This model is text-only. For image description, use LLaVA or Gemini.";
+
+/* Vision Capability Messages */
+"vision.local.not.supported" = "Selected local model doesn't support vision. Download LLaVA for image description.";
+"vision.ollama.not.supported" = "Selected Ollama model doesn't support vision. Use LLaVA or switch to Gemini.";
+"vision.openrouter.not.supported" = "Selected OpenRouter model doesn't support vision. Choose a vision-capable model.";
 
 /* Prompt Enhancer Meta Prompt */
 "prompt.enhancer.meta.role" = "You are an expert Prompt Engineer.";

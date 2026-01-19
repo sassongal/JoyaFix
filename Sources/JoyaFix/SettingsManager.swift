@@ -7,6 +7,30 @@ enum AIProvider: String, Codable {
     case gemini
     case openRouter
     case local
+    case ollama
+    
+    var displayName: String {
+        switch self {
+        case .gemini: return "Gemini (Cloud)"
+        case .openRouter: return "OpenRouter (Cloud)"
+        case .local: return "Local LLM"
+        case .ollama: return "Ollama (Local)"
+        }
+    }
+    
+    var requiresAPIKey: Bool {
+        switch self {
+        case .gemini, .openRouter: return true
+        case .local, .ollama: return false
+        }
+    }
+    
+    var isLocal: Bool {
+        switch self {
+        case .local, .ollama: return true
+        case .gemini, .openRouter: return false
+        }
+    }
 }
 
 /// Settings manager for the application
@@ -240,6 +264,20 @@ class SettingsManager: ObservableObject {
             UserDefaults.standard.set(selectedLocalModel, forKey: Keys.selectedLocalModel)
         }
     }
+    
+    // MARK: - Ollama Settings
+    
+    @Published var ollamaEndpoint: String {
+        didSet {
+            UserDefaults.standard.set(ollamaEndpoint, forKey: Keys.ollamaEndpoint)
+        }
+    }
+    
+    @Published var selectedOllamaModel: String? {
+        didSet {
+            UserDefaults.standard.set(selectedOllamaModel, forKey: Keys.selectedOllamaModel)
+        }
+    }
 
     // MARK: - Keys
 
@@ -259,6 +297,8 @@ class SettingsManager: ObservableObject {
         static let toastSettings = "toastSettings"
         static let enableMenubarPreview = "enableMenubarPreview"
         static let selectedLocalModel = "selectedLocalModel"
+        static let ollamaEndpoint = "ollamaEndpoint"
+        static let selectedOllamaModel = "selectedOllamaModel"
     }
 
     // MARK: - Initialization
@@ -308,6 +348,10 @@ class SettingsManager: ObservableObject {
 
         // Load local model selection
         self.selectedLocalModel = UserDefaults.standard.string(forKey: Keys.selectedLocalModel)
+        
+        // Load Ollama settings
+        self.ollamaEndpoint = UserDefaults.standard.string(forKey: Keys.ollamaEndpoint) ?? "http://localhost:11434"
+        self.selectedOllamaModel = UserDefaults.standard.string(forKey: Keys.selectedOllamaModel)
 
         // Now initialize computed properties (after all stored properties are initialized)
         // Load Gemini key from Keychain (secure storage)

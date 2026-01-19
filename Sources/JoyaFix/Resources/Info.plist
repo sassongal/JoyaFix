@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- =========================================== -->
+    <!-- Bundle Information -->
+    <!-- =========================================== -->
     <key>CFBundleIdentifier</key>
     <string>com.joyafix.app</string>
     <key>CFBundleName</key>
@@ -19,11 +22,37 @@
     <key>CFBundleIconFile</key>
     <string>JoyaFix.icns</string>
     <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
+    <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 JoyaFix. Built with Claude Code.</string>
+    
+    <!-- =========================================== -->
+    <!-- Sparkle Auto-Update Configuration -->
+    <!-- =========================================== -->
+    <!-- URL to appcast.xml for checking updates -->
+    <key>SUFeedURL</key>
+    <string>https://joyafix.app/appcast.xml</string>
+    <!-- Enable automatic update checks -->
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <!-- Check for updates daily (86400 seconds) -->
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <!-- Allow automatic downloading of updates -->
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <!-- Show release notes in update dialog -->
+    <key>SUShowReleaseNotes</key>
+    <true/>
+    <!-- Public key for EdDSA signature verification -->
+    <key>SUPublicEDKey</key>
+    <string>REPLACE_WITH_YOUR_EDDSA_PUBLIC_KEY</string>
+    
+    <!-- =========================================== -->
+    <!-- Privacy Usage Descriptions -->
+    <!-- =========================================== -->
     <key>NSAppleEventsUsageDescription</key>
     <string>JoyaFix needs Accessibility permission to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete) for text conversion, snippet expansion, and keyboard cleaner mode.</string>
     <key>NSMicrophoneUsageDescription</key>
@@ -32,5 +61,12 @@
     <string>JoyaFix needs Speech Recognition permission to transcribe your voice to text in Hebrew and English.</string>
     <key>NSCameraUsageDescription</key>
     <string>JoyaFix needs Screen Recording permission to capture screen regions for OCR text extraction.</string>
+    
+    <!-- =========================================== -->
+    <!-- Hardened Runtime Support -->
+    <!-- =========================================== -->
+    <!-- Enable Hardened Runtime for notarization -->
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
 </dict>
 </plist>

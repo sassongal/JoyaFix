@@ -9,6 +9,45 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 
+# Entitlements file for Hardened Runtime
+ENTITLEMENTS_FILE="Sources/JoyaFix/Resources/JoyaFix.entitlements"
+
+# =========================================
+# Configuration for Notarization
+# =========================================
+# Set these environment variables before running:
+#   APPLE_ID - Your Apple ID email
+#   APPLE_TEAM_ID - Your Team ID from Apple Developer
+#   APPLE_APP_PASSWORD - App-specific password from appleid.apple.com
+#   SIGNING_IDENTITY - Developer ID Application certificate name
+#
+# Example:
+#   export APPLE_ID="your@email.com"
+#   export APPLE_TEAM_ID="XXXXXXXXXX"
+#   export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+#   export SIGNING_IDENTITY="Developer ID Application: Your Name (XXXXXXXXXX)"
+# =========================================
+
+# Check for notarization mode
+NOTARIZE=false
+if [ "$1" == "--notarize" ] || [ "$1" == "-n" ]; then
+    NOTARIZE=true
+    echo "📜 Notarization mode enabled"
+    
+    # Verify required environment variables
+    if [ -z "$APPLE_ID" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$APPLE_APP_PASSWORD" ] || [ -z "$SIGNING_IDENTITY" ]; then
+        echo "❌ Missing required environment variables for notarization:"
+        echo "   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD, SIGNING_IDENTITY"
+        echo ""
+        echo "   Set them before running:"
+        echo "   export APPLE_ID='your@email.com'"
+        echo "   export APPLE_TEAM_ID='XXXXXXXXXX'"
+        echo "   export APPLE_APP_PASSWORD='xxxx-xxxx-xxxx-xxxx'"
+        echo "   export SIGNING_IDENTITY='Developer ID Application: Name (ID)'"
+        exit 1
+    fi
+fi
+
 # זיהוי ארכיטקטורה אוטומטי (יזהה Intel במקרה שלך)
 ARCH=$(uname -m)
 echo "🔨 Building $APP_NAME for architecture: $ARCH..."
@@ -92,16 +131,147 @@ fi
 # ניקוי אגרסיבי של metadata לפני חתימה
 xattr -cr "$APP_BUNDLE"
 
-# חתימת Frameworks בנפרד
-if [ -d "$FRAMEWORKS_DIR" ]; then
-    find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec xattr -cr {} \;
-    find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec codesign --force --deep --sign - {} \;
+# Copy entitlements file to bundle
+if [ -f "$ENTITLEMENTS_FILE" ]; then
+    cp "$ENTITLEMENTS_FILE" "$RESOURCES_DIR/"
+    echo "✓ Entitlements file copied"
 fi
 
-# חתימת האפליקציה הראשית (בלי --deep כדי למנוע שגיאות כפולות)
-codesign --force --sign - "$APP_BUNDLE"
+if [ "$NOTARIZE" = true ]; then
+    # =========================================
+    # Production Signing with Hardened Runtime
+    # =========================================
+    echo "🔐 Signing with Developer ID for notarization..."
+    
+    # Sign Frameworks first (inside-out signing)
+    if [ -d "$FRAMEWORKS_DIR" ]; then
+        echo "   Signing frameworks..."
+        find "$FRAMEWORKS_DIR" -name "*.framework" -depth | while read fw; do
+            xattr -cr "$fw"
+            codesign --force --options runtime --timestamp \
+                --entitlements "$ENTITLEMENTS_FILE" \
+                --sign "$SIGNING_IDENTITY" "$fw"
+            echo "   ✓ Signed: $(basename "$fw")"
+        done
+        
+        # Sign dylibs
+        find "$FRAMEWORKS_DIR" -name "*.dylib" | while read dylib; do
+            xattr -cr "$dylib"
+            codesign --force --options runtime --timestamp \
+                --sign "$SIGNING_IDENTITY" "$dylib"
+            echo "   ✓ Signed: $(basename "$dylib")"
+        done
+    fi
+    
+    # Sign the main executable
+    echo "   Signing main executable..."
+    codesign --force --options runtime --timestamp \
+        --entitlements "$ENTITLEMENTS_FILE" \
+        --sign "$SIGNING_IDENTITY" "$MACOS_DIR/$APP_NAME"
+    
+    # Sign the entire app bundle
+    echo "   Signing app bundle..."
+    codesign --force --options runtime --timestamp \
+        --entitlements "$ENTITLEMENTS_FILE" \
+        --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+    
+    # Verify code signature
+    echo "🔍 Verifying code signature..."
+    codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+    spctl --assess --type execute --verbose "$APP_BUNDLE" || echo "⚠️  Gatekeeper check will pass after notarization"
+    
+    # =========================================
+    # Create ZIP for notarization
+    # =========================================
+    echo "📦 Creating ZIP for notarization..."
+    ZIP_FILE="$BUILD_DIR/$APP_NAME.zip"
+    ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_FILE"
+    echo "✓ Created: $ZIP_FILE"
+    
+    # =========================================
+    # Submit for notarization
+    # =========================================
+    echo "📤 Submitting to Apple for notarization..."
+    echo "   This may take several minutes..."
+    
+    xcrun notarytool submit "$ZIP_FILE" \
+        --apple-id "$APPLE_ID" \
+        --team-id "$APPLE_TEAM_ID" \
+        --password "$APPLE_APP_PASSWORD" \
+        --wait \
+        --timeout 30m
+    
+    NOTARIZATION_RESULT=$?
+    
+    if [ $NOTARIZATION_RESULT -eq 0 ]; then
+        echo "✅ Notarization successful!"
+        
+        # Staple the notarization ticket to the app
+        echo "📎 Stapling notarization ticket..."
+        xcrun stapler staple "$APP_BUNDLE"
+        
+        # Verify stapling
+        xcrun stapler validate "$APP_BUNDLE"
+        echo "✓ Notarization ticket stapled"
+        
+        # Create final distributable ZIP
+        echo "📦 Creating distributable ZIP..."
+        DIST_ZIP="$BUILD_DIR/${APP_NAME}-${ARCH}-notarized.zip"
+        rm -f "$ZIP_FILE"
+        ditto -c -k --keepParent "$APP_BUNDLE" "$DIST_ZIP"
+        echo "✅ Distributable created: $DIST_ZIP"
+        
+        # Create DMG for distribution (optional)
+        echo "💿 Creating DMG..."
+        DMG_FILE="$BUILD_DIR/${APP_NAME}-${ARCH}.dmg"
+        hdiutil create -volname "$APP_NAME" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_FILE"
+        
+        # Notarize DMG
+        xcrun notarytool submit "$DMG_FILE" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+        
+        xcrun stapler staple "$DMG_FILE"
+        echo "✅ DMG created and notarized: $DMG_FILE"
+    else
+        echo "❌ Notarization failed! Check the log above for details."
+        echo "   You can check status with: xcrun notarytool history --apple-id $APPLE_ID --team-id $APPLE_TEAM_ID"
+        exit 1
+    fi
+else
+    # =========================================
+    # Development Signing (ad-hoc)
+    # =========================================
+    echo "🔧 Development signing (ad-hoc)..."
+    
+    # חתימת Frameworks בנפרד
+    if [ -d "$FRAMEWORKS_DIR" ]; then
+        find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec xattr -cr {} \;
+        find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec codesign --force --deep --sign - {} \;
+    fi
+    
+    # חתימת האפליקציה הראשית (בלי --deep כדי למנוע שגיאות כפולות)
+    codesign --force --sign - "$APP_BUNDLE"
+fi
 
 # Verify signing
 codesign -dv "$APP_BUNDLE" 2>&1 | grep -q "com.joyafix.app" && echo "✓ App signed with correct Bundle ID" || echo "⚠️  Warning: Bundle ID verification failed"
 
+echo ""
+echo "==========================================="
 echo "✅ Build Complete for $ARCH!"
+echo "==========================================="
+echo "   App: $APP_BUNDLE"
+if [ "$NOTARIZE" = true ]; then
+    echo "   Mode: Production (Notarized)"
+    echo "   ZIP: $BUILD_DIR/${APP_NAME}-${ARCH}-notarized.zip"
+    echo "   DMG: $BUILD_DIR/${APP_NAME}-${ARCH}.dmg"
+else
+    echo "   Mode: Development (ad-hoc signed)"
+    echo ""
+    echo "   For production build with notarization, run:"
+    echo "   ./build.sh --notarize"
+fi
+echo "==========================================="

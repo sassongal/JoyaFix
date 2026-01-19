@@ -217,8 +217,20 @@ struct ClipboardHistoryTabView: View {
     var onPasteItem: (ClipboardItem, PasteFormattingOption) -> Void
     var onClose: () -> Void
     
+    // Lazy loading state
+    @ObservedObject private var clipboardManager = ClipboardHistoryManager.shared
+    
     private var hasActiveFilters: Bool {
         searchOptions.dateRange != .all || !searchOptions.contentTypes.isEmpty
+    }
+    
+    /// Check if we should load more items based on current scroll position
+    private func checkAndLoadMore(currentIndex: Int) {
+        // Load more when user scrolls to last 10 items
+        let threshold = max(0, filteredHistory.count - 10)
+        if currentIndex >= threshold && clipboardManager.hasMoreItems && !clipboardManager.isLoadingMore {
+            clipboardManager.loadMoreHistory()
+        }
     }
     
     var body: some View {
@@ -303,7 +315,7 @@ struct ClipboardHistoryTabView: View {
                     .frame(height: 200)
             } else {
                 if layoutSettings.viewMode == .grid {
-                    // Grid View
+                    // Grid View with Lazy Loading
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 8)], spacing: 8) {
@@ -327,6 +339,24 @@ struct ClipboardHistoryTabView: View {
                                         }
                                     )
                                     .id(index)
+                                    .onAppear {
+                                        // Trigger lazy loading when item appears
+                                        checkAndLoadMore(currentIndex: index)
+                                    }
+                                }
+                                
+                                // Loading indicator at the bottom
+                                if clipboardManager.isLoadingMore {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                        Text("Loading more...")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 8)
                                 }
                             }
                             .padding(8)
@@ -335,10 +365,12 @@ struct ClipboardHistoryTabView: View {
                             withAnimation {
                                 proxy.scrollTo(newValue, anchor: .center)
                             }
+                            // Check for lazy loading on selection change
+                            checkAndLoadMore(currentIndex: newValue)
                         }
                     }
                 } else {
-                    // List View
+                    // List View with Lazy Loading
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 6) {
@@ -362,6 +394,24 @@ struct ClipboardHistoryTabView: View {
                                         }
                                     )
                                     .id(index)
+                                    .onAppear {
+                                        // Trigger lazy loading when item appears
+                                        checkAndLoadMore(currentIndex: index)
+                                    }
+                                }
+                                
+                                // Loading indicator at the bottom
+                                if clipboardManager.isLoadingMore {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                        Text("Loading more...")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 8)
                                 }
                             }
                             .padding(8)
@@ -370,6 +420,8 @@ struct ClipboardHistoryTabView: View {
                             withAnimation {
                                 proxy.scrollTo(newValue, anchor: .center)
                             }
+                            // Check for lazy loading on selection change
+                            checkAndLoadMore(currentIndex: newValue)
                         }
                     }
                 }
@@ -393,9 +445,16 @@ struct ClipboardHistoryTabView: View {
 
                 Spacer()
 
-                Text("\(filteredHistory.count) items")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                // Show pagination info: loaded/total items
+                if clipboardManager.totalItemCount > 0 && clipboardManager.totalItemCount != filteredHistory.count {
+                    Text("\(filteredHistory.count)/\(clipboardManager.totalItemCount) items")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("\(filteredHistory.count) items")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

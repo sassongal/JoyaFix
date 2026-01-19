@@ -106,6 +106,13 @@ enum JoyaFixConstants {
         // gemini-1.5 models were deprecated in September 2025
         static let geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
         static let openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
+        
+        // Ollama local API endpoints
+        static let ollamaDefaultEndpoint = "http://localhost:11434"
+        static let ollamaGenerateEndpoint = "/api/generate"
+        static let ollamaChatEndpoint = "/api/chat"
+        static let ollamaTagsEndpoint = "/api/tags"
+        static let ollamaShowEndpoint = "/api/show"
     }
     
     // MARK: - OpenRouter Models

@@ -41,11 +41,31 @@ class ModelDownloadManager: NSObject, ObservableObject {
             throw ModelDownloadError.downloadInProgress
         }
 
+        Logger.info("Starting download for model: \(model.displayName)")
+        Logger.info("Download URL: \(model.downloadURL)")
+
+        // Check and create models directory
+        let modelsDirectory: URL
+        do {
+            modelsDirectory = try getModelsDirectory()
+            Logger.info("Models directory path: \(modelsDirectory.path)")
+        } catch {
+            Logger.error("Failed to get/create models directory: \(error.localizedDescription)")
+            throw ModelDownloadError.fileMoveFailed("Cannot access models directory: \(error.localizedDescription)")
+        }
+
         // Check available disk space
-        let modelsDirectory = try getModelsDirectory()
-        let availableSpace = try FileManager.default.availableCapacity(forPath: modelsDirectory.path)
+        let availableSpace: Int64
+        do {
+            availableSpace = try FileManager.default.availableCapacity(forPath: modelsDirectory.path)
+            Logger.info("Available disk space: \(ByteCountFormatter.string(fromByteCount: availableSpace, countStyle: .file))")
+        } catch {
+            Logger.error("Failed to check disk space: \(error.localizedDescription)")
+            throw ModelDownloadError.downloadFailed("Cannot check disk space: \(error.localizedDescription)")
+        }
 
         guard availableSpace > Int64(model.fileSize) + 500_000_000 else {  // 500MB buffer
+            Logger.error("Insufficient disk space. Required: \(model.fileSizeFormatted), Available: \(ByteCountFormatter.string(fromByteCount: availableSpace, countStyle: .file))")
             throw ModelDownloadError.insufficientDiskSpace(required: model.fileSize, available: UInt64(availableSpace))
         }
 
@@ -56,9 +76,11 @@ class ModelDownloadManager: NSObject, ObservableObject {
 
         // Resume download if possible
         if let resumeData = resumeData {
+            Logger.info("Resuming previous download...")
             downloadTask = urlSession.downloadTask(withResumeData: resumeData)
             self.resumeData = nil
         } else {
+            Logger.info("Starting fresh download...")
             downloadTask = urlSession.downloadTask(with: model.downloadURL)
         }
 
@@ -70,6 +92,7 @@ class ModelDownloadManager: NSObject, ObservableObject {
         }
 
         downloadTask?.resume()
+        Logger.info("Download task started")
     }
 
     /// Cancels the current download
@@ -105,11 +128,31 @@ class ModelDownloadManager: NSObject, ObservableObject {
 
     /// Gets the path to the models directory, creating it if needed
     func getModelsDirectory() throws -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            Logger.error("Could not find Application Support directory")
+            throw ModelDownloadError.fileMoveFailed("Cannot find Application Support directory")
+        }
+
         let modelsDir = appSupport.appendingPathComponent(JoyaFixConstants.FilePaths.localModelsDirectory)
+        Logger.info("Models directory path: \(modelsDir.path)")
 
         if !FileManager.default.fileExists(atPath: modelsDir.path) {
-            try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+            Logger.info("Creating models directory...")
+            do {
+                try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true, attributes: nil)
+                Logger.info("Models directory created successfully")
+            } catch {
+                Logger.error("Failed to create models directory: \(error.localizedDescription)")
+                throw ModelDownloadError.fileMoveFailed("Cannot create models directory: \(error.localizedDescription)")
+            }
+        } else {
+            Logger.info("Models directory already exists")
+        }
+
+        // Verify directory is writable
+        if !FileManager.default.isWritableFile(atPath: modelsDir.path) {
+            Logger.error("Models directory is not writable: \(modelsDir.path)")
+            throw ModelDownloadError.fileMoveFailed("Models directory is not writable")
         }
 
         return modelsDir
@@ -135,6 +178,231 @@ class ModelDownloadManager: NSObject, ObservableObject {
     func getDownloadedModel(byId id: String) -> DownloadedModel? {
         downloadedModels.first { $0.id == id }
     }
+    
+    // MARK: - Model Discovery
+    
+    /// Refreshes and discovers local models from multiple sources
+    /// 1. Ollama installed models (via /api/tags)
+    /// 2. External GGUF files in common directories
+    @Published var isScanning: Bool = false
+    @Published var lastScanDate: Date?
+    
+    /// Refreshes local models by scanning Ollama and file system
+    func refreshLocalModels() async {
+        guard !isScanning else { return }
+        
+        isScanning = true
+        defer { isScanning = false }
+        
+        Logger.info("Starting local model discovery...")
+        
+        var discoveredModels: [DownloadedModel] = []
+        
+        // Keep existing downloaded models (source == .downloaded)
+        let existingDownloaded = downloadedModels.filter { $0.source == .downloaded && $0.exists }
+        discoveredModels.append(contentsOf: existingDownloaded)
+        
+        // 1. Discover Ollama models
+        let ollamaModels = await discoverOllamaModels()
+        discoveredModels.append(contentsOf: ollamaModels)
+        
+        // 2. Discover external GGUF files
+        let externalModels = await discoverExternalGGUFModels()
+        discoveredModels.append(contentsOf: externalModels)
+        
+        // Update the list (remove duplicates by ID)
+        var uniqueModels: [String: DownloadedModel] = [:]
+        for model in discoveredModels {
+            // Prefer downloaded over discovered
+            if let existing = uniqueModels[model.id] {
+                if existing.source == .downloaded {
+                    continue // Keep downloaded version
+                }
+            }
+            uniqueModels[model.id] = model
+        }
+        
+        downloadedModels = Array(uniqueModels.values).sorted { $0.downloadedAt > $1.downloadedAt }
+        saveDownloadedModels()
+        
+        lastScanDate = Date()
+        
+        Logger.info("Model discovery complete. Found \(downloadedModels.count) models")
+        
+        // Show toast
+        NotificationCenter.default.post(
+            name: .showToast,
+            object: ToastMessage(
+                text: "Found \(downloadedModels.count) models",
+                style: .success,
+                duration: 2.0
+            )
+        )
+    }
+    
+    /// Discovers models installed in Ollama
+    private func discoverOllamaModels() async -> [DownloadedModel] {
+        var models: [DownloadedModel] = []
+        
+        do {
+            let ollamaModels = try await OllamaService.shared.fetchAvailableModels()
+            
+            for ollamaModel in ollamaModels {
+                // Create LocalModelInfo for Ollama model
+                let modelInfo = LocalModelInfo(
+                    id: "ollama-\(ollamaModel.name)",
+                    name: ollamaModel.name,
+                    displayName: ollamaModel.displayName,
+                    description: "Ollama model: \(ollamaModel.details?.family ?? "Unknown family")",
+                    downloadURL: URL(string: "ollama://\(ollamaModel.name)")!,  // Placeholder URL
+                    fileSize: UInt64(ollamaModel.size ?? 0),
+                    requiredRAM: UInt64(ollamaModel.size ?? 0) * 2,  // Estimate: 2x file size
+                    supportsVision: ollamaModel.supportsVision,
+                    quantization: ollamaModel.details?.quantizationLevel ?? "Unknown",
+                    contextLength: 4096  // Default
+                )
+                
+                let downloadedModel = DownloadedModel(
+                    id: "ollama-\(ollamaModel.name)",
+                    info: modelInfo,
+                    localPath: "",  // Ollama manages the path
+                    downloadedAt: Date(),
+                    isExternal: true,
+                    source: .ollama,
+                    ollamaModelName: ollamaModel.name
+                )
+                
+                models.append(downloadedModel)
+            }
+            
+            Logger.info("Discovered \(models.count) Ollama models")
+            
+        } catch {
+            Logger.warning("Failed to discover Ollama models: \(error.localizedDescription)")
+        }
+        
+        return models
+    }
+    
+    /// Discovers GGUF model files in common directories
+    private func discoverExternalGGUFModels() async -> [DownloadedModel] {
+        var models: [DownloadedModel] = []
+        
+        // Common directories to scan
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let searchPaths = [
+            homeDir.appendingPathComponent(".ollama/models"),
+            homeDir.appendingPathComponent("Models"),
+            homeDir.appendingPathComponent("AI-Models"),
+            homeDir.appendingPathComponent("LLM-Models"),
+            homeDir.appendingPathComponent("Downloads")  // Check Downloads for GGUF files
+        ]
+        
+        for searchPath in searchPaths {
+            guard FileManager.default.fileExists(atPath: searchPath.path) else {
+                continue
+            }
+            
+            // Check if we have read access (sandbox consideration)
+            guard FileManager.default.isReadableFile(atPath: searchPath.path) else {
+                Logger.warning("Cannot read directory (sandbox): \(searchPath.path)")
+                continue
+            }
+            
+            do {
+                let contents = try FileManager.default.contentsOfDirectory(
+                    at: searchPath,
+                    includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+                    options: [.skipsHiddenFiles]
+                )
+                
+                for fileURL in contents where fileURL.pathExtension.lowercased() == "gguf" {
+                    // Get file attributes
+                    let attributes = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+                    let fileSize = UInt64(attributes.fileSize ?? 0)
+                    
+                    // Create model info from file
+                    let fileName = fileURL.deletingPathExtension().lastPathComponent
+                    let modelId = "external-\(fileName)"
+                    
+                    // Skip if already tracked
+                    if downloadedModels.contains(where: { $0.localPath == fileURL.path }) {
+                        continue
+                    }
+                    
+                    // Detect if it's a vision model from name
+                    let supportsVision = ["llava", "bakllava", "moondream"].contains { fileName.lowercased().contains($0) }
+                    
+                    let modelInfo = LocalModelInfo(
+                        id: modelId,
+                        name: fileName,
+                        displayName: formatModelName(fileName),
+                        description: "External GGUF model found at: \(searchPath.lastPathComponent)",
+                        downloadURL: fileURL,  // Local file URL
+                        fileSize: fileSize,
+                        requiredRAM: fileSize * 2,  // Estimate
+                        supportsVision: supportsVision,
+                        quantization: extractQuantization(from: fileName),
+                        contextLength: 4096
+                    )
+                    
+                    let downloadedModel = DownloadedModel(
+                        id: modelId,
+                        info: modelInfo,
+                        localPath: fileURL.path,
+                        downloadedAt: Date(),
+                        isExternal: true,
+                        source: .external,
+                        ollamaModelName: nil
+                    )
+                    
+                    models.append(downloadedModel)
+                    Logger.info("Found external GGUF: \(fileName)")
+                }
+                
+            } catch {
+                Logger.warning("Error scanning \(searchPath.path): \(error.localizedDescription)")
+            }
+        }
+        
+        Logger.info("Discovered \(models.count) external GGUF models")
+        return models
+    }
+    
+    /// Formats a model filename into a display name
+    private func formatModelName(_ filename: String) -> String {
+        var name = filename
+        
+        // Remove common suffixes
+        let suffixes = ["-gguf", "_gguf", ".gguf", "-q4_k_m", "-q4_k", "-q5_k_m", "-q5_k", "-q8_0", "-f16"]
+        for suffix in suffixes {
+            if name.lowercased().hasSuffix(suffix) {
+                name = String(name.dropLast(suffix.count))
+            }
+        }
+        
+        // Replace separators with spaces
+        name = name
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+        
+        // Capitalize words
+        return name.capitalized
+    }
+    
+    /// Extracts quantization info from filename
+    private func extractQuantization(from filename: String) -> String {
+        let patterns = ["q4_k_m", "q4_k", "q5_k_m", "q5_k", "q8_0", "f16", "q2_k", "q3_k"]
+        let lowerName = filename.lowercased()
+        
+        for pattern in patterns {
+            if lowerName.contains(pattern) {
+                return pattern.uppercased()
+            }
+        }
+        
+        return "Unknown"
+    }
 
     // MARK: - Private Methods
 
@@ -157,20 +425,59 @@ class ModelDownloadManager: NSObject, ObservableObject {
     }
 
     private func completeDownload(tempLocation: URL) {
-        guard let model = currentDownloadModel else { return }
+        guard let model = currentDownloadModel else {
+            Logger.error("completeDownload called but no currentDownloadModel set")
+            return
+        }
+
+        Logger.info("Download completed for: \(model.displayName)")
+        Logger.info("Temp file location: \(tempLocation.path)")
 
         Task { @MainActor in
             do {
+                // Get and verify models directory exists
                 let modelsDirectory = try getModelsDirectory()
+                Logger.info("Models directory: \(modelsDirectory.path)")
+
+                // Double-check directory exists (create if needed)
+                if !FileManager.default.fileExists(atPath: modelsDirectory.path) {
+                    Logger.info("Models directory doesn't exist, creating...")
+                    try FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+                    Logger.info("Models directory created successfully")
+                }
+
                 let destinationURL = modelsDirectory.appendingPathComponent("\(model.name).gguf")
+                Logger.info("Destination path: \(destinationURL.path)")
+
+                // Verify temp file exists
+                guard FileManager.default.fileExists(atPath: tempLocation.path) else {
+                    Logger.error("Temp file not found at: \(tempLocation.path)")
+                    throw ModelDownloadError.fileMoveFailed("Downloaded file not found")
+                }
+
+                // Get temp file size for verification
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: tempLocation.path),
+                   let fileSize = attrs[.size] as? Int64 {
+                    Logger.info("Downloaded file size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
+                }
 
                 // Remove existing file if present
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    Logger.info("Removing existing file at destination...")
                     try FileManager.default.removeItem(at: destinationURL)
                 }
 
                 // Move downloaded file to final location
+                Logger.info("Moving file to final destination...")
                 try FileManager.default.moveItem(at: tempLocation, to: destinationURL)
+
+                // Verify file was moved successfully
+                guard FileManager.default.fileExists(atPath: destinationURL.path) else {
+                    Logger.error("File move appeared to succeed but file not found at destination")
+                    throw ModelDownloadError.fileMoveFailed("File not found after move")
+                }
+
+                Logger.info("File moved successfully!")
 
                 // Add to downloaded models
                 let downloadedModel = DownloadedModel(
@@ -183,7 +490,7 @@ class ModelDownloadManager: NSObject, ObservableObject {
                 downloadedModels.append(downloadedModel)
                 saveDownloadedModels()
 
-                Logger.info("Successfully downloaded model: \(model.displayName)")
+                Logger.info("Successfully downloaded and saved model: \(model.displayName)")
 
                 // Show toast notification
                 NotificationCenter.default.post(
@@ -195,8 +502,21 @@ class ModelDownloadManager: NSObject, ObservableObject {
                     )
                 )
 
+            } catch let error as ModelDownloadError {
+                Logger.error("ModelDownloadError: \(error.localizedDescription ?? "Unknown")")
+                downloadError = error
+
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Failed to save model: \(error.localizedDescription ?? "Unknown error")",
+                        style: .error,
+                        duration: 5.0
+                    )
+                )
             } catch {
                 Logger.error("Failed to save downloaded model: \(error.localizedDescription)")
+                Logger.error("Error type: \(type(of: error))")
                 downloadError = error
 
                 NotificationCenter.default.post(
@@ -204,7 +524,7 @@ class ModelDownloadManager: NSObject, ObservableObject {
                     object: ToastMessage(
                         text: "Failed to save model: \(error.localizedDescription)",
                         style: .error,
-                        duration: 3.0
+                        duration: 5.0
                     )
                 )
             }

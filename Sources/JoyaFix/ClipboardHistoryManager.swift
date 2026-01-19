@@ -10,11 +10,25 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - Published Properties
 
     @Published private(set) var history: [ClipboardItem] = []
+    
+    // MARK: - Pagination Properties
+    
+    /// Number of items to load per page for lazy loading
+    private let pageSize: Int = 50
+    /// Current offset for pagination (how many items already loaded)
+    @Published private(set) var currentOffset: Int = 0
+    /// Total count of items in database
+    @Published private(set) var totalItemCount: Int = 0
+    /// Whether more items are available to load
+    var hasMoreItems: Bool { currentOffset < totalItemCount }
+    /// Whether currently loading more items
+    @Published private(set) var isLoadingMore: Bool = false
 
     // MARK: - Private Properties
 
     private var pollTimer: Timer?
-    private var cleanupTimer: Timer?
+    private var fileSystemMonitor: DispatchSourceFileSystemObject?
+    private var fileDescriptor: Int32 = -1
     private var lastChangeCount: Int = 0
     private var lastCopiedText: String?
     // CRITICAL FIX: Use timestamp-based approach for internal write detection
@@ -138,17 +152,81 @@ class ClipboardHistoryManager: ObservableObject {
         }
         Logger.clipboard("Clipboard monitoring started", level: .info)
 
-        // Start scheduled disk cleanup (runs every 24 hours)
-        startScheduledCleanup()
+        // Start file system monitoring for cleanup (replaces 24-hour timer)
+        startFileSystemMonitoring()
     }
 
     /// Stops monitoring the clipboard
     func stopMonitoring() {
         pollTimer?.invalidate()
         pollTimer = nil
-        cleanupTimer?.invalidate()
-        cleanupTimer = nil
+        stopFileSystemMonitoring()
         Logger.clipboard("Clipboard monitoring stopped", level: .info)
+    }
+    
+    // MARK: - Pagination Methods
+    
+    /// Loads the initial page of history (with pagination)
+    /// PERFORMANCE: Only loads first page instead of entire history
+    @MainActor
+    func loadInitialHistory() {
+        do {
+            // Get total count for pagination UI
+            totalItemCount = try databaseManager.getClipboardHistoryCount()
+            
+            // Load first page
+            let items = try databaseManager.loadClipboardHistory(limit: pageSize, offset: 0)
+            history = items
+            currentOffset = items.count
+            
+            Logger.clipboard("Loaded initial history: \(items.count) items (total: \(totalItemCount))", level: .info)
+        } catch {
+            Logger.clipboard("Failed to load initial history: \(error.localizedDescription)", level: .error)
+            // Fallback to legacy load
+            loadHistory()
+        }
+    }
+    
+    /// Loads the next page of history items
+    /// Call this when user scrolls near the bottom of the list
+    /// PERFORMANCE: Enables infinite scroll / lazy loading
+    @MainActor
+    func loadMoreHistory() {
+        guard !isLoadingMore && hasMoreItems else { return }
+        
+        isLoadingMore = true
+        
+        Task {
+            do {
+                let additionalItems = try databaseManager.loadClipboardHistory(limit: pageSize, offset: currentOffset)
+                
+                await MainActor.run {
+                    // Append new items, avoiding duplicates
+                    let existingIds = Set(history.map { $0.id })
+                    let newItems = additionalItems.filter { !existingIds.contains($0.id) }
+                    
+                    history.append(contentsOf: newItems)
+                    currentOffset += newItems.count
+                    isLoadingMore = false
+                    
+                    Logger.clipboard("Loaded more history: +\(newItems.count) items (total loaded: \(history.count)/\(totalItemCount))", level: .debug)
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingMore = false
+                    Logger.clipboard("Failed to load more history: \(error.localizedDescription)", level: .error)
+                }
+            }
+        }
+    }
+    
+    /// Resets pagination and reloads from the beginning
+    /// Call after clearing history or major changes
+    @MainActor
+    func resetPagination() {
+        currentOffset = 0
+        history = []
+        loadInitialHistory()
     }
 
     // MARK: - Clipboard Monitoring
@@ -1003,25 +1081,72 @@ class ClipboardHistoryManager: ObservableObject {
         }
     }
     
-    // MARK: - Scheduled Cleanup
+    // MARK: - File System Monitoring
     
-    /// Starts scheduled disk cleanup (runs every 24 hours)
-    private func startScheduledCleanup() {
+    /// Starts file system monitoring using DispatchSourceFileSystemObject
+    /// PERFORMANCE: Only runs cleanup when directory actually changes (vs every 24 hours)
+    private func startFileSystemMonitoring() {
         // Run cleanup immediately on first start (after a short delay to ensure history is loaded)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds delay
             cleanupOrphanedFiles()
         }
         
-        // Schedule periodic cleanup (every 24 hours)
-        // CRITICAL FIX: Use weak self in both Timer and Task to prevent retain cycle
-        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+        // Open file descriptor for monitoring
+        fileDescriptor = open(dataDirectory.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else {
+            Logger.clipboard("Failed to open file descriptor for monitoring: \(dataDirectory.path)", level: .error)
+            return
+        }
+        
+        // Create dispatch source for file system events
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename, .extend],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+        
+        source.setEventHandler { [weak self] in
             guard let self = self else { return }
-            Task { @MainActor [weak self] in
-                self?.cleanupOrphanedFiles()
+            
+            // Debounce: Only cleanup if enough time has passed since last cleanup
+            let now = Date()
+            Task { @MainActor in
+                if let lastScan = self.lastCleanupScan,
+                   now.timeIntervalSince(lastScan) < 60 {
+                    // Skip if cleaned up less than 60 seconds ago
+                    return
+                }
+                
+                Logger.clipboard("File system change detected in data directory - running cleanup", level: .debug)
+                self.cleanupOrphanedFiles()
             }
         }
-        Logger.clipboard("Scheduled disk cleanup started (runs every 24 hours)", level: .info)
+        
+        source.setCancelHandler { [weak self] in
+            guard let self = self, self.fileDescriptor >= 0 else { return }
+            close(self.fileDescriptor)
+            self.fileDescriptor = -1
+        }
+        
+        source.resume()
+        fileSystemMonitor = source
+        
+        Logger.clipboard("File system monitoring started for: \(dataDirectory.path)", level: .info)
+    }
+    
+    /// Stops file system monitoring
+    private func stopFileSystemMonitoring() {
+        fileSystemMonitor?.cancel()
+        fileSystemMonitor = nil
+        
+        // Close file descriptor if still open
+        if fileDescriptor >= 0 {
+            close(fileDescriptor)
+            fileDescriptor = -1
+        }
+        
+        Logger.clipboard("File system monitoring stopped", level: .info)
     }
     
     // MARK: - File Deletion Helpers

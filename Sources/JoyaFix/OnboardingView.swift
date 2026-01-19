@@ -8,8 +8,15 @@ struct OnboardingView: View {
     @State private var microphoneGranted = false
     @State private var speechRecognitionGranted = false
     @State private var permissionCheckTimer: Timer?
+    @State private var selectedAIProvider: AIProvider = .gemini
+    
+    @ObservedObject private var downloadManager = ModelDownloadManager.shared
+    @ObservedObject private var settings = SettingsManager.shared
     
     let onComplete: () -> Void
+    
+    // Total pages: 6
+    private let totalPages = 6
     
     var body: some View {
         VStack(spacing: 0) {
@@ -19,22 +26,25 @@ struct OnboardingView: View {
                 case 0:
                     WelcomeSlide()
                 case 1:
-                    FeaturesSlide()
+                    AIIntroSlide()
                 case 2:
-                    DetailedFeaturesSlide()
+                    AIChoiceSlide(selectedProvider: $selectedAIProvider)
                 case 3:
-                    CaffeineModeSlide()
+                    LocalModelSetupSlide(
+                        selectedProvider: $selectedAIProvider,
+                        downloadManager: downloadManager
+                    )
                 case 4:
-                    ColorPickerSlide()
-                case 5:
                     PermissionsSlide(
                         accessibilityGranted: $accessibilityGranted,
                         screenRecordingGranted: $screenRecordingGranted,
                         microphoneGranted: $microphoneGranted,
                         speechRecognitionGranted: $speechRecognitionGranted
                     )
-                case 6:
+                case 5:
                     ReadySlide(onComplete: {
+                        // Save the selected AI provider
+                        settings.aiProvider = selectedAIProvider
                         hasCompletedOnboarding = true
                         onComplete()
                     })
@@ -69,7 +79,7 @@ struct OnboardingView: View {
                 
                 // Page indicators
                 HStack(spacing: 8) {
-                    ForEach(0..<7) { index in
+                    ForEach(0..<totalPages, id: \.self) { index in
                         Circle()
                             .fill(index == currentPage ? Color.accentColor : Color.gray.opacity(0.3))
                             .frame(width: index == currentPage ? 10 : 8, height: index == currentPage ? 10 : 8)
@@ -80,7 +90,7 @@ struct OnboardingView: View {
                 Spacer()
                 
                 // Next/Get Started button
-                if currentPage < 6 {
+                if currentPage < totalPages - 1 {
                     Button(action: {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                             currentPage += 1
@@ -102,6 +112,8 @@ struct OnboardingView: View {
         .onAppear {
             checkPermissions()
             startPermissionPolling()
+            // Load current AI provider setting
+            selectedAIProvider = settings.aiProvider
         }
         .onDisappear {
             stopPermissionPolling()
@@ -136,7 +148,7 @@ struct OnboardingView: View {
     }
 }
 
-// MARK: - Welcome Slide
+// MARK: - Welcome Slide (Screen 1)
 
 struct WelcomeSlide: View {
     @State private var logoScale: CGFloat = 0.8
@@ -212,315 +224,385 @@ struct WelcomeSlide: View {
     }
 }
 
-// MARK: - Features Slide
+// MARK: - AI Intro Slide (Screen 2)
 
-struct FeaturesSlide: View {
+struct AIIntroSlide: View {
+    @State private var iconScale: CGFloat = 0.8
+    @State private var iconOpacity: Double = 0
+    
     var body: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                VStack(spacing: 8) {
-                    Text(NSLocalizedString("onboarding.features.title", comment: "Features title"))
-                        .font(.system(size: 36, weight: .bold))
-                    
-                    Text(NSLocalizedString("onboarding.features.subtitle", comment: "Features subtitle"))
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.bottom, 8)
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // AI Icon with animation
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.purple.opacity(0.3), Color.pink.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 160, height: 160)
+                    .shadow(color: .purple.opacity(0.3), radius: 20, x: 0, y: 10)
                 
-                VStack(spacing: 20) {
-                    FeatureCard(
-                        icon: "arrow.left.arrow.right",
-                        iconColor: .blue,
-                        title: NSLocalizedString("onboarding.feature.convert.title", comment: "Convert feature title"),
-                        description: NSLocalizedString("onboarding.feature.convert.description", comment: "Convert feature description")
+                Image(systemName: "sparkles")
+                    .font(.system(size: 70))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.purple, .pink],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                    
-                    FeatureCard(
-                        icon: "viewfinder",
-                        iconColor: .green,
-                        title: NSLocalizedString("onboarding.feature.ocr.title", comment: "OCR feature title"),
-                        description: NSLocalizedString("onboarding.feature.ocr.description", comment: "OCR feature description")
-                    )
-                    
-                    FeatureCard(
-                        icon: "text.bubble",
-                        iconColor: .purple,
-                        title: NSLocalizedString("onboarding.feature.snippets.title", comment: "Snippets feature title"),
-                        description: NSLocalizedString("onboarding.feature.snippets.description", comment: "Snippets feature description"),
-                        example: NSLocalizedString("onboarding.feature.snippets.example", comment: "Snippets feature example")
-                    )
-                }
-                
-                // AI Features Note
-                HStack(spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 14))
-                        .foregroundColor(.orange)
-                    Text(NSLocalizedString("onboarding.ai.features.note", comment: "AI features note"))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .italic()
-                }
-                .padding(.top, 8)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(8)
+                    .scaleEffect(iconScale)
+                    .opacity(iconOpacity)
             }
-            .padding(40)
+            
+            VStack(spacing: 16) {
+                Text(NSLocalizedString("onboarding.ai.intro.title", comment: "AI intro title"))
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.purple, .pink],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                
+                Text(NSLocalizedString("onboarding.ai.intro.subtitle", comment: "AI intro subtitle"))
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Text(NSLocalizedString("onboarding.ai.intro.description", comment: "AI intro description"))
+                    .font(.system(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 60)
+                    .padding(.top, 8)
+            }
+            
+            // Feature highlights
+            VStack(spacing: 12) {
+                FeatureBullet(icon: "text.bubble.fill", text: NSLocalizedString("onboarding.ai.intro.feature1", comment: "AI feature 1"))
+                FeatureBullet(icon: "globe", text: NSLocalizedString("onboarding.ai.intro.feature2", comment: "AI feature 2"))
+                FeatureBullet(icon: "wand.and.stars", text: NSLocalizedString("onboarding.ai.intro.feature3", comment: "AI feature 3"))
+            }
+            .padding(.top, 16)
+            
+            Spacer()
+        }
+        .padding(40)
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                iconScale = 1.0
+                iconOpacity = 1.0
+            }
         }
     }
 }
 
-struct FeatureCard: View {
-    let icon: String
-    var iconColor: Color = .blue
-    let title: String
-    let description: String
-    var example: String? = nil
+// MARK: - AI Choice Slide (Screen 3)
+
+struct AIChoiceSlide: View {
+    @Binding var selectedProvider: AIProvider
     
     var body: some View {
-        HStack(spacing: 20) {
-            // Icon with background
-            ZStack {
-                Circle()
-                    .fill(iconColor.opacity(0.15))
-                    .frame(width: 60, height: 60)
+        VStack(spacing: 24) {
+            Spacer()
+            
+            VStack(spacing: 12) {
+                Text(NSLocalizedString("onboarding.ai.choice.title", comment: "AI choice title"))
+                    .font(.system(size: 36, weight: .bold))
                 
-                Image(systemName: icon)
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundColor(iconColor)
+                Text(NSLocalizedString("onboarding.ai.choice.subtitle", comment: "AI choice subtitle"))
+                    .font(.system(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
             }
             
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 18, weight: .semibold))
+            HStack(spacing: 24) {
+                // Cloud Option (Gemini)
+                ProviderOptionCard(
+                    icon: "cloud.fill",
+                    iconColor: .blue,
+                    title: NSLocalizedString("onboarding.ai.choice.cloud.title", comment: "Cloud option title"),
+                    features: [
+                        NSLocalizedString("onboarding.ai.choice.cloud.feature1", comment: "Cloud feature 1"),
+                        NSLocalizedString("onboarding.ai.choice.cloud.feature2", comment: "Cloud feature 2"),
+                        NSLocalizedString("onboarding.ai.choice.cloud.feature3", comment: "Cloud feature 3")
+                    ],
+                    isSelected: selectedProvider == .gemini || selectedProvider == .openRouter
+                ) {
+                    selectedProvider = .gemini
+                }
                 
-                Text(description)
-                    .font(.system(size: 14))
+                // Local Option
+                ProviderOptionCard(
+                    icon: "lock.shield.fill",
+                    iconColor: .green,
+                    title: NSLocalizedString("onboarding.ai.choice.local.title", comment: "Local option title"),
+                    features: [
+                        NSLocalizedString("onboarding.ai.choice.local.feature1", comment: "Local feature 1"),
+                        NSLocalizedString("onboarding.ai.choice.local.feature2", comment: "Local feature 2"),
+                        NSLocalizedString("onboarding.ai.choice.local.feature3", comment: "Local feature 3")
+                    ],
+                    isSelected: selectedProvider == .local
+                ) {
+                    selectedProvider = .local
+                }
+            }
+            .padding(.horizontal, 20)
+            
+            // Note about changing later
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(NSLocalizedString("onboarding.ai.choice.note", comment: "Can change later note"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 8)
+            
+            Spacer()
+        }
+        .padding(40)
+    }
+}
+
+struct ProviderOptionCard: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let features: [String]
+    let isSelected: Bool
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 16) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(iconColor.opacity(0.15))
+                        .frame(width: 80, height: 80)
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: 36))
+                        .foregroundColor(iconColor)
+                }
                 
-                // Show example if provided
-                if let example = example {
-                    HStack(spacing: 6) {
-                        Image(systemName: "lightbulb.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(.orange)
-                        Text(example)
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .italic()
+                // Title
+                Text(title)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.primary)
+                
+                // Features
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(features, id: \.self) { feature in
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(iconColor)
+                            Text(feature)
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
                     }
-                    .padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(NSColor.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(isSelected ? iconColor : Color.clear, lineWidth: 3)
+                    )
+                    .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Local Model Setup Slide (Screen 4)
+
+struct LocalModelSetupSlide: View {
+    @Binding var selectedProvider: AIProvider
+    @ObservedObject var downloadManager: ModelDownloadManager
+    
+    // Recommended model (Gemma 2B)
+    private var recommendedModel: LocalModelInfo? {
+        LocalModelRegistry.availableModels.first { $0.id == "gemma-2-2b-instruct" }
+    }
+    
+    private var isModelDownloaded: Bool {
+        guard let model = recommendedModel else { return false }
+        return downloadManager.downloadedModels.contains { $0.id == model.id && $0.exists }
+    }
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.green.opacity(0.3), Color.teal.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .shadow(color: .green.opacity(0.3), radius: 15, x: 0, y: 8)
+                
+                Image(systemName: "cpu.fill")
+                    .font(.system(size: 50))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.green, .teal],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(spacing: 12) {
+                Text(NSLocalizedString("onboarding.local.setup.title", comment: "Local setup title"))
+                    .font(.system(size: 32, weight: .bold))
+                
+                if selectedProvider == .local {
+                    Text(NSLocalizedString("onboarding.local.setup.description", comment: "Local setup description"))
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                } else {
+                    Text(NSLocalizedString("onboarding.local.setup.skip.description", comment: "Skip local setup description"))
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+            }
+            
+            // Download section (only show if local is selected)
+            if selectedProvider == .local {
+                VStack(spacing: 16) {
+                    if let model = recommendedModel {
+                        // Model info card
+                        VStack(spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(model.displayName)
+                                        .font(.system(size: 18, weight: .semibold))
+                                    Text(model.description)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                
+                                if isModelDownloaded {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                        Text(NSLocalizedString("onboarding.local.setup.downloaded", comment: "Downloaded"))
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                            }
+                            
+                            HStack(spacing: 16) {
+                                Label(model.fileSizeFormatted, systemImage: "internaldrive")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                Label(model.requiredRAMFormatted + " RAM", systemImage: "memorychip")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(NSColor.controlBackgroundColor))
+                                .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+                        )
+                        
+                        // Download button or progress
+                        if downloadManager.isDownloading && downloadManager.currentDownloadModel?.id == model.id {
+                            VStack(spacing: 8) {
+                                ProgressView(value: downloadManager.downloadProgress)
+                                    .progressViewStyle(.linear)
+                                
+                                HStack {
+                                    Text("\(Int(downloadManager.downloadProgress * 100))%")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Button(NSLocalizedString("onboarding.local.setup.cancel", comment: "Cancel")) {
+                                        downloadManager.cancelDownload()
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                }
+                            }
+                            .padding(.horizontal, 40)
+                        } else if !isModelDownloaded {
+                            Button(action: {
+                                Task {
+                                    try? await downloadManager.downloadModel(model)
+                                }
+                            }) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                    Text(NSLocalizedString("onboarding.local.setup.download", comment: "Download button"))
+                                }
+                                .font(.system(size: 16, weight: .semibold))
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                        }
+                    }
+                }
+                .padding(.horizontal, 40)
+            } else {
+                // Show option to switch to local
+                VStack(spacing: 12) {
+                    Text(NSLocalizedString("onboarding.local.setup.switch.hint", comment: "Switch hint"))
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    
+                    Button(action: {
+                        selectedProvider = .local
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.left.arrow.right")
+                            Text(NSLocalizedString("onboarding.local.setup.switch", comment: "Switch to local"))
+                        }
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
             
             Spacer()
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
-        )
+        .padding(40)
     }
 }
 
-// MARK: - Detailed Features Slide
-
-struct DetailedFeaturesSlide: View {
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    Text(NSLocalizedString("onboarding.detailed.features.title", comment: "Detailed Features Title"))
-                        .font(.system(size: 36, weight: .bold))
-                    
-                    Text(NSLocalizedString("onboarding.detailed.features.subtitle", comment: "Detailed Features Subtitle"))
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.bottom, 16)
-                
-                VStack(spacing: 16) {
-                    DetailedFeatureRow(
-                        icon: "textformat",
-                        iconColor: .blue,
-                        title: NSLocalizedString("onboarding.detailed.convert.title", comment: "Detailed Convert Title"),
-                        description: NSLocalizedString("onboarding.detailed.convert.description", comment: "Detailed Convert Description"),
-                        hotkey: "⌘⌥K"
-                    )
-                    
-                    DetailedFeatureRow(
-                        icon: "viewfinder",
-                        iconColor: .green,
-                        title: NSLocalizedString("onboarding.detailed.ocr.title", comment: "Detailed OCR Title"),
-                        description: NSLocalizedString("onboarding.detailed.ocr.description", comment: "Detailed OCR Description"),
-                        hotkey: "⌘⌥X"
-                    )
-                    
-                    DetailedFeatureRow(
-                        icon: "text.bubble",
-                        iconColor: .purple,
-                        title: NSLocalizedString("onboarding.detailed.snippets.title", comment: "Detailed Snippets Title"),
-                        description: NSLocalizedString("onboarding.detailed.snippets.description", comment: "Detailed Snippets Description"),
-                        hotkey: "Auto"
-                    )
-                    
-                    DetailedFeatureRow(
-                        icon: "clipboard",
-                        iconColor: .orange,
-                        title: NSLocalizedString("onboarding.detailed.clipboard.title", comment: "Detailed Clipboard Title"),
-                        description: NSLocalizedString("onboarding.detailed.clipboard.description", comment: "Detailed Clipboard Description"),
-                        hotkey: "Click"
-                    )
-                    
-                    DetailedFeatureRow(
-                        icon: "keyboard",
-                        iconColor: .red,
-                        title: NSLocalizedString("onboarding.detailed.keyboard.title", comment: "Detailed Keyboard Title"),
-                        description: NSLocalizedString("onboarding.detailed.keyboard.description", comment: "Detailed Keyboard Description"),
-                        hotkey: "⌘⌥L"
-                    )
-                    
-                    DetailedFeatureRow(
-                        icon: "sparkles",
-                        iconColor: .pink,
-                        title: NSLocalizedString("onboarding.detailed.ai.title", comment: "Detailed AI Title"),
-                        description: NSLocalizedString("onboarding.detailed.ai.description", comment: "Detailed AI Description"),
-                        hotkey: "⌘⌥P"
-                    )
-                }
-                
-                // API Keys Information
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Image(systemName: "key.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.orange)
-                        Text("API Keys Setup")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("To use AI features (Prompt Enhancement, Translation), you'll need an API key:")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                        
-                        // Gemini
-                        HStack(spacing: 8) {
-                            Text("• Gemini:")
-                                .font(.system(size: 12, weight: .medium))
-                            Button(action: {
-                                if let url = URL(string: "https://aistudio.google.com/app/apikey") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }) {
-                                Text("Get free API key from Google AI Studio")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.blue)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        // OpenRouter
-                        HStack(spacing: 8) {
-                            Text("• OpenRouter:")
-                                .font(.system(size: 12, weight: .medium))
-                            Button(action: {
-                                if let url = URL(string: "https://openrouter.ai/keys") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }) {
-                                Text("Get API key for more models")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.blue)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        HStack(spacing: 6) {
-                            Image(systemName: "lock.shield.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.green)
-                            Text("All API keys are stored securely in macOS Keychain")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.orange.opacity(0.1))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
-                        )
-                )
-            }
-            .padding(40)
-        }
-    }
-}
-
-struct DetailedFeatureRow: View {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    let description: String
-    let hotkey: String
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            // Icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(iconColor.opacity(0.15))
-                    .frame(width: 50, height: 50)
-                
-                Image(systemName: icon)
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(iconColor)
-            }
-            
-            // Content
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-                    
-                    Spacer()
-                    
-                    // Hotkey badge
-                    Text(hotkey)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(6)
-                }
-                
-                Text(description)
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
-        )
-    }
-}
-
-// MARK: - Permissions Slide
+// MARK: - Permissions Slide (Screen 5)
 
 struct PermissionsSlide: View {
     @Binding var accessibilityGranted: Bool
@@ -552,6 +634,7 @@ struct PermissionsSlide: View {
                         title: NSLocalizedString("onboarding.permissions.accessibility.title", comment: "Accessibility permission title"),
                         description: NSLocalizedString("onboarding.permissions.accessibility.description", comment: "Accessibility permission description"),
                         isGranted: accessibilityGranted,
+                        isRequired: true,
                         onGrant: {
                             PermissionManager.shared.openAccessibilitySettings()
                         }
@@ -562,6 +645,7 @@ struct PermissionsSlide: View {
                         title: NSLocalizedString("onboarding.permissions.screen.recording.title", comment: "Screen recording permission title"),
                         description: NSLocalizedString("onboarding.permissions.screen.recording.description", comment: "Screen recording permission description"),
                         isGranted: screenRecordingGranted,
+                        isRequired: false,
                         onGrant: {
                             PermissionManager.shared.openScreenRecordingSettings()
                         }
@@ -569,9 +653,10 @@ struct PermissionsSlide: View {
                     
                     PermissionRow(
                         icon: "mic.fill",
-                        title: "Microphone",
-                        description: "Required for voice input feature. Allows the app to record audio for speech-to-text transcription.",
+                        title: NSLocalizedString("onboarding.permissions.microphone.title", comment: "Microphone permission title"),
+                        description: NSLocalizedString("onboarding.permissions.microphone.description", comment: "Microphone permission description"),
                         isGranted: microphoneGranted,
+                        isRequired: false,
                         onGrant: {
                             PermissionManager.shared.openMicrophoneSettings()
                         }
@@ -579,9 +664,10 @@ struct PermissionsSlide: View {
                     
                     PermissionRow(
                         icon: "waveform",
-                        title: "Speech Recognition",
-                        description: "Required for voice input feature. Allows the app to transcribe speech to text in Hebrew and English.",
+                        title: NSLocalizedString("onboarding.permissions.speech.title", comment: "Speech recognition permission title"),
+                        description: NSLocalizedString("onboarding.permissions.speech.description", comment: "Speech recognition permission description"),
                         isGranted: speechRecognitionGranted,
+                        isRequired: false,
                         onGrant: {
                             PermissionManager.shared.openSpeechRecognitionSettings()
                         }
@@ -598,6 +684,7 @@ struct PermissionRow: View {
     let title: String
     let description: String
     let isGranted: Bool
+    var isRequired: Bool = false
     let onGrant: () -> Void
     
     var body: some View {
@@ -614,8 +701,20 @@ struct PermissionRow: View {
             }
             
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 18, weight: .semibold))
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .semibold))
+                    
+                    if isRequired {
+                        Text(NSLocalizedString("onboarding.permissions.required", comment: "Required badge"))
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red.opacity(0.2))
+                            .foregroundColor(.red)
+                            .cornerRadius(4)
+                    }
+                }
                 
                 Text(description)
                     .font(.system(size: 14))
@@ -652,7 +751,7 @@ struct PermissionRow: View {
     }
 }
 
-// MARK: - Ready Slide
+// MARK: - Ready Slide (Screen 6)
 
 struct ReadySlide: View {
     let onComplete: () -> Void
@@ -692,6 +791,22 @@ struct ReadySlide: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
+                
+                // Hotkey reminder
+                VStack(spacing: 8) {
+                    Text(NSLocalizedString("onboarding.ready.hotkey.hint", comment: "Hotkey hint"))
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    
+                    Text("⌘ ⌥ P")
+                        .font(.system(size: 24, weight: .bold, design: .monospaced))
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor.opacity(0.1))
+                        .cornerRadius(10)
+                }
+                .padding(.top, 8)
             }
             
             Button(action: {
@@ -723,134 +838,6 @@ struct ReadySlide: View {
     }
 }
 
-// MARK: - Caffeine Mode Slide
-
-struct CaffeineModeSlide: View {
-    var body: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            
-            // Placeholder Image with SF Symbol and gradient
-            ZStack {
-                // Gradient background
-                RoundedRectangle(cornerRadius: 30)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.orange.opacity(0.3), Color.orange.opacity(0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 200, height: 200)
-                    .shadow(color: .orange.opacity(0.3), radius: 20, x: 0, y: 10)
-                
-                // SF Symbol
-                Image(systemName: "cup.and.saucer.fill")
-                    .font(.system(size: 80))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.orange, .orange.opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-            
-            VStack(spacing: 16) {
-                Text("Caffeine Mode")
-                    .font(.system(size: 42, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.orange, .orange.opacity(0.7)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                
-                Text("Keep your Mac awake with a single click")
-                    .font(.system(size: 18))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                
-                VStack(alignment: .leading, spacing: 12) {
-                    FeatureBullet(icon: "bolt.fill", text: "Prevents system sleep automatically")
-                    FeatureBullet(icon: "togglepower", text: "Toggle on/off from menu bar")
-                    FeatureBullet(icon: "lock.shield.fill", text: "Uses macOS power management APIs")
-                }
-                .padding(.top, 8)
-            }
-            
-            Spacer()
-        }
-        .padding(40)
-    }
-}
-
-// MARK: - Color Picker Slide
-
-struct ColorPickerSlide: View {
-    var body: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            
-            // Placeholder Image with SF Symbol and gradient
-            ZStack {
-                // Gradient background
-                RoundedRectangle(cornerRadius: 30)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.cyan.opacity(0.3), Color.blue.opacity(0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 200, height: 200)
-                    .shadow(color: .cyan.opacity(0.3), radius: 20, x: 0, y: 10)
-                
-                // SF Symbol
-                Image(systemName: "eyedropper")
-                    .font(.system(size: 80))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.cyan, .blue],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-            
-            VStack(spacing: 16) {
-                Text("Color Picker")
-                    .font(.system(size: 42, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.cyan, .blue],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                
-                Text("Pick any color from your screen instantly")
-                    .font(.system(size: 18))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                
-                VStack(alignment: .leading, spacing: 12) {
-                    FeatureBullet(icon: "eye.fill", text: "Click anywhere on screen to pick color")
-                    FeatureBullet(icon: "doc.on.clipboard", text: "HEX code copied to clipboard automatically")
-                    FeatureBullet(icon: "checkmark.circle.fill", text: "Success sound confirms copy")
-                }
-                .padding(.top, 8)
-            }
-            
-            Spacer()
-        }
-        .padding(40)
-    }
-}
-
 // MARK: - Feature Bullet
 
 struct FeatureBullet: View {
@@ -869,4 +856,3 @@ struct FeatureBullet: View {
         }
     }
 }
-
