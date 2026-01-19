@@ -71,9 +71,10 @@ class LocalLLMService: AIServiceProtocol {
         }
 
         // Convert NSImage to Data
+        // Note: pngData is prepared for future vision model support
         guard let imageData = image.tiffRepresentation,
               let bitmapImage = NSBitmapImageRep(data: imageData),
-              let pngData = bitmapImage.representation(using: .png, properties: [:]) else {
+              let _ = bitmapImage.representation(using: .png, properties: [:]) else {
             throw AIServiceError.encodingError(NSError(
                 domain: "LocalLLMService",
                 code: -1,
@@ -226,10 +227,10 @@ class LocalLLMService: AIServiceProtocol {
 
     private func performInference(prompt: String, llm: LLM) async throws -> String {
         // Use LLM.swift's getCompletion method which returns a String
-        let input = llm.preprocess(prompt, llm.history)
-        let response = await llm.getCompletion(from: input)
+        // getCompletion handles input processing internally
+        let response = await llm.getCompletion(from: prompt)
 
-        let cleanedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedResponse = response.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
         guard !cleanedResponse.isEmpty else {
             throw AIServiceError.emptyResponse
