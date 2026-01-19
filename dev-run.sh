@@ -9,6 +9,7 @@ APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 
 echo "🔨 Building for development..."
 
@@ -40,7 +41,7 @@ fi
 echo "✓ Found binary at: $SPM_BINARY"
 
 # Create app bundle structure (if not exists)
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
 # Copy binary
 cp "$SPM_BINARY" "$MACOS_DIR/$APP_NAME"
@@ -59,8 +60,17 @@ fi
 [ -d "Sources/JoyaFix/Resources/he.lproj" ] && cp -R "Sources/JoyaFix/Resources/he.lproj" "$RESOURCES_DIR/" 2>/dev/null && echo "✓ Hebrew localization copied" || true
 [ -d "Sources/JoyaFix/Resources/en.lproj" ] && cp -R "Sources/JoyaFix/Resources/en.lproj" "$RESOURCES_DIR/" 2>/dev/null && echo "✓ English localization copied" || true
 
+# Copy Frameworks (like Sparkle)
+find .build -name "*.framework" -type d | grep "debug" | while read fw; do
+    cp -R "$fw" "$FRAMEWORKS_DIR/"
+    echo "✓ Copied framework: $(basename "$fw")"
+done
+
 # Create PkgInfo
 echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
+
+# Fix RPATH to point to Frameworks directory
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$APP_NAME" 2>/dev/null || true
 
 # Verify Bundle ID is correct
 if [ -f "$CONTENTS_DIR/Info.plist" ]; then
@@ -74,6 +84,17 @@ fi
 
 # Sign the app (critical for permissions)
 echo "🔏 Signing app..."
+
+# Sign Frameworks separately first
+if [ -d "$FRAMEWORKS_DIR" ] && [ "$(ls -A "$FRAMEWORKS_DIR" 2>/dev/null)" ]; then
+    echo "🔏 Signing frameworks..."
+    find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec xattr -cr {} \; 2>/dev/null || true
+    find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec codesign --force --deep --sign - {} \; 2>/dev/null || {
+        echo "⚠️  Framework signing failed, but continuing..."
+    }
+fi
+
+# Clean metadata and sign main app
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 codesign --force --sign - "$APP_BUNDLE" 2>/dev/null || {
     echo "⚠️  Code signing failed, but continuing..."
