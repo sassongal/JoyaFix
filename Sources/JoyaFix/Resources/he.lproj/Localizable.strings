@@ -293,6 +293,18 @@
 "vision.ollama.not.supported" = "מודל ה-Ollama הנבחר אינו תומך בראייה. השתמש ב-LLaVA או עבור ל-Gemini.";
 "vision.openrouter.not.supported" = "מודל ה-OpenRouter הנבחר אינו תומך בראייה. בחר מודל עם יכולת ראייה.";
 
+/* Agent Configuration */
+"agent.config.profile" = "פרופיל הסוכן";
+"agent.config.name" = "שם הסוכן";
+"agent.config.system.instructions" = "הנחיות מערכת (System Instructions)";
+"agent.config.parameters" = "פרמטרים";
+"agent.config.creativity" = "יצירתיות (Temperature)";
+"agent.config.creativity.description" = "נמוך = ממוקד, גבוה = יצירתי";
+"agent.config.max.tokens" = "אורך תשובה מקסימלי";
+"agent.config.max.tokens.description" = "מספר מקסימלי של טוקנים בתשובה";
+"agent.config.presets" = "סוכנים מוגדרים מראש";
+"agent.config.reset" = "איפוס לברירת מחדל";
+
 /* Prompt Enhancer Meta Prompt */
 "prompt.enhancer.meta.role" = "You are an expert Prompt Engineer.";
 "prompt.enhancer.meta.task" = "**Task:** Rewrite the user's raw, amateur input into a highly effective, structured LLM prompt (using frameworks like CO-STAR or CREATE).";

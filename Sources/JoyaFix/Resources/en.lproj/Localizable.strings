@@ -293,6 +293,18 @@
 "vision.ollama.not.supported" = "Selected Ollama model doesn't support vision. Use LLaVA or switch to Gemini.";
 "vision.openrouter.not.supported" = "Selected OpenRouter model doesn't support vision. Choose a vision-capable model.";
 
+/* Agent Configuration */
+"agent.config.profile" = "Agent Profile";
+"agent.config.name" = "Agent Name";
+"agent.config.system.instructions" = "System Instructions";
+"agent.config.parameters" = "Parameters";
+"agent.config.creativity" = "Creativity (Temperature)";
+"agent.config.creativity.description" = "Lower = focused, Higher = creative";
+"agent.config.max.tokens" = "Max Response Length";
+"agent.config.max.tokens.description" = "Maximum tokens in response";
+"agent.config.presets" = "Preset Agents";
+"agent.config.reset" = "Reset to Default";
+
 /* Prompt Enhancer Meta Prompt */
 "prompt.enhancer.meta.role" = "You are an expert Prompt Engineer.";
 "prompt.enhancer.meta.task" = "**Task:** Rewrite the user's raw, amateur input into a highly effective, structured LLM prompt (using frameworks like CO-STAR or CREATE).";

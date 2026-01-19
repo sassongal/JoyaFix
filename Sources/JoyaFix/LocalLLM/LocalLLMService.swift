@@ -117,6 +117,12 @@ class LocalLLMService: AIServiceProtocol {
     // MARK: - AIServiceProtocol
 
     func generateResponse(prompt: String) async throws -> String {
+        // Use default agent if not specified
+        return try await generateResponse(prompt: prompt, agent: .default)
+    }
+    
+    /// Generate response with a specific agent configuration
+    func generateResponse(prompt: String, agent: JoyaAgent) async throws -> String {
         // Update last inference time
         lastInferenceTime = Date()
         
@@ -127,10 +133,19 @@ class LocalLLMService: AIServiceProtocol {
             throw AIServiceError.modelNotDownloaded
         }
 
+        // Build prompt with agent's system instructions
+        let fullPrompt = """
+        System: \(agent.systemInstructions)
+        
+        User: \(prompt)
+        
+        Assistant:
+        """
+
         // Add timeout protection
         return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
-                try await self.performInference(prompt: prompt, llm: llm)
+                try await self.performInference(prompt: fullPrompt, llm: llm, agent: agent)
             }
 
             group.addTask {
@@ -536,12 +551,14 @@ class LocalLLMService: AIServiceProtocol {
         Logger.info("Vision model loaded successfully")
     }
 
-    private func performInference(prompt: String, llm: LLM) async throws -> String {
+    private func performInference(prompt: String, llm: LLM, agent: JoyaAgent = .default) async throws -> String {
         // Update inference time
         resetAutoUnloadTimer()
         
         // Use LLM.swift's getCompletion method which returns a String
         // getCompletion handles input processing internally
+        // Note: Temperature and maxTokens are handled by the prompt structure
+        // If the LLM library supports direct parameter setting, it would be done here
         let response = await llm.getCompletion(from: prompt)
 
         let cleanedResponse = response.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
@@ -550,7 +567,7 @@ class LocalLLMService: AIServiceProtocol {
             throw AIServiceError.emptyResponse
         }
 
-        Logger.info("Local LLM inference completed: \(cleanedResponse.count) chars")
+        Logger.info("Local LLM inference completed with agent '\(agent.name)': \(cleanedResponse.count) chars")
         return cleanedResponse
     }
 

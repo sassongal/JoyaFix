@@ -103,17 +103,6 @@ class OllamaService: AIServiceProtocol {
     private let settings = SettingsManager.shared
     private let session: URLSession
     
-    /// System instruction for text improvement tasks
-    private let systemInstruction = """
-    You are a professional writing assistant. Your task is to improve, fix, or transform text as requested.
-    Follow these rules:
-    1. Maintain the original meaning and intent
-    2. Fix grammar, spelling, and punctuation errors
-    3. Improve clarity and readability
-    4. Keep the same language as the input (Hebrew stays Hebrew, English stays English)
-    5. Return ONLY the improved text, no explanations or commentary
-    """
-    
     // MARK: - Initialization
     
     private init() {
@@ -131,6 +120,12 @@ class OllamaService: AIServiceProtocol {
     // MARK: - AIServiceProtocol
     
     func generateResponse(prompt: String) async throws -> String {
+        // Use default agent if not specified
+        return try await generateResponse(prompt: prompt, agent: .default)
+    }
+    
+    /// Generate response with a specific agent configuration
+    func generateResponse(prompt: String, agent: JoyaAgent) async throws -> String {
         // Get selected model
         guard let modelName = settings.selectedOllamaModel else {
             throw AIServiceError.providerSpecific("No Ollama model selected. Please select a model in Settings.")
@@ -146,16 +141,22 @@ class OllamaService: AIServiceProtocol {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // Build prompt with system instruction
-        let fullPrompt = "\(systemInstruction)\n\nUser request:\n\(prompt)"
+        // Build prompt with agent's system instructions
+        let fullPrompt = """
+        System: \(agent.systemInstructions)
+        
+        User: \(prompt)
+        
+        Assistant:
+        """
         
         let body: [String: Any] = [
             "model": modelName,
             "prompt": fullPrompt,
             "stream": false,
             "options": [
-                "temperature": 0.7,
-                "num_predict": 2048
+                "temperature": agent.temperature,
+                "num_predict": agent.maxTokens
             ]
         ]
         
@@ -191,7 +192,7 @@ class OllamaService: AIServiceProtocol {
             // Log performance stats
             if let totalDuration = generateResponse.totalDuration {
                 let durationMs = Double(totalDuration) / 1_000_000
-                Logger.info("Ollama inference completed in \(String(format: "%.0f", durationMs))ms")
+                Logger.info("Ollama inference completed with agent '\(agent.name)' in \(String(format: "%.0f", durationMs))ms")
             }
             
             return cleanedResponse

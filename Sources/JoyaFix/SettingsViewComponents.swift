@@ -1500,6 +1500,28 @@ struct LocalModelManagementView: View {
                                             .font(.caption2)
                                     }
                                     .foregroundColor(.green)
+                                    
+                                    // Model readiness indicator (for local models)
+                                    if model.source == .downloaded || model.source == .external {
+                                        let llmService = LocalLLMService.shared
+                                        if llmService.isReady {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "bolt.fill")
+                                                    .font(.caption2)
+                                                Text("Ready")
+                                                    .font(.caption2)
+                                            }
+                                            .foregroundColor(.blue)
+                                        } else {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "hourglass")
+                                                    .font(.caption2)
+                                                Text("Not loaded")
+                                                    .font(.caption2)
+                                            }
+                                            .foregroundColor(.orange)
+                                        }
+                                    }
                                 } else {
                                     HStack(spacing: 4) {
                                         Image(systemName: "xmark.circle.fill")
@@ -2237,6 +2259,97 @@ struct OllamaConfigurationView: View {
                 _ = try? await ollamaService.fetchAvailableModels()
             }
         }
+    }
+}
+
+// MARK: - Agent Configuration View
+
+struct AgentConfigView: View {
+    @Binding var agent: JoyaAgent
+    @State private var selectedPreset: JoyaAgent?
+    
+    var body: some View {
+        Form {
+            Section(header: Text(NSLocalizedString("agent.config.profile", comment: "Agent Profile"))) {
+                TextField(NSLocalizedString("agent.config.name", comment: "Agent Name"), text: $agent.name)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(NSLocalizedString("agent.config.system.instructions", comment: "System Instructions"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextEditor(text: $agent.systemInstructions)
+                        .frame(height: 100)
+                        .font(.system(.body, design: .monospaced))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.2)))
+                }
+            }
+            
+            Section(header: Text(NSLocalizedString("agent.config.parameters", comment: "Parameters"))) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(NSLocalizedString("agent.config.creativity", comment: "Creativity (Temperature)"))
+                        Spacer()
+                        Text("\(agent.temperature, specifier: "%.1f")")
+                            .foregroundColor(.secondary)
+                    }
+                    Slider(value: $agent.temperature, in: 0.1...1.0)
+                    
+                    Text(NSLocalizedString("agent.config.creativity.description", comment: "Lower = focused, Higher = creative"))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(NSLocalizedString("agent.config.max.tokens", comment: "Max Response Length"))
+                        Spacer()
+                        Text("\(agent.maxTokens)")
+                            .foregroundColor(.secondary)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(agent.maxTokens) },
+                        set: { agent.maxTokens = Int($0) }
+                    ), in: 256...4096, step: 256)
+                    
+                    Text(NSLocalizedString("agent.config.max.tokens.description", comment: "Maximum tokens in response"))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Section(header: Text(NSLocalizedString("agent.config.presets", comment: "Preset Agents"))) {
+                ForEach(JoyaAgent.predefinedAgents) { preset in
+                    Button(action: {
+                        agent = preset
+                    }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.name)
+                                    .font(.headline)
+                                Text(preset.systemInstructions)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            if agent.id == preset.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
+            Section {
+                Button(NSLocalizedString("agent.config.reset", comment: "Reset to Default")) {
+                    agent = .default
+                }
+            }
+        }
+        .padding()
+        .frame(width: 500, height: 600)
     }
 }
 

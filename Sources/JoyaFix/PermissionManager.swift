@@ -142,14 +142,7 @@ class PermissionManager {
     func openAccessibilitySettings() {
         // Invalidate cache before opening settings (user might change permissions)
         invalidateCache()
-        
-        if #available(macOS 13.0, *) {
-            // macOS Ventura and later
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-        } else {
-            // macOS Monterey and earlier
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-        }
+        PermissionDeepLinker.openAccessibility()
         
         // Note: handleAppActivation() will automatically refresh permissions when app becomes active
         // (observer is already set up in init)
@@ -157,13 +150,8 @@ class PermissionManager {
     
     /// Opens System Settings to the Screen Recording section
     func openScreenRecordingSettings() {
-        if #available(macOS 13.0, *) {
-            // macOS Ventura and later
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
-        } else {
-            // macOS Monterey and earlier
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
-        }
+        invalidateCache()
+        PermissionDeepLinker.openScreenRecording()
     }
     
     // MARK: - Permission Status
@@ -180,20 +168,14 @@ class PermissionManager {
     
     /// Opens System Settings to the Microphone section
     func openMicrophoneSettings() {
-        if #available(macOS 13.0, *) {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
-        } else {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
-        }
+        invalidateCache()
+        PermissionDeepLinker.openMicrophone()
     }
     
     /// Opens System Settings to the Speech Recognition section
     func openSpeechRecognitionSettings() {
-        if #available(macOS 13.0, *) {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
-        } else {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
-        }
+        invalidateCache()
+        PermissionDeepLinker.openInputMonitoring() // Speech Recognition is under Input Monitoring
     }
     
     /// Returns a dictionary with the status of all required permissions (fresh check)

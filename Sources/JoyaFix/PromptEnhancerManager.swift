@@ -83,14 +83,18 @@ Generate the CO-STAR prompt now.
             return
         }
         
-        // Step 2: Check if API key is available
+        // Step 2: Check if API key is available (or model selected for local providers)
         if hasAPIKey() {
-            let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
-            Logger.info("✅ \(providerName) API Key verified. Starting enhancement process.")
+            let providerName = getProviderDisplayName()
+            Logger.info("✅ \(providerName) verified. Starting enhancement process.")
         } else {
-            let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
-            Logger.error("❌ \(providerName) API Key NOT found in Settings or Keychain.")
-            showToast("\(providerName) API key required. Please configure in Settings.", style: .error)
+            let providerName = getProviderDisplayName()
+            Logger.error("❌ \(providerName) configuration incomplete.")
+            if settings.selectedAIProvider == .local || settings.selectedAIProvider == .ollama {
+                showToast("\(providerName) model required. Please select a model in Settings.", style: .error)
+            } else {
+                showToast("\(providerName) API key required. Please configure in Settings.", style: .error)
+            }
             showAPIKeyRequiredAlert()
             return
         }
@@ -152,7 +156,7 @@ Generate the CO-STAR prompt now.
             
             // Step 6: Create meta-prompt and send to AI service
             let metaPrompt = self.createMetaPrompt(userText: selectedText)
-            let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
+            let providerName = getProviderDisplayName()
             
             Task { @MainActor in
                 enhancementStatus = "Enhancing with \(providerName)..."
@@ -323,6 +327,23 @@ Generate the CO-STAR prompt now.
         case .local:
             // Local models don't require an API key, just check if a model is selected
             return settings.selectedLocalModel != nil
+        case .ollama:
+            // Ollama doesn't require an API key, just check if a model is selected and Ollama is running
+            return settings.selectedOllamaModel != nil && OllamaService.shared.isOllamaRunning
+        }
+    }
+    
+    /// Gets display name for the current AI provider
+    private func getProviderDisplayName() -> String {
+        switch settings.selectedAIProvider {
+        case .gemini:
+            return "Gemini"
+        case .openRouter:
+            return "OpenRouter"
+        case .local:
+            return "Local LLM"
+        case .ollama:
+            return "Ollama"
         }
     }
     

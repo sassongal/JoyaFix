@@ -95,6 +95,20 @@ class InputMonitor {
         guard PermissionManager.shared.isAccessibilityTrusted() || disableEventTapForTesting else {
             // Reset flag if permission check fails (already inside lock, no need to lock again)
             _isMonitoring = false
+            
+            // CRITICAL FIX: Clean up any existing event tap if permissions are missing
+            // This prevents memory leaks when permissions are revoked while monitoring
+            if let existingTap = _eventTap {
+                CGEvent.tapEnable(tap: existingTap, enable: false)
+                CFMachPortInvalidate(existingTap)
+                _eventTap = nil
+            }
+            
+            if let existingRunLoopSource = runLoopSource {
+                CFRunLoopRemoveSource(CFRunLoopGetCurrent(), existingRunLoopSource, .commonModes)
+                runLoopSource = nil
+            }
+            
             Logger.snippet("Accessibility permission required for snippet expansion", level: .warning)
             Logger.snippet("Snippet expansion disabled - Accessibility permission required", level: .warning)
 
@@ -153,6 +167,20 @@ class InputMonitor {
         guard let newEventTap = newEventTap else {
             // Reset flag if creation fails (already inside lock, no need to lock again)
             _isMonitoring = false
+            
+            // CRITICAL FIX: Clean up any existing event tap before returning
+            // This prevents memory leaks if startMonitoring is called multiple times after failures
+            if let existingTap = _eventTap {
+                CGEvent.tapEnable(tap: existingTap, enable: false)
+                CFMachPortInvalidate(existingTap)
+                _eventTap = nil
+            }
+            
+            if let existingRunLoopSource = runLoopSource {
+                CFRunLoopRemoveSource(CFRunLoopGetCurrent(), existingRunLoopSource, .commonModes)
+                runLoopSource = nil
+            }
+            
             Logger.snippet("Failed to create event tap for InputMonitor", level: .error)
             Logger.snippet("Failed to create event tap - snippet expansion will not work", level: .error)
 
