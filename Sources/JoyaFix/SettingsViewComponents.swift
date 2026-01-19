@@ -132,7 +132,7 @@ struct GeneralSettingsTab: View {
                             Divider()
                             
                             HStack {
-                                Text("Recent History Rows")
+                                Text(NSLocalizedString("settings.recent.history.rows", comment: "Recent History Rows"))
                                 Spacer()
                                 Stepper("\(localRecentHistoryRowsCount)", value: $localRecentHistoryRowsCount, in: 5...20, step: 1)
                                     .frame(width: 120)
@@ -141,7 +141,7 @@ struct GeneralSettingsTab: View {
                                     }
                             }
                             
-                            Text("Number of recent items to show in footer (5-20)")
+                            Text(NSLocalizedString("settings.recent.history.rows.description", comment: "Recent history description"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -200,8 +200,8 @@ struct GeneralSettingsTab: View {
                             
                             // Microphone Permission
                             SettingsPermissionRow(
-                                title: "Microphone",
-                                description: "Required for voice input feature. Allows the app to record audio for speech-to-text transcription.",
+                                title: NSLocalizedString("settings.microphone.title", comment: "Microphone"),
+                                description: NSLocalizedString("settings.microphone.description", comment: "Microphone description"),
                                 isGranted: microphoneGranted,
                                 icon: "mic.fill",
                                 onOpenSettings: {
@@ -213,8 +213,8 @@ struct GeneralSettingsTab: View {
                             
                             // Speech Recognition Permission
                             SettingsPermissionRow(
-                                title: "Speech Recognition",
-                                description: "Required for voice input feature. Allows the app to transcribe speech to text in Hebrew and English.",
+                                title: NSLocalizedString("settings.speech.recognition.title", comment: "Speech Recognition"),
+                                description: NSLocalizedString("settings.speech.recognition.description", comment: "Speech recognition description"),
                                 isGranted: speechRecognitionGranted,
                                 icon: "waveform",
                                 onOpenSettings: {
@@ -309,10 +309,10 @@ struct GeneralSettingsTab: View {
                     }
                     
                     // Language Selection Section
-                    GroupBox(label: Label("Language / שפה", systemImage: "globe")) {
+                    GroupBox(label: Label(NSLocalizedString("settings.language.title", comment: "Language"), systemImage: "globe")) {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("App Language")
+                                Text(NSLocalizedString("settings.app.language", comment: "App Language"))
                                 Spacer()
                                 Picker("", selection: Binding(
                                     get: {
@@ -331,12 +331,12 @@ struct GeneralSettingsTab: View {
                                         showLanguageRestartAlert = true
                                     }
                                 )) {
-                                    Text("System Default").tag("system")
-                                    Text("English (Force)").tag("en")
+                                    Text(NSLocalizedString("settings.language.system.default", comment: "System Default")).tag("system")
+                                    Text(NSLocalizedString("settings.language.english.force", comment: "English (Force)")).tag("en")
                                 }
                                 .frame(width: 150)
                             }
-                            Text("Restart required to apply language changes.")
+                            Text(NSLocalizedString("settings.language.restart.required", comment: "Restart required"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -353,26 +353,16 @@ struct GeneralSettingsTab: View {
                             // Provider Picker
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
-                                    Text("AI Provider")
+                                    Text(NSLocalizedString("settings.ai.provider", comment: "AI Provider"))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     Spacer()
                                     Button(action: {
                                         let alert = NSAlert()
-                                        alert.messageText = "AI Provider Selection"
-                                        alert.informativeText = """
-                                        Choose your AI provider:
-                                        
-                                        • Gemini: Google's AI service (free tier available, supports vision)
-                                        • OpenRouter: Access to multiple AI models (free and paid options)
-                                        • Local: Run models directly on your Mac using LLM.swift
-                                        • Ollama: Use models installed via Ollama (ollama.ai)
-                                        
-                                        Local & Ollama: 100% private, runs on your Mac without internet.
-                                        You can switch between providers at any time.
-                                        """
+                                        alert.messageText = NSLocalizedString("settings.ai.provider.info.title", comment: "AI Provider Selection")
+                                        alert.informativeText = NSLocalizedString("settings.ai.provider.info.message", comment: "AI Provider info")
                                         alert.alertStyle = .informational
-                                        alert.addButton(withTitle: "OK")
+                                        alert.addButton(withTitle: NSLocalizedString("alert.button.ok", comment: "OK"))
                                         alert.runModal()
                                     }) {
                                         Image(systemName: "info.circle")
@@ -380,7 +370,7 @@ struct GeneralSettingsTab: View {
                                             .foregroundColor(.secondary)
                                     }
                                     .buttonStyle(.plain)
-                                    .help("Click for more information about AI providers")
+                                    .help(NSLocalizedString("settings.ai.provider.info.title", comment: "Click for more information"))
                                 }
                                 
                                 Picker("", selection: $localAIProvider) {
@@ -452,12 +442,12 @@ struct GeneralSettingsTab: View {
                             } else if localAIProvider == .openRouter {
                                 // OpenRouter Configuration
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text("OpenRouter API Key")
+                                    Text(NSLocalizedString("settings.openrouter.api.key", comment: "OpenRouter API Key"))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
 
                                     HStack(spacing: 8) {
-                                        SecureField("Enter OpenRouter API key", text: $localOpenRouterKey)
+                                        SecureField(NSLocalizedString("settings.openrouter.api.key.placeholder", comment: "Enter OpenRouter API key"), text: $localOpenRouterKey)
                                             .textFieldStyle(.roundedBorder)
                                             .onChange(of: localOpenRouterKey) { _, _ in
                                                 hasUnsavedChanges = true
@@ -494,7 +484,7 @@ struct GeneralSettingsTab: View {
                                                         .scaleEffect(0.6)
                                                         .frame(width: 12, height: 12)
                                                 }
-                                                Text(isTestingOpenRouterKey ? "Testing..." : "Test")
+                                                Text(isTestingOpenRouterKey ? NSLocalizedString("settings.api.testing", comment: "Testing...") : NSLocalizedString("settings.api.test", comment: "Test"))
                                                     .font(.caption)
                                             }
                                             .padding(.horizontal, 12)
@@ -513,11 +503,11 @@ struct GeneralSettingsTab: View {
                                     }
 
                                     if case .valid = openRouterKeyStatus {
-                                        Text("✓ API key is valid")
+                                        Text(NSLocalizedString("settings.openrouter.key.valid", comment: "API key is valid"))
                                             .font(.caption2)
                                             .foregroundColor(.green)
                                     } else {
-                                        Text("Get your API key from openrouter.ai")
+                                        Text(NSLocalizedString("settings.openrouter.key.get", comment: "Get your API key"))
                                             .font(.caption2)
                                             .foregroundColor(.secondary)
                                     }
@@ -531,7 +521,7 @@ struct GeneralSettingsTab: View {
                                         HStack(spacing: 4) {
                                             Image(systemName: "link")
                                                 .font(.caption2)
-                                            Text("Get your API Key from OpenRouter for more models")
+                                            Text(NSLocalizedString("settings.openrouter.key.link", comment: "Get your API Key from OpenRouter"))
                                                 .font(.caption2)
                                         }
                                         .foregroundColor(.blue)
@@ -549,7 +539,7 @@ struct GeneralSettingsTab: View {
                                     
                                     Divider()
                                     
-                                    Text("Model")
+                                    Text(NSLocalizedString("settings.openrouter.model", comment: "Model"))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     
@@ -574,9 +564,9 @@ struct GeneralSettingsTab: View {
                     }
 
                     // Export/Import Section
-                    GroupBox(label: Label("Backup & Restore", systemImage: "arrow.up.arrow.down")) {
+                    GroupBox(label: Label(NSLocalizedString("settings.backup.title", comment: "Backup & Restore"), systemImage: "arrow.up.arrow.down")) {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Export your settings and snippets to a file, or import from a previous backup.")
+                            Text(NSLocalizedString("settings.backup.description", comment: "Export description"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
@@ -598,7 +588,7 @@ struct GeneralSettingsTab: View {
                                         } else {
                                             Image(systemName: "square.and.arrow.up")
                                         }
-                                        Text(isExporting ? "Exporting..." : "Export Settings...")
+                                        Text(isExporting ? NSLocalizedString("settings.export.progress", comment: "Exporting...") : NSLocalizedString("settings.export", comment: "Export Settings..."))
                                     }
                                 }
                                 .buttonStyle(.bordered)
@@ -621,7 +611,7 @@ struct GeneralSettingsTab: View {
                                         } else {
                                             Image(systemName: "square.and.arrow.down")
                                         }
-                                        Text(isImporting ? "Importing..." : "Import Settings...")
+                                        Text(isImporting ? NSLocalizedString("settings.import.progress", comment: "Importing...") : NSLocalizedString("settings.import", comment: "Import Settings..."))
                                     }
                                 }
                                 .buttonStyle(.bordered)
@@ -632,7 +622,7 @@ struct GeneralSettingsTab: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundColor(.green)
-                                    Text("Settings exported successfully!")
+                                    Text(NSLocalizedString("settings.export.success", comment: "Settings exported successfully!"))
                                         .font(.caption)
                                         .foregroundColor(.green)
                                 }
@@ -642,7 +632,7 @@ struct GeneralSettingsTab: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundColor(.green)
-                                    Text("Settings imported successfully!")
+                                    Text(NSLocalizedString("settings.import.success", comment: "Settings imported successfully!"))
                                         .font(.caption)
                                         .foregroundColor(.green)
                                 }
@@ -683,7 +673,7 @@ struct GeneralSettingsTab: View {
                         Circle()
                             .fill(Color.orange)
                             .frame(width: 8, height: 8)
-                        Text("Unsaved changes")
+                        Text(NSLocalizedString("settings.unsaved.changes", comment: "Unsaved changes"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -715,18 +705,18 @@ struct GeneralSettingsTab: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .alert("Export Successful", isPresented: $showExportSuccess) {
-            Button("OK", role: .cancel) { }
+        .alert(NSLocalizedString("settings.export.success.title", comment: "Export Successful"), isPresented: $showExportSuccess) {
+            Button(NSLocalizedString("alert.button.ok", comment: "OK"), role: .cancel) { }
         } message: {
-            Text("Your settings and snippets have been exported successfully.")
+            Text(NSLocalizedString("settings.export.success.message", comment: "Export success message"))
         }
-        .alert("Import Successful", isPresented: $showImportSuccess) {
-            Button("OK", role: .cancel) { }
+        .alert(NSLocalizedString("settings.import.success.title", comment: "Import Successful"), isPresented: $showImportSuccess) {
+            Button(NSLocalizedString("alert.button.ok", comment: "OK"), role: .cancel) { }
         } message: {
-            Text("Your settings and snippets have been imported successfully. Hotkeys have been rebound.")
+            Text(NSLocalizedString("settings.import.success.message", comment: "Import success message"))
         }
-        .alert("Import Failed", isPresented: $showImportError) {
-            Button("OK", role: .cancel) { }
+        .alert(NSLocalizedString("settings.import.failed.title", comment: "Import Failed"), isPresented: $showImportError) {
+            Button(NSLocalizedString("alert.button.ok", comment: "OK"), role: .cancel) { }
         } message: {
             Text(importErrorMessage)
         }
@@ -747,10 +737,10 @@ struct GeneralSettingsTab: View {
         } message: {
             Text(NSLocalizedString("update.alert.no.update.message", comment: "No update message"))
         }
-        .alert("Language Change", isPresented: $showLanguageRestartAlert) {
-            Button("OK", role: .cancel) { }
+        .alert(NSLocalizedString("settings.language.change.title", comment: "Language Change"), isPresented: $showLanguageRestartAlert) {
+            Button(NSLocalizedString("alert.button.ok", comment: "OK"), role: .cancel) { }
         } message: {
-            Text("Please restart the app for the language change to take effect.")
+            Text(NSLocalizedString("settings.language.change.message", comment: "Restart message"))
         }
     }
     
@@ -1407,7 +1397,7 @@ struct LocalModelManagementView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Section Header
-            Text("Local Model")
+            Text(NSLocalizedString("settings.local.model", comment: "Local Model"))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -1419,14 +1409,14 @@ struct LocalModelManagementView: View {
                         .font(.system(size: 32))
                         .foregroundColor(.secondary)
 
-                    Text("No local models downloaded")
+                    Text(NSLocalizedString("settings.local.no.models", comment: "No local models"))
                         .font(.caption)
                         .foregroundColor(.secondary)
 
                     Button(action: { showModelPicker = true }) {
                         HStack {
                             Image(systemName: "arrow.down.circle.fill")
-                            Text("Download Model")
+                            Text(NSLocalizedString("settings.local.download.model", comment: "Download Model"))
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -1438,14 +1428,14 @@ struct LocalModelManagementView: View {
             } else {
                 // Model Selection
                 VStack(alignment: .leading, spacing: 8) {
-                    Picker("Select Model", selection: Binding(
+                    Picker(NSLocalizedString("settings.local.select.model", comment: "Select Model"), selection: Binding(
                         get: { selectedModelId ?? "" },
                         set: { newValue in
                             selectedModelId = newValue.isEmpty ? nil : newValue
                             hasUnsavedChanges = true
                         }
                     )) {
-                        Text("Select a model...").tag("")
+                        Text(NSLocalizedString("settings.local.select.placeholder", comment: "Select a model...")).tag("")
                         ForEach(downloadManager.downloadedModels) { model in
                             HStack {
                                 Text(model.info.displayName)
@@ -1453,15 +1443,15 @@ struct LocalModelManagementView: View {
                                 // Source indicator
                                 switch model.source {
                                 case .downloaded:
-                                    Text("(Downloaded)")
+                                    Text(NSLocalizedString("settings.local.source.downloaded", comment: "(Downloaded)"))
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                 case .ollama:
-                                    Text("(Ollama)")
+                                    Text(NSLocalizedString("settings.local.source.ollama", comment: "(Ollama)"))
                                         .font(.caption2)
                                         .foregroundColor(.purple)
                                 case .external:
-                                    Text("(External)")
+                                    Text(NSLocalizedString("settings.local.source.external", comment: "(External)"))
                                         .font(.caption2)
                                         .foregroundColor(.orange)
                                 }
@@ -1508,7 +1498,7 @@ struct LocalModelManagementView: View {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "bolt.fill")
                                                     .font(.caption2)
-                                                Text("Ready")
+                                                Text(NSLocalizedString("settings.local.status.ready", comment: "Ready"))
                                                     .font(.caption2)
                                             }
                                             .foregroundColor(.blue)
@@ -1516,7 +1506,7 @@ struct LocalModelManagementView: View {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "hourglass")
                                                     .font(.caption2)
-                                                Text("Not loaded")
+                                                Text(NSLocalizedString("settings.local.status.not.loaded", comment: "Not loaded"))
                                                     .font(.caption2)
                                             }
                                             .foregroundColor(.orange)
@@ -1526,17 +1516,17 @@ struct LocalModelManagementView: View {
                                     HStack(spacing: 4) {
                                         Image(systemName: "xmark.circle.fill")
                                             .font(.caption2)
-                                        Text("File missing")
+                                        Text(NSLocalizedString("settings.local.status.file.missing", comment: "File missing"))
                                             .font(.caption2)
                                     }
                                     .foregroundColor(.red)
                                 }
 
-                                Text("Size: \(model.info.fileSizeFormatted)")
+                                Text("\(NSLocalizedString("settings.local.info.size", comment: "Size:")) \(model.info.fileSizeFormatted)")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
 
-                                Text("RAM: \(model.info.requiredRAMFormatted)")
+                                Text("\(NSLocalizedString("settings.local.info.ram", comment: "RAM:")) \(model.info.requiredRAMFormatted)")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
 
@@ -1544,7 +1534,7 @@ struct LocalModelManagementView: View {
                                     HStack(spacing: 4) {
                                         Image(systemName: "eye.fill")
                                             .font(.caption2)
-                                        Text("Vision")
+                                        Text(NSLocalizedString("settings.local.info.vision", comment: "Vision"))
                                             .font(.caption2)
                                     }
                                     .foregroundColor(.blue)
@@ -1556,7 +1546,7 @@ struct LocalModelManagementView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "info.circle")
                                         .font(.caption2)
-                                    Text("This model is managed by Ollama")
+                                    Text(NSLocalizedString("settings.local.info.managed.ollama", comment: "Managed by Ollama"))
                                         .font(.caption2)
                                 }
                                 .foregroundColor(.purple)
@@ -1564,7 +1554,7 @@ struct LocalModelManagementView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "info.circle")
                                         .font(.caption2)
-                                    Text("External model found at: \(model.localPath)")
+                                    Text("\(NSLocalizedString("settings.local.info.external", comment: "External model found at:")) \(model.localPath)")
                                         .font(.caption2)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
@@ -1583,7 +1573,7 @@ struct LocalModelManagementView: View {
                     Button(action: { showModelPicker = true }) {
                         HStack {
                             Image(systemName: "arrow.down.circle")
-                            Text("Manage Models...")
+                            Text(NSLocalizedString("settings.local.manage.models", comment: "Manage Models..."))
                         }
                     }
                     .buttonStyle(.bordered)
@@ -1601,7 +1591,7 @@ struct LocalModelManagementView: View {
                             } else {
                                 Image(systemName: "magnifyingglass")
                             }
-                            Text(downloadManager.isScanning ? "Scanning..." : "Scan for Models")
+                            Text(downloadManager.isScanning ? NSLocalizedString("settings.local.scanning", comment: "Scanning...") : NSLocalizedString("settings.local.scan.models", comment: "Scan for Models"))
                         }
                     }
                     .buttonStyle(.bordered)
@@ -1613,12 +1603,12 @@ struct LocalModelManagementView: View {
             if downloadManager.isDownloading {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Downloading \(downloadManager.currentDownloadModel?.displayName ?? "model")...")
+                        Text(String(format: NSLocalizedString("settings.local.downloading", comment: "Downloading model..."), downloadManager.currentDownloadModel?.displayName ?? "model"))
                             .font(.caption)
 
                         Spacer()
 
-                        Button("Cancel") {
+                        Button(NSLocalizedString("settings.local.download.cancel", comment: "Cancel")) {
                             downloadManager.cancelDownload()
                         }
                         .buttonStyle(.plain)
@@ -1643,7 +1633,7 @@ struct LocalModelManagementView: View {
                 Image(systemName: "info.circle")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                Text("Local models run entirely on your Mac without internet")
+                Text(NSLocalizedString("settings.local.info.privacy", comment: "Local models privacy note"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -1668,11 +1658,11 @@ struct LocalModelPickerSheet: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Local Models")
+                Text(NSLocalizedString("settings.local.models.title", comment: "Local Models"))
                     .font(.title2)
                     .fontWeight(.bold)
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(NSLocalizedString("settings.local.done", comment: "Done")) { dismiss() }
                     .buttonStyle(.borderedProminent)
             }
             .padding()
@@ -1685,7 +1675,7 @@ struct LocalModelPickerSheet: View {
                     .foregroundColor(llmService.isOptimalHardware ? .green : .orange)
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Hardware: \(llmService.hardwareArchitecture.displayName)")
+                    Text("\(NSLocalizedString("settings.local.hardware", comment: "Hardware:")) \(llmService.hardwareArchitecture.displayName)")
                         .font(.caption)
                         .fontWeight(.medium)
                     
@@ -1694,7 +1684,7 @@ struct LocalModelPickerSheet: View {
                             .font(.caption2)
                             .foregroundColor(.orange)
                     } else {
-                        Text("Optimal for local AI models")
+                        Text(NSLocalizedString("settings.local.hardware.optimal", comment: "Optimal for local AI"))
                             .font(.caption2)
                             .foregroundColor(.green)
                     }
@@ -1726,7 +1716,7 @@ struct LocalModelPickerSheet: View {
                 HStack {
                     Image(systemName: "memorychip")
                         .foregroundColor(.secondary)
-                    Text("Available RAM: \(ByteCountFormatter.string(fromByteCount: Int64(downloadManager.availableRAM()), countStyle: .memory))")
+                    Text("\(NSLocalizedString("settings.local.available.ram", comment: "Available RAM:")) \(ByteCountFormatter.string(fromByteCount: Int64(downloadManager.availableRAM()), countStyle: .memory))")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

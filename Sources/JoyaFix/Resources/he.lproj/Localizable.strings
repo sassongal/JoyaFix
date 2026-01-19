@@ -346,3 +346,101 @@
 "prompt.enhancer.refine.rule2" = "Maintain the structured format (Role, Context, Task, Constraints, Output Format).";
 "prompt.enhancer.refine.rule3" = "Return ONLY the refined prompt. No explanations or prefixes.";
 
+/* Settings - General Tab Additional Strings */
+"settings.recent.history.rows" = "שורות היסטוריה אחרונות";
+"settings.recent.history.rows.description" = "מספר הפריטים האחרונים להצגה בכותרת התחתונה (5-20)";
+"settings.microphone.title" = "מיקרופון";
+"settings.microphone.description" = "נדרש לתכונת הקלט הקולי. מאפשר לאפליקציה להקליט שמע להמרת דיבור לטקסט.";
+"settings.speech.recognition.title" = "זיהוי דיבור";
+"settings.speech.recognition.description" = "נדרש לתכונת הקלט הקולי. מאפשר לאפליקציה לתמלל דיבור לטקסט בעברית ובאנגלית.";
+"settings.language.title" = "Language / שפה";
+"settings.app.language" = "שפת האפליקציה";
+"settings.language.system.default" = "ברירת מחדל של המערכת";
+"settings.language.english.force" = "אנגלית (כפוי)";
+"settings.language.restart.required" = "נדרש אתחול מחדש להחלת שינויי השפה.";
+"settings.language.change.title" = "שינוי שפה";
+"settings.language.change.message" = "אנא הפעל מחדש את האפליקציה כדי שהשינוי ייכנס לתוקף.";
+
+/* Settings - AI Provider */
+"settings.ai.provider" = "ספק AI";
+"settings.ai.provider.info.title" = "בחירת ספק AI";
+"settings.ai.provider.info.message" = "בחר את ספק ה-AI שלך:\n\n• Gemini: שירות AI של גוגל (רמה חינמית זמינה, תומך בראייה)\n• OpenRouter: גישה למודלים מרובים (אפשרויות חינמיות ובתשלום)\n• מקומי: הרץ מודלים ישירות על המק שלך באמצעות LLM.swift\n• Ollama: השתמש במודלים מותקנים דרך Ollama (ollama.ai)\n\nמקומי ו-Ollama: 100% פרטי, רץ על המק שלך ללא אינטרנט.\nתוכל לעבור בין ספקים בכל עת.";
+"settings.openrouter.api.key" = "מפתח API של OpenRouter";
+"settings.openrouter.api.key.placeholder" = "הכנס מפתח API של OpenRouter";
+"settings.openrouter.key.valid" = "✓ מפתח ה-API תקין";
+"settings.openrouter.key.get" = "קבל את מפתח ה-API מ-openrouter.ai";
+"settings.openrouter.key.link" = "קבל מפתח API מ-OpenRouter למודלים נוספים";
+"settings.openrouter.model" = "מודל";
+"settings.api.test" = "בדוק";
+"settings.api.testing" = "בודק...";
+
+/* Settings - Backup & Restore */
+"settings.backup.title" = "גיבוי ושחזור";
+"settings.backup.description" = "ייצא את ההגדרות וקטעי הטקסט שלך לקובץ, או ייבא מגיבוי קודם.";
+"settings.export" = "ייצוא הגדרות...";
+"settings.export.progress" = "מייצא...";
+"settings.import" = "ייבוא הגדרות...";
+"settings.import.progress" = "מייבא...";
+"settings.export.success" = "ההגדרות יוצאו בהצלחה!";
+"settings.import.success" = "ההגדרות יובאו בהצלחה!";
+"settings.export.success.title" = "הייצוא הצליח";
+"settings.export.success.message" = "ההגדרות וקטעי הטקסט יוצאו בהצלחה.";
+"settings.import.success.title" = "הייבוא הצליח";
+"settings.import.success.message" = "ההגדרות וקטעי הטקסט יובאו בהצלחה. קיצורי המקלדת הוגדרו מחדש.";
+"settings.import.failed.title" = "הייבוא נכשל";
+"settings.unsaved.changes" = "שינויים שלא נשמרו";
+
+/* Settings - Local Model Management */
+"settings.local.model" = "מודל מקומי";
+"settings.local.no.models" = "לא הורדו מודלים מקומיים";
+"settings.local.download.model" = "הורד מודל";
+"settings.local.select.model" = "בחר מודל";
+"settings.local.select.placeholder" = "בחר מודל...";
+"settings.local.source.downloaded" = "(הורד)";
+"settings.local.source.ollama" = "(Ollama)";
+"settings.local.source.external" = "(חיצוני)";
+"settings.local.status.ready" = "מוכן";
+"settings.local.status.not.loaded" = "לא נטען";
+"settings.local.status.file.missing" = "קובץ חסר";
+"settings.local.info.size" = "גודל:";
+"settings.local.info.ram" = "RAM:";
+"settings.local.info.vision" = "ראייה";
+"settings.local.info.managed.ollama" = "מודל זה מנוהל על ידי Ollama";
+"settings.local.info.external" = "מודל חיצוני נמצא ב:";
+"settings.local.manage.models" = "נהל מודלים...";
+"settings.local.scan.models" = "סרוק מודלים";
+"settings.local.scanning" = "סורק...";
+"settings.local.download.cancel" = "בטל";
+"settings.local.downloading" = "מוריד %@...";
+"settings.local.info.privacy" = "מודלים מקומיים רצים לגמרי על המק שלך ללא אינטרנט";
+"settings.local.models.title" = "מודלים מקומיים";
+"settings.local.done" = "סיום";
+"settings.local.hardware" = "חומרה:";
+"settings.local.hardware.optimal" = "אופטימלי למודלי AI מקומיים";
+"settings.local.available.ram" = "RAM זמין:";
+
+/* Download Integrity */
+"download.verification.failed" = "אימות ההורדה נכשל. אי-התאמה בגודל הקובץ.";
+"download.verification.corrupted" = "הקובץ שהורד נראה פגום. אנא נסה שוב.";
+
+/* Snippet Guide */
+"snippets.guide.basic.title" = "שימוש בסיסי";
+"snippets.guide.basic.description" = "הקלד את הטריגר שלך (לדוגמה, '!mail') ואחריו רווח או סימן פיסוק להרחבה.";
+"snippets.guide.variables.title" = "משתנים דינמיים";
+
+/* Error Messages */
+"error.update.check.failed" = "לא ניתן לבדוק עדכונים. אנא בדוק את החיבור שלך.";
+"error.api.key.empty" = "מפתח API לא יכול להיות ריק";
+"error.api.key.short" = "מפתח ה-API נראה קצר מדי. מפתחות API של OpenRouter בדרך כלל ארוכים יותר.";
+
+/* Import/Export Errors */
+"settings.import.error.invalid" = "קובץ ייצוא לא תקין. אנא בחר קובץ הגדרות JoyaFix תקין.";
+"settings.import.error.corrupted" = "ייבוא ההגדרות נכשל. הקובץ עשוי להיות פגום או לא תואם.";
+"settings.export.error.failed" = "ייצוא ההגדרות נכשל. אנא נסה שוב.";
+"settings.import.confirm.title" = "ייבוא הגדרות";
+"settings.import.confirm.message" = "פעולה זו תחליף את ההגדרות וקטעי הטקסט הנוכחיים שלך. האם אתה בטוח שברצונך להמשיך?";
+"settings.import.confirm.button" = "ייבא";
+
+/* Settings - Check Updates */
+"settings.check.updates.checking" = "בודק...";
+

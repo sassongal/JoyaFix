@@ -12,6 +12,12 @@ struct LocalModelInfo: Codable, Identifiable, Hashable {
     let supportsVision: Bool
     let quantization: String  // e.g., "Q4_K_M"
     let contextLength: Int
+    
+    /// SHA256 checksum for download integrity verification (optional for external/discovered models)
+    let sha256Checksum: String?
+    
+    /// Tolerance percentage for file size verification (0.05 = 5%)
+    let fileSizeTolerance: Double
 
     var fileSizeFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(fileSize), countStyle: .file)
@@ -19,6 +25,22 @@ struct LocalModelInfo: Codable, Identifiable, Hashable {
 
     var requiredRAMFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(requiredRAM), countStyle: .memory)
+    }
+    
+    /// Initialize with all parameters
+    init(id: String, name: String, displayName: String, description: String, downloadURL: URL, fileSize: UInt64, requiredRAM: UInt64, supportsVision: Bool, quantization: String, contextLength: Int, sha256Checksum: String? = nil, fileSizeTolerance: Double = 0.05) {
+        self.id = id
+        self.name = name
+        self.displayName = displayName
+        self.description = description
+        self.downloadURL = downloadURL
+        self.fileSize = fileSize
+        self.requiredRAM = requiredRAM
+        self.supportsVision = supportsVision
+        self.quantization = quantization
+        self.contextLength = contextLength
+        self.sha256Checksum = sha256Checksum
+        self.fileSizeTolerance = fileSizeTolerance
     }
 }
 
@@ -108,7 +130,9 @@ struct LocalModelRegistry {
             requiredRAM: 4_000_000_000,  // ~4GB
             supportsVision: false,
             quantization: "Q4_K_M",
-            contextLength: 8192
+            contextLength: 8192,
+            sha256Checksum: nil,  // Placeholder - to be updated with actual checksum
+            fileSizeTolerance: 0.05  // 5% tolerance for size verification
         ),
         LocalModelInfo(
             id: "gemma-2-2b-instruct",
@@ -120,7 +144,9 @@ struct LocalModelRegistry {
             requiredRAM: 3_000_000_000,  // ~3GB
             supportsVision: false,
             quantization: "Q4_K_M",
-            contextLength: 8192
+            contextLength: 8192,
+            sha256Checksum: nil,  // Placeholder - to be updated with actual checksum
+            fileSizeTolerance: 0.05  // 5% tolerance for size verification
         ),
         LocalModelInfo(
             id: "llava-1.5-7b",
@@ -132,7 +158,9 @@ struct LocalModelRegistry {
             requiredRAM: 8_000_000_000,  // ~8GB
             supportsVision: true,
             quantization: "Q4_K",
-            contextLength: 4096
+            contextLength: 4096,
+            sha256Checksum: nil,  // Placeholder - to be updated with actual checksum
+            fileSizeTolerance: 0.05  // 5% tolerance for size verification
         )
     ]
 

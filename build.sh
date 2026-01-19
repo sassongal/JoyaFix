@@ -141,7 +141,23 @@ if [ "$NOTARIZE" = true ]; then
     # =========================================
     # Production Signing with Hardened Runtime
     # =========================================
+    # IMPORTANT: The --options runtime flag enables Hardened Runtime,
+    # which is REQUIRED for notarization by Apple.
+    #
+    # Required entitlements for JoyaFix (in JoyaFix.entitlements):
+    # - com.apple.security.cs.allow-jit (Required for llama.cpp / Local LLM)
+    # - com.apple.security.cs.disable-library-validation (Required for loading local models)
+    # - com.apple.security.cs.allow-unsigned-executable-memory (Required for Metal compute)
+    # =========================================
     echo "🔐 Signing with Developer ID for notarization..."
+    echo "   Using Hardened Runtime (--options runtime)"
+    echo "   Entitlements: $ENTITLEMENTS_FILE"
+    
+    # Verify entitlements file exists
+    if [ ! -f "$ENTITLEMENTS_FILE" ]; then
+        echo "❌ Entitlements file not found: $ENTITLEMENTS_FILE"
+        exit 1
+    fi
     
     # Sign Frameworks first (inside-out signing)
     if [ -d "$FRAMEWORKS_DIR" ]; then

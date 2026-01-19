@@ -68,6 +68,21 @@ class InputMonitor {
     // Testing flag to bypass event tap creation
     private var disableEventTapForTesting = false
     
+    // MARK: - Watchdog Timer
+    
+    /// Timer that periodically checks if the event tap is still enabled
+    /// macOS can disable event taps if the app becomes unresponsive or due to system events
+    private var watchdogTimer: Timer?
+    
+    /// How often to check the event tap status (60 seconds)
+    private let watchdogInterval: TimeInterval = 60.0
+    
+    /// Counter for consecutive recovery attempts
+    private var recoveryAttempts = 0
+    
+    /// Maximum recovery attempts before giving up
+    private let maxRecoveryAttempts = 3
+    
     /// Configures the monitor for testing environments where event taps are not supported
     func configureForTesting() {
         disableEventTapForTesting = true
@@ -219,6 +234,9 @@ class InputMonitor {
         // Register all snippet triggers in centralized service
         registerAllSnippetTriggers()
         
+        // Start watchdog timer to monitor event tap health
+        startWatchdogTimer()
+        
         // Flag already set to true above
         Logger.snippet("InputMonitor started - snippet expansion active", level: .info)
     }
@@ -259,7 +277,145 @@ class InputMonitor {
         // Unregister all snippet triggers from centralized service
         unregisterAllSnippetTriggers()
         
+        // Stop watchdog timer
+        stopWatchdogTimer()
+        
         Logger.snippet("InputMonitor stopped", level: .info)
+    }
+    
+    // MARK: - Watchdog Timer Methods
+    
+    /// Starts the watchdog timer that monitors event tap health
+    private func startWatchdogTimer() {
+        // Stop any existing timer
+        stopWatchdogTimer()
+        
+        // Reset recovery counter
+        recoveryAttempts = 0
+        
+        // Create timer on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.watchdogTimer = Timer.scheduledTimer(withTimeInterval: self.watchdogInterval, repeats: true) { [weak self] _ in
+                self?.checkEventTapHealth()
+            }
+            
+            // Make sure timer runs during scrolling and other modal loops
+            if let timer = self.watchdogTimer {
+                RunLoop.current.add(timer, forMode: .common)
+            }
+            
+            Logger.snippet("Watchdog timer started (interval: \(self.watchdogInterval)s)", level: .info)
+        }
+    }
+    
+    /// Stops the watchdog timer
+    private func stopWatchdogTimer() {
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+    }
+    
+    /// Checks if the event tap is still enabled and attempts to recover if not
+    private func checkEventTapHealth() {
+        // Thread-safe access to event tap
+        os_unfair_lock_lock(&monitoringLock)
+        let eventTap = _eventTap
+        let currentlyMonitoring = _isMonitoring
+        os_unfair_lock_unlock(&monitoringLock)
+        
+        // Skip check if not monitoring or in test mode
+        guard currentlyMonitoring, !disableEventTapForTesting else {
+            return
+        }
+        
+        // Check if event tap exists and is enabled
+        guard let tap = eventTap else {
+            Logger.snippet("Watchdog: Event tap is nil, attempting recovery", level: .warning)
+            attemptEventTapRecovery()
+            return
+        }
+        
+        // Check if tap is still enabled (macOS can disable it)
+        let isEnabled = CGEvent.tapIsEnabled(tap: tap)
+        
+        if !isEnabled {
+            Logger.snippet("Watchdog: Event tap disabled by system, attempting to re-enable", level: .warning)
+            
+            // Try to re-enable first (less disruptive)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            
+            // Verify it was re-enabled
+            if CGEvent.tapIsEnabled(tap: tap) {
+                Logger.snippet("Watchdog: Event tap successfully re-enabled", level: .info)
+                recoveryAttempts = 0  // Reset counter on success
+                
+                // Notify user
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .showToast,
+                        object: ToastMessage(
+                            text: "Snippet monitoring recovered",
+                            style: .success,
+                            duration: 2.0
+                        )
+                    )
+                }
+            } else {
+                // Re-enable failed, need full recovery
+                Logger.snippet("Watchdog: Re-enable failed, attempting full recovery", level: .error)
+                attemptEventTapRecovery()
+            }
+        } else {
+            // Event tap is healthy, reset recovery counter
+            if recoveryAttempts > 0 {
+                Logger.snippet("Watchdog: Event tap healthy after recovery", level: .info)
+                recoveryAttempts = 0
+            }
+        }
+    }
+    
+    /// Attempts to fully recover the event tap by stopping and restarting monitoring
+    private func attemptEventTapRecovery() {
+        recoveryAttempts += 1
+        
+        if recoveryAttempts > maxRecoveryAttempts {
+            Logger.snippet("Watchdog: Max recovery attempts (\(maxRecoveryAttempts)) reached, giving up", level: .error)
+            
+            // Notify user that recovery failed
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Snippet monitoring failed. Please restart the app.",
+                        style: .error,
+                        duration: 5.0
+                    )
+                )
+            }
+            
+            // Stop trying
+            stopWatchdogTimer()
+            return
+        }
+        
+        Logger.snippet("Watchdog: Recovery attempt \(recoveryAttempts)/\(maxRecoveryAttempts)", level: .info)
+        
+        // Stop and restart monitoring
+        // Note: We need to release the lock before calling these methods
+        // to avoid deadlock since they also acquire the lock
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Full restart
+            self.stopMonitoring()
+            
+            // Small delay before restart
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                self.startMonitoring()
+            }
+        }
     }
     
     // MARK: - Snippet Trigger Registration

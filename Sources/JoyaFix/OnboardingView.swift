@@ -110,7 +110,7 @@ struct OnboardingView: View {
             checkPermissions()
             startPermissionPolling()
             // Load current AI provider setting
-            selectedAIProvider = settings.aiProvider
+            selectedAIProvider = settings.selectedAIProvider
         }
         .onDisappear {
             stopPermissionPolling()

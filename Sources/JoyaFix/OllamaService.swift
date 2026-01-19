@@ -89,7 +89,7 @@ struct OllamaGenerateResponse: Codable {
 
 /// Service for interacting with local Ollama installation
 @MainActor
-class OllamaService: AIServiceProtocol {
+class OllamaService: AIServiceProtocol, ObservableObject {
     static let shared = OllamaService()
     
     // MARK: - Published Properties

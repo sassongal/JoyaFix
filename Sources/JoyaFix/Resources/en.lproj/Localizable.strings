@@ -346,3 +346,101 @@
 "prompt.enhancer.refine.rule2" = "Maintain the structured format (Role, Context, Task, Constraints, Output Format).";
 "prompt.enhancer.refine.rule3" = "Return ONLY the refined prompt. No explanations or prefixes.";
 
+/* Settings - General Tab Additional Strings */
+"settings.recent.history.rows" = "Recent History Rows";
+"settings.recent.history.rows.description" = "Number of recent items to show in footer (5-20)";
+"settings.microphone.title" = "Microphone";
+"settings.microphone.description" = "Required for voice input feature. Allows the app to record audio for speech-to-text transcription.";
+"settings.speech.recognition.title" = "Speech Recognition";
+"settings.speech.recognition.description" = "Required for voice input feature. Allows the app to transcribe speech to text in Hebrew and English.";
+"settings.language.title" = "Language / שפה";
+"settings.app.language" = "App Language";
+"settings.language.system.default" = "System Default";
+"settings.language.english.force" = "English (Force)";
+"settings.language.restart.required" = "Restart required to apply language changes.";
+"settings.language.change.title" = "Language Change";
+"settings.language.change.message" = "Please restart the app for the language change to take effect.";
+
+/* Settings - AI Provider */
+"settings.ai.provider" = "AI Provider";
+"settings.ai.provider.info.title" = "AI Provider Selection";
+"settings.ai.provider.info.message" = "Choose your AI provider:\n\n• Gemini: Google's AI service (free tier available, supports vision)\n• OpenRouter: Access to multiple AI models (free and paid options)\n• Local: Run models directly on your Mac using LLM.swift\n• Ollama: Use models installed via Ollama (ollama.ai)\n\nLocal & Ollama: 100% private, runs on your Mac without internet.\nYou can switch between providers at any time.";
+"settings.openrouter.api.key" = "OpenRouter API Key";
+"settings.openrouter.api.key.placeholder" = "Enter OpenRouter API key";
+"settings.openrouter.key.valid" = "✓ API key is valid";
+"settings.openrouter.key.get" = "Get your API key from openrouter.ai";
+"settings.openrouter.key.link" = "Get your API Key from OpenRouter for more models";
+"settings.openrouter.model" = "Model";
+"settings.api.test" = "Test";
+"settings.api.testing" = "Testing...";
+
+/* Settings - Backup & Restore */
+"settings.backup.title" = "Backup & Restore";
+"settings.backup.description" = "Export your settings and snippets to a file, or import from a previous backup.";
+"settings.export" = "Export Settings...";
+"settings.export.progress" = "Exporting...";
+"settings.import" = "Import Settings...";
+"settings.import.progress" = "Importing...";
+"settings.export.success" = "Settings exported successfully!";
+"settings.import.success" = "Settings imported successfully!";
+"settings.export.success.title" = "Export Successful";
+"settings.export.success.message" = "Your settings and snippets have been exported successfully.";
+"settings.import.success.title" = "Import Successful";
+"settings.import.success.message" = "Your settings and snippets have been imported successfully. Hotkeys have been rebound.";
+"settings.import.failed.title" = "Import Failed";
+"settings.unsaved.changes" = "Unsaved changes";
+
+/* Settings - Local Model Management */
+"settings.local.model" = "Local Model";
+"settings.local.no.models" = "No local models downloaded";
+"settings.local.download.model" = "Download Model";
+"settings.local.select.model" = "Select Model";
+"settings.local.select.placeholder" = "Select a model...";
+"settings.local.source.downloaded" = "(Downloaded)";
+"settings.local.source.ollama" = "(Ollama)";
+"settings.local.source.external" = "(External)";
+"settings.local.status.ready" = "Ready";
+"settings.local.status.not.loaded" = "Not loaded";
+"settings.local.status.file.missing" = "File missing";
+"settings.local.info.size" = "Size:";
+"settings.local.info.ram" = "RAM:";
+"settings.local.info.vision" = "Vision";
+"settings.local.info.managed.ollama" = "This model is managed by Ollama";
+"settings.local.info.external" = "External model found at:";
+"settings.local.manage.models" = "Manage Models...";
+"settings.local.scan.models" = "Scan for Models";
+"settings.local.scanning" = "Scanning...";
+"settings.local.download.cancel" = "Cancel";
+"settings.local.downloading" = "Downloading %@...";
+"settings.local.info.privacy" = "Local models run entirely on your Mac without internet";
+"settings.local.models.title" = "Local Models";
+"settings.local.done" = "Done";
+"settings.local.hardware" = "Hardware:";
+"settings.local.hardware.optimal" = "Optimal for local AI models";
+"settings.local.available.ram" = "Available RAM:";
+
+/* Download Integrity */
+"download.verification.failed" = "Download verification failed. File size mismatch.";
+"download.verification.corrupted" = "Downloaded file appears to be corrupted. Please try again.";
+
+/* Snippet Guide */
+"snippets.guide.basic.title" = "Basic Usage";
+"snippets.guide.basic.description" = "Type your trigger (e.g., '!mail') followed by a space or punctuation to expand.";
+"snippets.guide.variables.title" = "Dynamic Variables";
+
+/* Error Messages */
+"error.update.check.failed" = "Couldn't check for updates. Please check your connection.";
+"error.api.key.empty" = "API key cannot be empty";
+"error.api.key.short" = "API key seems too short. OpenRouter API keys are typically longer.";
+
+/* Import/Export Errors */
+"settings.import.error.invalid" = "Invalid export file. Please select a valid JoyaFix settings file.";
+"settings.import.error.corrupted" = "Failed to import settings. The file may be corrupted or incompatible.";
+"settings.export.error.failed" = "Failed to export settings. Please try again.";
+"settings.import.confirm.title" = "Import Settings";
+"settings.import.confirm.message" = "This will replace your current settings and snippets. Are you sure you want to continue?";
+"settings.import.confirm.button" = "Import";
+
+/* Settings - Check Updates */
+"settings.check.updates.checking" = "Checking...";
+

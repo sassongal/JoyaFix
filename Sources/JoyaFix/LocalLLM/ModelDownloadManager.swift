@@ -404,6 +404,101 @@ class ModelDownloadManager: NSObject, ObservableObject {
         return "Unknown"
     }
 
+    // MARK: - Integrity Verification
+    
+    /// Verifies that the downloaded file size is within acceptable tolerance
+    private func verifyFileSize(expected: UInt64, actual: UInt64, tolerance: Double, tempLocation: URL) throws {
+        // Calculate tolerance range
+        let lowerBound = UInt64(Double(expected) * (1.0 - tolerance))
+        let upperBound = UInt64(Double(expected) * (1.0 + tolerance))
+        
+        Logger.info("File size verification: expected \(expected) bytes (±\(Int(tolerance * 100))%), actual \(actual) bytes")
+        Logger.info("Acceptable range: \(lowerBound) - \(upperBound) bytes")
+        
+        guard actual >= lowerBound && actual <= upperBound else {
+            Logger.error("File size mismatch! Expected: \(expected), Actual: \(actual)")
+            
+            // Delete the corrupted temp file
+            try? FileManager.default.removeItem(at: tempLocation)
+            Logger.info("Deleted corrupted temp file")
+            
+            // Show error toast
+            NotificationCenter.default.post(
+                name: .showToast,
+                object: ToastMessage(
+                    text: NSLocalizedString("download.verification.failed", comment: "Download verification failed"),
+                    style: .error,
+                    duration: 5.0
+                )
+            )
+            
+            throw ModelDownloadError.fileSizeMismatch(expected: expected, actual: actual)
+        }
+        
+        Logger.info("File size verification passed")
+    }
+    
+    /// Verifies the SHA256 checksum of the downloaded file
+    private func verifyChecksum(expected: String, fileURL: URL) async throws {
+        Logger.info("Starting SHA256 checksum verification...")
+        
+        // Compute checksum asynchronously to avoid blocking main thread
+        let actualChecksum = try await computeSHA256(for: fileURL)
+        
+        Logger.info("Expected checksum: \(expected)")
+        Logger.info("Actual checksum: \(actualChecksum)")
+        
+        guard actualChecksum.lowercased() == expected.lowercased() else {
+            Logger.error("Checksum mismatch!")
+            
+            // Delete the corrupted file
+            try? FileManager.default.removeItem(at: fileURL)
+            Logger.info("Deleted corrupted file")
+            
+            // Show error toast
+            NotificationCenter.default.post(
+                name: .showToast,
+                object: ToastMessage(
+                    text: NSLocalizedString("download.verification.corrupted", comment: "Download corrupted"),
+                    style: .error,
+                    duration: 5.0
+                )
+            )
+            
+            throw ModelDownloadError.checksumMismatch(expected: expected, actual: actualChecksum)
+        }
+        
+        Logger.info("Checksum verification passed")
+    }
+    
+    /// Computes SHA256 hash of a file
+    private func computeSHA256(for fileURL: URL) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let fileHandle = try FileHandle(forReadingFrom: fileURL)
+                    defer { try? fileHandle.close() }
+                    
+                    var hasher = SHA256Hasher()
+                    let bufferSize = 1024 * 1024  // 1MB buffer for large files
+                    
+                    while autoreleasepool(invoking: {
+                        guard let data = try? fileHandle.read(upToCount: bufferSize), !data.isEmpty else {
+                            return false
+                        }
+                        hasher.update(data: data)
+                        return true
+                    }) {}
+                    
+                    let hash = hasher.finalize()
+                    continuation.resume(returning: hash)
+                } catch {
+                    continuation.resume(throwing: ModelDownloadError.verificationFailed("Failed to compute checksum: \(error.localizedDescription)"))
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     private func loadDownloadedModels() {
@@ -456,10 +551,24 @@ class ModelDownloadManager: NSObject, ObservableObject {
                 }
 
                 // Get temp file size for verification
-                if let attrs = try? FileManager.default.attributesOfItem(atPath: tempLocation.path),
-                   let fileSize = attrs[.size] as? Int64 {
-                    Logger.info("Downloaded file size: \(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))")
+                let attrs = try FileManager.default.attributesOfItem(atPath: tempLocation.path)
+                guard let actualFileSize = attrs[.size] as? UInt64 else {
+                    Logger.error("Could not determine downloaded file size")
+                    throw ModelDownloadError.verificationFailed("Could not determine file size")
                 }
+                
+                Logger.info("Downloaded file size: \(ByteCountFormatter.string(fromByteCount: Int64(actualFileSize), countStyle: .file))")
+                
+                // === INTEGRITY VERIFICATION ===
+                // Verify file size is within acceptable tolerance
+                try verifyFileSize(expected: model.fileSize, actual: actualFileSize, tolerance: model.fileSizeTolerance, tempLocation: tempLocation)
+                
+                // Verify SHA256 checksum if available
+                if let expectedChecksum = model.sha256Checksum {
+                    try await verifyChecksum(expected: expectedChecksum, fileURL: tempLocation)
+                }
+                
+                Logger.info("Download integrity verification passed!")
 
                 // Remove existing file if present
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -591,6 +700,9 @@ enum ModelDownloadError: LocalizedError {
     case insufficientDiskSpace(required: UInt64, available: UInt64)
     case downloadFailed(String)
     case fileMoveFailed(String)
+    case fileSizeMismatch(expected: UInt64, actual: UInt64)
+    case checksumMismatch(expected: String, actual: String)
+    case verificationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -604,6 +716,14 @@ enum ModelDownloadError: LocalizedError {
             return "Download failed: \(reason)"
         case .fileMoveFailed(let reason):
             return "Failed to save model: \(reason)"
+        case .fileSizeMismatch(let expected, let actual):
+            let expectedMB = Double(expected) / 1_048_576
+            let actualMB = Double(actual) / 1_048_576
+            return String(format: NSLocalizedString("download.verification.failed", comment: "Download verification failed") + " Expected: %.1fMB, Actual: %.1fMB", expectedMB, actualMB)
+        case .checksumMismatch(let expected, let actual):
+            return "Checksum verification failed. Expected: \(expected.prefix(16))..., Got: \(actual.prefix(16))..."
+        case .verificationFailed(let reason):
+            return NSLocalizedString("download.verification.corrupted", comment: "Downloaded file corrupted") + " \(reason)"
         }
     }
 }
@@ -614,5 +734,30 @@ extension FileManager {
     func availableCapacity(forPath path: String) throws -> Int64 {
         let attributes = try attributesOfFileSystem(forPath: path)
         return (attributes[.systemFreeSize] as? Int64) ?? 0
+    }
+}
+
+// MARK: - SHA256 Hasher
+
+import CommonCrypto
+
+/// Simple SHA256 hasher wrapper for file integrity verification
+struct SHA256Hasher {
+    private var context = CC_SHA256_CTX()
+    
+    init() {
+        CC_SHA256_Init(&context)
+    }
+    
+    mutating func update(data: Data) {
+        data.withUnsafeBytes { buffer in
+            _ = CC_SHA256_Update(&context, buffer.baseAddress, CC_LONG(buffer.count))
+        }
+    }
+    
+    mutating func finalize() -> String {
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        CC_SHA256_Final(&digest, &context)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
