@@ -36,9 +36,9 @@ class HistoryDatabaseManager {
         if fileExists {
             // Perform integrity check on existing database
             if !checkDatabaseIntegrity() {
-                print("⚠️ Database integrity check failed - attempting recovery...")
+                Logger.database("Database integrity check failed - attempting recovery...", level: .warning)
                 if !recoverFromCorruption() {
-                    print("❌ Database recovery failed - resetting database")
+                    Logger.database("Database recovery failed - resetting database", level: .error)
                     resetDatabase()
                     // Re-initialize after reset
                     initializeDatabase()
@@ -54,7 +54,7 @@ class HistoryDatabaseManager {
             try dbQueue?.read { db in
                 let integrityResult = try String.fetchOne(db, sql: "PRAGMA integrity_check")
                 if let result = integrityResult, result.lowercased() != "ok" {
-                    print("⚠️ Database integrity check returned: \(result)")
+                    Logger.database("Database integrity check returned: \(result)", level: .warning)
                     // Close the queue before recovery
                     dbQueue = nil
                     throw DatabaseError.databaseCorrupted(result)
@@ -101,13 +101,13 @@ class HistoryDatabaseManager {
 #endif
 
                 
-                print("✓ Database initialized successfully")
+                Logger.database("Database initialized successfully", level: .info)
             }
             
             // Ensure indexes exist (migration support for existing databases)
             ensureIndexesExist()
         } catch {
-            print("❌ Failed to initialize database: \(error.localizedDescription)")
+            Logger.database("Failed to initialize database: \(error.localizedDescription)", level: .error)
             
             // If corruption detected, attempt recovery
             if case DatabaseError.databaseCorrupted = error {
@@ -143,14 +143,14 @@ class HistoryDatabaseManager {
             if let integrityResult = result {
                 let isHealthy = integrityResult.lowercased() == "ok"
                 if !isHealthy {
-                    print("⚠️ Database integrity check failed: \(integrityResult)")
+                    Logger.database("Database integrity check failed: \(integrityResult)", level: .warning)
                 }
                 return isHealthy
             }
             
             return false
         } catch {
-            print("❌ Failed to check database integrity: \(error.localizedDescription)")
+            Logger.database("Failed to check database integrity: \(error.localizedDescription)", level: .error)
             return false
         }
     }
@@ -158,7 +158,7 @@ class HistoryDatabaseManager {
     /// Attempts to recover from database corruption
     /// Returns true if recovery succeeded, false otherwise
     private func recoverFromCorruption() -> Bool {
-        print("🔄 Attempting database recovery...")
+        Logger.database("Attempting database recovery...", level: .info)
         
         // Backup corrupted database
         let backupURL = databaseURL.appendingPathExtension("corrupted.\(Int(Date().timeIntervalSince1970))")
@@ -166,9 +166,9 @@ class HistoryDatabaseManager {
         do {
             // Try to backup the corrupted file
             try FileManager.default.copyItem(at: databaseURL, to: backupURL)
-            print("✓ Created backup of corrupted database: \(backupURL.lastPathComponent)")
+            Logger.database("Created backup of corrupted database: \(backupURL.lastPathComponent)", level: .info)
         } catch {
-            print("⚠️ Could not backup corrupted database: \(error.localizedDescription)")
+            Logger.database("Could not backup corrupted database: \(error.localizedDescription)", level: .warning)
         }
         
         // Try to recover data using SQLite's recovery mechanisms
@@ -219,9 +219,9 @@ class HistoryDatabaseManager {
                         )
                     } ?? []
                 }
-                print("✓ Recovered \(recoveredClipboardItems.count) clipboard items")
+                Logger.database("Recovered \(recoveredClipboardItems.count) clipboard items", level: .info)
             } catch {
-                print("⚠️ Could not recover clipboard history: \(error.localizedDescription)")
+                Logger.database("Could not recover clipboard history: \(error.localizedDescription)", level: .warning)
             }
             
 #if false
@@ -252,11 +252,11 @@ class HistoryDatabaseManager {
                     } ?? []
                 }
 #if false
-                print("✓ Recovered \(recoveredOCRItems.count) OCR scans")
+                Logger.database("Recovered \(recoveredOCRItems.count) OCR scans", level: .info)
 #endif
 
             } catch {
-                print("⚠️ Could not recover OCR history: \(error.localizedDescription)")
+                Logger.database("Could not recover OCR history: \(error.localizedDescription)", level: .warning)
             }
 #endif
             
@@ -293,9 +293,9 @@ class HistoryDatabaseManager {
                                 ])
                             }
                         }
-                        print("✓ Restored \(recoveredClipboardItems.count) clipboard items")
+                        Logger.database("Restored \(recoveredClipboardItems.count) clipboard items", level: .info)
                     } catch {
-                        print("⚠️ Could not restore recovered clipboard items: \(error.localizedDescription)")
+                        Logger.database("Could not restore recovered clipboard items: \(error.localizedDescription)", level: .warning)
                     }
                 }
                 
@@ -316,29 +316,29 @@ class HistoryDatabaseManager {
                                 ])
                             }
                         }
-                        print("✓ Restored \(recoveredOCRItems.count) OCR scans")
+                        Logger.database("Restored \(recoveredOCRItems.count) OCR scans", level: .info)
                     } catch {
-                        print("⚠️ Could not restore recovered OCR scans: \(error.localizedDescription)")
+                        Logger.database("Could not restore recovered OCR scans: \(error.localizedDescription)", level: .warning)
                     }
                 }
 #endif
 
             } catch {
-                print("❌ Failed to re-initialize database after recovery: \(error.localizedDescription)")
+                Logger.database("Failed to re-initialize database after recovery: \(error.localizedDescription)", level: .error)
                 return false
             }
             
-            print("✓ Database recovery completed")
+            Logger.database("Database recovery completed", level: .info)
             return true
         } catch {
-            print("❌ Database recovery failed: \(error.localizedDescription)")
+            Logger.database("Database recovery failed: \(error.localizedDescription)", level: .error)
             return false
         }
     }
     
     /// Resets the database by deleting the corrupted file and creating a new one
     private func resetDatabase() {
-        print("🔄 Resetting database...")
+        Logger.database("Resetting database...", level: .info)
         
         // Close existing connection
         dbQueue = nil
@@ -348,16 +348,16 @@ class HistoryDatabaseManager {
             let backupURL = databaseURL.appendingPathExtension("reset.\(Int(Date().timeIntervalSince1970))")
             do {
                 try FileManager.default.moveItem(at: databaseURL, to: backupURL)
-                print("✓ Moved corrupted database to backup: \(backupURL.lastPathComponent)")
+                Logger.database("Moved corrupted database to backup: \(backupURL.lastPathComponent)", level: .info)
             } catch {
                 // If backup fails, try to delete
                 try? FileManager.default.removeItem(at: databaseURL)
-                print("⚠️ Could not backup corrupted database, deleted instead")
+                Logger.database("Could not backup corrupted database, deleted instead", level: .warning)
             }
         }
         
         // Database will be recreated on next initialization
-        print("✓ Database reset completed")
+        Logger.database("Database reset completed", level: .info)
     }
     
     // MARK: - Clipboard History Operations
@@ -578,7 +578,7 @@ class HistoryDatabaseManager {
         let key = JoyaFixConstants.UserDefaultsKeys.clipboardHistory
         
         guard let data = UserDefaults.standard.data(forKey: key) else {
-            print("ℹ️ No clipboard history in UserDefaults to migrate")
+            Logger.database("No clipboard history in UserDefaults to migrate", level: .info)
             return false
         }
         
@@ -590,10 +590,10 @@ class HistoryDatabaseManager {
             
             // Remove from UserDefaults after successful migration
             UserDefaults.standard.removeObject(forKey: key)
-            print("✓ Migrated \(items.count) clipboard items from UserDefaults to database")
+            Logger.database("Migrated \(items.count) clipboard items from UserDefaults to database", level: .info)
             return true
         } catch {
-            print("❌ Failed to migrate clipboard history: \(error.localizedDescription)")
+            Logger.database("Failed to migrate clipboard history: \(error.localizedDescription)", level: .error)
             return false
         }
     }
@@ -604,7 +604,7 @@ class HistoryDatabaseManager {
         let key = "OCRHistory" // Use string literal instead of missing constant
         
         guard let data = UserDefaults.standard.data(forKey: key) else {
-            print("ℹ️ No OCR history in UserDefaults to migrate")
+            Logger.database("No OCR history in UserDefaults to migrate", level: .info)
             return false
         }
         
@@ -622,7 +622,7 @@ class HistoryDatabaseManager {
     /// Checks if database indexes exist and creates them if missing (migration support)
     func ensureIndexesExist() {
         guard let queue = dbQueue else {
-            print("⚠️ Cannot check indexes: Database not initialized")
+            Logger.database("Cannot check indexes: Database not initialized", level: .warning)
             return
         }
         
@@ -635,11 +635,11 @@ class HistoryDatabaseManager {
                 
                 if !hasTimestampIndex {
                     try db.execute(sql: "CREATE INDEX idx_clipboard_timestamp ON clipboard_history(timestamp DESC)")
-                    print("✓ Created missing index: idx_clipboard_timestamp")
+                    Logger.database("Created missing index: idx_clipboard_timestamp", level: .info)
                 }
                 if !hasPinnedIndex {
                     try db.execute(sql: "CREATE INDEX idx_clipboard_pinned ON clipboard_history(is_pinned)")
-                    print("✓ Created missing index: idx_clipboard_pinned")
+                    Logger.database("Created missing index: idx_clipboard_pinned", level: .info)
                 }
                 
 #if false
@@ -649,13 +649,13 @@ class HistoryDatabaseManager {
                 
                 if !hasDateIndex {
                     try db.execute(sql: "CREATE INDEX idx_ocr_date ON ocr_history(date DESC)")
-                    print("✓ Created missing index: idx_ocr_date")
+                    Logger.database("Created missing index: idx_ocr_date", level: .info)
                 }
 #endif
 
             }
         } catch {
-            print("⚠️ Failed to ensure indexes exist: \(error.localizedDescription)")
+            Logger.database("Failed to ensure indexes exist: \(error.localizedDescription)", level: .warning)
         }
     }
 }

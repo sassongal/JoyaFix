@@ -67,12 +67,9 @@ class SettingsExporter {
         let snippets: [Snippet]
         let hotkeyKeyCode: UInt32
         let hotkeyModifiers: UInt32
-        let ocrHotkeyKeyCode: UInt32
-        let ocrHotkeyModifiers: UInt32
         let maxHistoryCount: Int
         let playSoundOnConvert: Bool
         let autoPasteAfterConvert: Bool
-        let useCloudOCR: Bool
         // Note: Gemini API key is NOT exported for security reasons
     }
     
@@ -91,12 +88,9 @@ class SettingsExporter {
             snippets: snippetManager.snippets,
             hotkeyKeyCode: settings.hotkeyKeyCode,
             hotkeyModifiers: settings.hotkeyModifiers,
-            ocrHotkeyKeyCode: settings.ocrHotkeyKeyCode,
-            ocrHotkeyModifiers: settings.ocrHotkeyModifiers,
             maxHistoryCount: settings.maxHistoryCount,
             playSoundOnConvert: settings.playSoundOnConvert,
-            autoPasteAfterConvert: settings.autoPasteAfterConvert,
-            useCloudOCR: settings.useCloudOCR
+            autoPasteAfterConvert: settings.autoPasteAfterConvert
         )
         
         let encoder = JSONEncoder()
@@ -175,18 +169,15 @@ class SettingsExporter {
             let settings = SettingsManager.shared
             settings.hotkeyKeyCode = exportData.hotkeyKeyCode
             settings.hotkeyModifiers = exportData.hotkeyModifiers
-            settings.ocrHotkeyKeyCode = exportData.ocrHotkeyKeyCode
-            settings.ocrHotkeyModifiers = exportData.ocrHotkeyModifiers
             settings.maxHistoryCount = exportData.maxHistoryCount
             settings.playSoundOnConvert = exportData.playSoundOnConvert
             settings.autoPasteAfterConvert = exportData.autoPasteAfterConvert
-            settings.useCloudOCR = exportData.useCloudOCR
             
             // Settings are saved automatically when properties are set
             
             // Rebind hotkeys
             let result = HotkeyManager.shared.rebindHotkeys()
-            if result.convertSuccess && result.ocrSuccess {
+            if result.convertSuccess && result.keyboardLockSuccess && result.promptSuccess {
                 print("✓ Settings imported and hotkeys rebound successfully")
             } else {
                 print("⚠️ Settings imported but some hotkeys failed to bind")

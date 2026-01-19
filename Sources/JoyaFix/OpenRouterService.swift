@@ -162,20 +162,48 @@ class OpenRouterService: NSObject, AIServiceProtocol {
     // MARK: - AIServiceProtocol
     
     func generateResponse(prompt: String) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            sendPrompt(prompt, attempt: 0) { result in
-                switch result {
-                case .success(let text):
-                    continuation.resume(returning: text)
-                case .failure(let error):
-                    let aiError = self.convertToAIServiceError(error)
-                    continuation.resume(throwing: aiError)
+        // Add timeout protection to prevent indefinite hanging
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    Task { @MainActor in
+                        self.sendPrompt(prompt, attempt: 0) { result in
+                            switch result {
+                            case .success(let text):
+                                continuation.resume(returning: text)
+                            case .failure(let error):
+                                let aiError = self.convertToAIServiceError(error)
+                                continuation.resume(throwing: aiError)
+                            }
+                        }
+                    }
                 }
             }
+
+            // Timeout task - 90 seconds max
+            group.addTask {
+                try await Task.sleep(nanoseconds: 90_000_000_000)
+                throw AIServiceError.networkError(NSError(
+                    domain: "OpenRouterService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request timed out. Please try again."]
+                ))
+            }
+
+            guard let result = try await group.next() else {
+                group.cancelAll()
+                throw AIServiceError.networkError(NSError(
+                    domain: "OpenRouterService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request completed with no result. Please try again."]
+                ))
+            }
+            group.cancelAll()
+            return result
         }
     }
     
-    /// Describes an image using OpenRouter's vision-capable models
+    /// Describes an image using OpenRouter's vision-capable models with timeout protection
     func describeImage(image: NSImage) async throws -> String {
         // Convert NSImage to base64
         guard let imageData = image.tiffRepresentation,
@@ -189,16 +217,44 @@ class OpenRouterService: NSObject, AIServiceProtocol {
         // Create vision prompt for "Nano Banano Style" description
         let visionPrompt = "Describe this image with extreme detail for an AI image generator. Focus on lighting, style, lens, and composition. Style: Nano Banano artistic style (vivid and high-end)."
         
-        return try await withCheckedThrowingContinuation { continuation in
-            sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in
-                switch result {
-                case .success(let text):
-                    continuation.resume(returning: text)
-                case .failure(let error):
-                    let aiError = self.convertToAIServiceError(error)
-                    continuation.resume(throwing: aiError)
+        // Add timeout protection to prevent indefinite hanging
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    Task { @MainActor in
+                        self.sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in
+                            switch result {
+                            case .success(let text):
+                                continuation.resume(returning: text)
+                            case .failure(let error):
+                                let aiError = self.convertToAIServiceError(error)
+                                continuation.resume(throwing: aiError)
+                            }
+                        }
+                    }
                 }
             }
+
+            // Timeout task - 90 seconds max
+            group.addTask {
+                try await Task.sleep(nanoseconds: 90_000_000_000)
+                throw AIServiceError.networkError(NSError(
+                    domain: "OpenRouterService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request timed out. Please try again."]
+                ))
+            }
+
+            guard let result = try await group.next() else {
+                group.cancelAll()
+                throw AIServiceError.networkError(NSError(
+                    domain: "OpenRouterService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request completed with no result. Please try again."]
+                ))
+            }
+            group.cancelAll()
+            return result
         }
     }
     
@@ -212,8 +268,8 @@ class OpenRouterService: NSObject, AIServiceProtocol {
             return
         }
         
-        // Use a vision-capable model (gemini-1.5-flash supports vision)
-        let model = "google/gemini-1.5-flash"
+        // Use a vision-capable model (gemini-2.5-flash supports vision, updated from deprecated 1.5)
+        let model = "google/gemini-2.5-flash"
         
         // For OpenRouter vision models, we need to format the content as an array
         // with text and image_url objects

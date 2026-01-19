@@ -5,12 +5,28 @@ import Cocoa
 /// Manages AI-powered prompt enhancement
 /// Converts user's raw input into professional, structured LLM prompts
 @MainActor
-class PromptEnhancerManager {
+class PromptEnhancerManager: ObservableObject {
     static let shared = PromptEnhancerManager()
     
     private let settings = SettingsManager.shared
     
+    /// Loading state for prompt enhancement
+    @Published var isEnhancing = false
+    @Published var enhancementStatus: String = ""
+
+    /// Task reference for cancellation support
+    private var enhancementTask: Task<Void, Never>?
+
     private init() {}
+
+    /// Cancels the current enhancement operation
+    func cancelEnhancement() {
+        enhancementTask?.cancel()
+        isEnhancing = false
+        enhancementStatus = ""
+        AILoadingOverlayWindowController.dismiss()
+        showToast("Enhancement cancelled", style: .info)
+    }
     
     // MARK: - Meta-Prompt Template
     
@@ -56,9 +72,12 @@ Generate the CO-STAR prompt now.
         // Step 0: Ensure app is hidden to capture correct selection
         NSApp.hide(nil)
         
-        // Step 1: Check Accessibility permissions
-        guard PermissionManager.shared.isAccessibilityTrusted() else {
-            print("⚠️ Accessibility permission missing for prompt enhancement")
+        // Step 1: Check Accessibility permissions (with fresh check)
+        // Force refresh to ensure we have the latest permission status
+        let hasAccessibility = PermissionManager.shared.refreshAccessibilityStatus()
+        
+        guard hasAccessibility else {
+            Logger.error("Accessibility permission required but not granted")
             showToast("Accessibility permission required for prompt enhancement", style: .warning)
             showPermissionRequiredAlert()
             return
@@ -71,17 +90,49 @@ Generate the CO-STAR prompt now.
         } else {
             let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
             Logger.error("❌ \(providerName) API Key NOT found in Settings or Keychain.")
-            print("⚠️ \(providerName) API key not found")
             showToast("\(providerName) API key required. Please configure in Settings.", style: .error)
             showAPIKeyRequiredAlert()
             return
         }
         
+        // Set loading state
+        isEnhancing = true
+        enhancementStatus = "Copying selected text..."
+
+        // Show prominent loading overlay
+        AILoadingOverlayWindowController.show(
+            initialStatus: "Copying selected text...",
+            onCancel: { [weak self] in
+                self?.cancelEnhancement()
+            }
+        )
+        
         Task {
-            // Step 3 & 4 & 5: Copy and Read (Async)
-            guard let selectedText = await ClipboardHelper.getSelectedText() else {
-                print("❌ No text selected or clipboard is empty")
+            // Step 3: Double-check permissions before attempting to copy (in case they changed)
+            // This is important because the user might have granted permission after the initial check
+            let stillHasAccessibility = PermissionManager.shared.refreshAccessibilityStatus()
+            guard stillHasAccessibility else {
                 Task { @MainActor in
+                    isEnhancing = false
+                    enhancementStatus = ""
+                    AILoadingOverlayWindowController.dismiss()
+                    showToast("Accessibility permission required. Please grant it in System Settings.", style: .error)
+                    showPermissionRequiredAlert()
+                }
+                return
+            }
+            
+            // Step 4 & 5: Copy and Read (Async)
+            Task { @MainActor in
+                enhancementStatus = "Reading selected text..."
+                AILoadingOverlayWindowController.updateStatus("Reading selected text...")
+            }
+            
+            guard let selectedText = await ClipboardHelper.getSelectedText() else {
+                Task { @MainActor in
+                    isEnhancing = false
+                    enhancementStatus = ""
+                    AILoadingOverlayWindowController.dismiss()
                     showToast("No text selected. Please select text to enhance.", style: .warning)
                     self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
                 }
@@ -89,18 +140,24 @@ Generate the CO-STAR prompt now.
             }
 
             if selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                print("❌ Text is empty")
-                 Task { @MainActor in
+                Task { @MainActor in
+                    isEnhancing = false
+                    enhancementStatus = ""
+                    AILoadingOverlayWindowController.dismiss()
                     showToast("Selected text is empty", style: .warning)
                     self.showErrorAlert(message: NSLocalizedString("prompt.enhancer.error.no.text", comment: "No text selected"))
                 }
                 return
             }
             
-            print("📝 Original text: '\(selectedText.prefix(100))...'")
-            
             // Step 6: Create meta-prompt and send to AI service
             let metaPrompt = self.createMetaPrompt(userText: selectedText)
+            let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
+            
+            Task { @MainActor in
+                enhancementStatus = "Enhancing with \(providerName)..."
+                AILoadingOverlayWindowController.updateStatus("AI is analyzing your text...")
+            }
             
             Task { @MainActor in
                 do {
@@ -111,12 +168,21 @@ Generate the CO-STAR prompt now.
 
                     // Play success sound when enhancement succeeds
                     SoundManager.shared.playSuccess()
+
+                    // Clear loading state and dismiss overlay
+                    isEnhancing = false
+                    enhancementStatus = ""
+                    AILoadingOverlayWindowController.dismiss()
+
                     showToast("Prompt enhanced successfully!", style: .success)
 
                     // Step 7: Show review window instead of pasting immediately
                     self.showReviewWindow(enhancedPrompt: enhancedPrompt, originalText: selectedText)
                 } catch {
                     Logger.network("Failed to enhance prompt: \(error.localizedDescription)", level: .error)
+                    isEnhancing = false
+                    enhancementStatus = ""
+                    AILoadingOverlayWindowController.dismiss()
                     showToast("Failed to enhance prompt. Please try again.", style: .error)
                     // Convert to GeminiServiceError for backward compatibility with error handling
                     let geminiError = self.convertToGeminiServiceError(error)
@@ -147,19 +213,14 @@ Generate the CO-STAR prompt now.
                 },
                 onCancel: {
                     // User cancelled - do nothing
-                    print("❌ User cancelled prompt review")
                 },
                 onRefine: { refineRequest in
                     // User wants to refine the prompt
-                    print("🔄 Refining prompt: \(refineRequest)")
                     self.refinePrompt(currentPrompt: promptHolder.value, originalText: storedOriginalText, refineRequest: refineRequest) { refinedPrompt in
                         if let refined = refinedPrompt {
-                            print("✅ Prompt refined successfully")
                             promptHolder.value = refined
                             // Update the window with new prompt
                             showWindowWithPrompt(refined)
-                        } else {
-                            print("❌ Failed to refine prompt")
                         }
                     }
                 }
@@ -177,7 +238,6 @@ Generate the CO-STAR prompt now.
         Task {
             // Write enhanced prompt to clipboard
             ClipboardHelper.writeToClipboard(prompt)
-            print("📋 Enhanced prompt written to clipboard")
             
             // Play success sound
             SoundManager.shared.playSuccess()
@@ -188,13 +248,11 @@ Generate the CO-STAR prompt now.
             // Wait for app hide
             try? await Task.sleep(nanoseconds: 100 * 1_000_000)
             
-            print("🗑️ Deleting selected text...")
             ClipboardHelper.simulateDelete()
             
             // Wait a bit before pasting
             try? await Task.sleep(nanoseconds: 200 * 1_000_000)
             
-            print("📋 Simulating paste...")
             ClipboardHelper.simulatePaste()
         }
     }
@@ -225,18 +283,21 @@ Generate the CO-STAR prompt now.
 """
         
         Task { @MainActor in
+            enhancementStatus = "Refining prompt..."
+            showToast("Refining prompt...", style: .info)
             do {
                 let service = AIServiceFactory.createService()
                 let refinedPrompt = try await service.generateResponse(prompt: refinePrompt)
 
-
                 // Play success sound when refinement succeeds
                 SoundManager.shared.playSuccess()
                 showToast("Prompt refined successfully!", style: .success)
+                enhancementStatus = ""
                 completion(refinedPrompt)
             } catch {
                 Logger.network("Failed to refine prompt: \(error.localizedDescription)", level: .error)
                 showToast("Failed to refine prompt. Please try again.", style: .error)
+                enhancementStatus = ""
                 completion(nil)
             }
         }
@@ -270,15 +331,51 @@ Generate the CO-STAR prompt now.
     
     private func showPermissionRequiredAlert() {
         let alert = NSAlert()
-        alert.messageText = NSLocalizedString("alert.accessibility.title", comment: "Accessibility alert title")
-        alert.informativeText = NSLocalizedString("alert.accessibility.message", comment: "Accessibility alert message")
+        alert.messageText = NSLocalizedString("alert.accessibility.title", comment: "Accessibility Permission Required")
+        alert.informativeText = """
+        JoyaFix needs Accessibility permission to use the AI Prompt Enhancer.
+        
+        This permission allows the app to:
+        • Copy selected text automatically
+        • Simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete)
+        • Replace text with the enhanced prompt
+        
+        To grant permission:
+        1. Click "Open Settings" below
+        2. Check the box next to "JoyaFix" in the list
+        3. Return to this app and try again
+        
+        Note: You may need to restart JoyaFix after granting permission.
+        """
         alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open settings"))
-        alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Cancel")
         
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
+            // Invalidate cache before opening settings
+            PermissionManager.shared.invalidateCache()
             PermissionManager.shared.openAccessibilitySettings()
+            
+            // Show a follow-up message after a delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                let followUpAlert = NSAlert()
+                followUpAlert.messageText = "Permission Granted?"
+                followUpAlert.informativeText = """
+                If you've granted Accessibility permission, please:
+                
+                1. Return to JoyaFix
+                2. Try the Prompt Enhancer again (⌘⌥P or from menu)
+                
+                If the permission was already granted, you may need to restart JoyaFix.
+                """
+                followUpAlert.alertStyle = .informational
+                followUpAlert.addButton(withTitle: "OK")
+                followUpAlert.runModal()
+                
+                // Refresh permission status after user returns
+                _ = PermissionManager.shared.refreshAccessibilityStatus()
+            }
         }
     }
     

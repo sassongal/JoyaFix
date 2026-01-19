@@ -5,8 +5,16 @@ class SettingsWindowController {
     static let shared = SettingsWindowController()
     
     private var settingsWindow: NSWindow?
+    private var windowCloseObserver: NSObjectProtocol?
     
     private init() {}
+    
+    deinit {
+        // Remove observer on deinit
+        if let observer = windowCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
     
     /// Shows the settings window, creating it if necessary
     func show() {
@@ -37,13 +45,22 @@ class SettingsWindowController {
             window.isReleasedWhenClosed = false
             
             // Handle window closing - keep reference for reuse
-            NotificationCenter.default.addObserver(
+            // Remove previous observer if exists
+            if let previousObserver = self.windowCloseObserver {
+                NotificationCenter.default.removeObserver(previousObserver)
+            }
+            
+            self.windowCloseObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
                 object: window,
                 queue: .main
-            ) { _ in
+            ) { [weak self] notification in
                 // Window closed, but keep reference for reuse
-                // Don't set to nil so we can reuse it
+                // Remove observer when window closes
+                if let observer = self?.windowCloseObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    self?.windowCloseObserver = nil
+                }
             }
             
             // Premium entrance animation

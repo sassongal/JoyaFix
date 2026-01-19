@@ -54,6 +54,26 @@ struct GeminiRequest: Encodable {
                 case text
                 case inlineData = "inline_data"
             }
+            
+            // Custom encoding to ensure only one field is encoded at a time
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                
+                // Only encode text if inlineData is nil
+                if let text = text, inlineData == nil {
+                    try container.encode(text, forKey: .text)
+                }
+                
+                // Only encode inlineData if text is nil
+                if let inlineData = inlineData, text == nil {
+                    try container.encode(inlineData, forKey: .inlineData)
+                }
+                
+                // If both are set, prioritize inlineData (for image parts)
+                if let inlineData = inlineData, text != nil {
+                    try container.encode(inlineData, forKey: .inlineData)
+                }
+            }
         }
         
         struct InlineData: Encodable {
@@ -123,23 +143,52 @@ class GeminiService: NSObject, AIServiceProtocol {
     
     // MARK: - Public API (AIServiceProtocol)
     
-    /// Generates a response from Gemini API (async/await)
+    /// Generates a response from Gemini API (async/await) with timeout protection
     func generateResponse(prompt: String) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            sendPrompt(prompt) { result in
-                switch result {
-                case .success(let text):
-                    continuation.resume(returning: text)
-                case .failure(let error):
-                    // Convert GeminiServiceError to AIServiceError
-                    let aiError = self.convertToAIServiceError(error)
-                    continuation.resume(throwing: aiError)
+        // Add timeout protection to prevent indefinite hanging
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    Task { @MainActor in
+                        self.sendPrompt(prompt) { result in
+                            switch result {
+                            case .success(let text):
+                                continuation.resume(returning: text)
+                            case .failure(let error):
+                                // Convert GeminiServiceError to AIServiceError
+                                let aiError = self.convertToAIServiceError(error)
+                                continuation.resume(throwing: aiError)
+                            }
+                        }
+                    }
                 }
             }
+
+            // Timeout task - 90 seconds max (includes URLSession's 60s timeout + buffer)
+            group.addTask {
+                try await Task.sleep(nanoseconds: 90_000_000_000)
+                throw AIServiceError.networkError(NSError(
+                    domain: "GeminiService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request timed out. Please try again."]
+                ))
+            }
+
+            // Return first completed result or throw first error
+            guard let result = try await group.next() else {
+                group.cancelAll()
+                throw AIServiceError.networkError(NSError(
+                    domain: "GeminiService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request completed with no result. Please try again."]
+                ))
+            }
+            group.cancelAll()
+            return result
         }
     }
     
-    /// Describes an image using Gemini's vision capabilities
+    /// Describes an image using Gemini's vision capabilities with timeout protection
     func describeImage(image: NSImage) async throws -> String {
         // Convert NSImage to base64
         guard let imageData = image.tiffRepresentation,
@@ -153,16 +202,45 @@ class GeminiService: NSObject, AIServiceProtocol {
         // Create vision prompt for "Nano Banano Style" description
         let visionPrompt = "Describe this image with extreme detail for an AI image generator. Include style, color palette, lighting (e.g., Rembrandt, volumetric), and lens info. Follow the 'Nano Banano' artistic style: concise yet vivid."
         
-        return try await withCheckedThrowingContinuation { continuation in
-            sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in
-                switch result {
-                case .success(let text):
-                    continuation.resume(returning: text)
-                case .failure(let error):
-                    let aiError = self.convertToAIServiceError(error)
-                    continuation.resume(throwing: aiError)
+        // Add timeout protection to prevent indefinite hanging
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    Task { @MainActor in
+                        self.sendImagePrompt(imageBase64: base64Image, prompt: visionPrompt, attempt: 0) { result in
+                            switch result {
+                            case .success(let text):
+                                continuation.resume(returning: text)
+                            case .failure(let error):
+                                let aiError = self.convertToAIServiceError(error)
+                                continuation.resume(throwing: aiError)
+                            }
+                        }
+                    }
                 }
             }
+
+            // Timeout task - 90 seconds max (includes URLSession's 60s timeout + buffer)
+            group.addTask {
+                try await Task.sleep(nanoseconds: 90_000_000_000)
+                throw AIServiceError.networkError(NSError(
+                    domain: "GeminiService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request timed out. Please try again."]
+                ))
+            }
+
+            // Return first completed result or throw first error
+            guard let result = try await group.next() else {
+                group.cancelAll()
+                throw AIServiceError.networkError(NSError(
+                    domain: "GeminiService",
+                    code: -1001,
+                    userInfo: [NSLocalizedDescriptionKey: "Request completed with no result. Please try again."]
+                ))
+            }
+            group.cancelAll()
+            return result
         }
     }
     
@@ -178,18 +256,29 @@ class GeminiService: NSObject, AIServiceProtocol {
     // MARK: - Internal Logic
     
     /// Sends an image with a prompt to Gemini API
+    /// FIXED: Separates text and image into separate parts to avoid oneof conflict
     private func sendImagePrompt(imageBase64: String, prompt: String, attempt: Int, completion: @escaping (Result<String, GeminiServiceError>) -> Void) {
+        // Create separate parts: one for text, one for image
+        // This avoids the "oneof field 'data' is already set. Cannot set 'inline_data'" error
+        let parts: [GeminiRequest.Content.Part] = [
+            // Text part (prompt)
+            GeminiRequest.Content.Part(
+                text: prompt,
+                inlineData: nil
+            ),
+            // Image part (separate)
+            GeminiRequest.Content.Part(
+                text: nil,
+                inlineData: GeminiRequest.Content.InlineData(
+                    mimeType: "image/png",
+                    data: imageBase64
+                )
+            )
+        ]
+        
         let requestBody = GeminiRequest(
             contents: [
-                GeminiRequest.Content(parts: [
-                    GeminiRequest.Content.Part(
-                        text: prompt,
-                        inlineData: GeminiRequest.Content.InlineData(
-                            mimeType: "image/png",
-                            data: imageBase64
-                        )
-                    )
-                ])
+                GeminiRequest.Content(parts: parts)
             ],
             generationConfig: GeminiRequest.GenerationConfig(
                 temperature: 0.7,

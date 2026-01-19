@@ -8,34 +8,59 @@ struct HistoryView: View {
     @ObservedObject var promptManager = PromptLibraryManager.shared
     @ObservedObject var toastManager = ToastManager.shared
     @State private var searchText = ""
+    @State private var debouncedSearchText = ""
     @State private var selectedIndex = 0
     @State private var selectedTab = 0 // 0 = Clipboard, 1 = OCR Scans, 2 = Library
     @FocusState private var isSearchFocused: Bool
     @State private var editingPrompt: PromptTemplate?
     @State private var showingEditor = false
+    
+    // Advanced search options
+    @State private var searchOptions = AdvancedSearchOptions()
+    @State private var showAdvancedFilters = false
 
-    var onPasteItem: (ClipboardItem, Bool) -> Void  // Bool indicates plainTextOnly
+    var onPasteItem: (ClipboardItem, PasteFormattingOption) -> Void
     var onClose: () -> Void
-
-    var filteredHistory: [ClipboardItem] {
-        if searchText.isEmpty {
-            return clipboardManager.history
-        }
-        // Use fuzzy search with threshold
-        let threshold = 0.3 // Minimum score to show (0.0 = no match, 1.0 = exact match)
-        return clipboardManager.history.filter { item in
-            let score = item.plainTextPreview.fuzzyScore(word: searchText)
-            return score >= threshold
-        }.sorted { item1, item2 in
-            // Sort by score (highest first)
-            let score1 = item1.plainTextPreview.fuzzyScore(word: searchText)
-            let score2 = item2.plainTextPreview.fuzzyScore(word: searchText)
-            return score1 > score2
+    
+    @ObservedObject private var settings = SettingsManager.shared
+    
+    private var layoutSettings: PopoverLayoutSettings {
+        settings.popoverLayoutSettings
+    }
+    
+    private var toastAlignment: Alignment {
+        let position = settings.toastSettings.position
+        switch position {
+        case .topRight: return .topTrailing
+        case .topLeft: return .topLeading
+        case .bottomRight: return .bottomTrailing
+        case .bottomLeft: return .bottomLeading
+        case .center: return .center
         }
     }
     
+    private var toastPadding: EdgeInsets {
+        let position = settings.toastSettings.position
+        switch position {
+        case .topRight, .topLeft:
+            return EdgeInsets(top: 8, leading: 20, bottom: 0, trailing: 20)
+        case .bottomRight, .bottomLeft:
+            return EdgeInsets(top: 0, leading: 20, bottom: 8, trailing: 20)
+        case .center:
+            return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+        }
+    }
+
+    var filteredHistory: [ClipboardItem] {
+        var options = searchOptions
+        options.searchText = debouncedSearchText
+        
+        // Apply advanced filters
+        return options.filter(clipboardManager.history)
+    }
+    
     var filteredPrompts: [PromptTemplate] {
-        if searchText.isEmpty {
+        if debouncedSearchText.isEmpty {
             // Sort by lastUsed (most recent first), then by title
             return promptManager.prompts.sorted { prompt1, prompt2 in
                 if let date1 = prompt1.lastUsed, let date2 = prompt2.lastUsed {
@@ -52,13 +77,13 @@ struct HistoryView: View {
         // Use fuzzy search with threshold
         let threshold = 0.3
         return promptManager.prompts.filter { prompt in
-            let titleScore = prompt.title.fuzzyScore(word: searchText)
-            let contentScore = prompt.content.fuzzyScore(word: searchText)
+            let titleScore = prompt.title.fuzzyScore(word: debouncedSearchText)
+            let contentScore = prompt.content.fuzzyScore(word: debouncedSearchText)
             return max(titleScore, contentScore) >= threshold
         }.sorted { prompt1, prompt2 in
             // Sort by score (highest first)
-            let score1 = max(prompt1.title.fuzzyScore(word: searchText), prompt1.content.fuzzyScore(word: searchText))
-            let score2 = max(prompt2.title.fuzzyScore(word: searchText), prompt2.content.fuzzyScore(word: searchText))
+            let score1 = max(prompt1.title.fuzzyScore(word: debouncedSearchText), prompt1.content.fuzzyScore(word: debouncedSearchText))
+            let score2 = max(prompt2.title.fuzzyScore(word: debouncedSearchText), prompt2.content.fuzzyScore(word: debouncedSearchText))
             return score1 > score2
         }
     }
@@ -71,6 +96,9 @@ struct HistoryView: View {
                 searchText: $searchText,
                 selectedIndex: $selectedIndex,
                 isSearchFocused: $isSearchFocused,
+                searchOptions: $searchOptions,
+                showAdvancedFilters: $showAdvancedFilters,
+                layoutSettings: layoutSettings,
                 onPasteItem: onPasteItem,
                 onClose: onClose
             )
@@ -108,7 +136,6 @@ struct HistoryView: View {
                 }
                 .tag(3)
         }
-        .frame(width: 500)
         .onChange(of: selectedTab) { oldValue, newValue in
             // Notify AppDelegate to resize popover when tab changes
             NotificationCenter.default.post(name: NSNotification.Name("JoyaFixResizePopover"), object: nil, userInfo: ["tab": newValue])
@@ -146,17 +173,33 @@ struct HistoryView: View {
                 )
             }
         }
-        // Premium toast notifications overlay
-        .overlay(alignment: .top) {
+        // Premium toast notifications overlay with customizable position
+        .overlay(alignment: toastAlignment) {
             if let toast = toastManager.currentToast {
                 ToastView(message: toast)
-                    .padding(.top, 8)
+                    .padding(toastPadding)
                     .zIndex(999)  // Above all other content
             }
         }
         .onAppear {
             isSearchFocused = true
             selectedIndex = 0
+        }
+        .onChange(of: searchText) { oldValue, newValue in
+            // Immediately update if search is cleared (no delay for clearing)
+            if newValue.isEmpty {
+                debouncedSearchText = ""
+                return
+            }
+
+            // Debounce search by 300ms to reduce CPU usage with large histories
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                // Only update if searchText hasn't changed again
+                if searchText == newValue {
+                    debouncedSearchText = newValue
+                }
+            }
         }
     }
 }
@@ -168,8 +211,15 @@ struct ClipboardHistoryTabView: View {
     @Binding var searchText: String
     @Binding var selectedIndex: Int
     @FocusState.Binding var isSearchFocused: Bool
-    var onPasteItem: (ClipboardItem, Bool) -> Void  // Bool indicates plainTextOnly
+    @Binding var searchOptions: AdvancedSearchOptions
+    @Binding var showAdvancedFilters: Bool
+    let layoutSettings: PopoverLayoutSettings
+    var onPasteItem: (ClipboardItem, PasteFormattingOption) -> Void
     var onClose: () -> Void
+    
+    private var hasActiveFilters: Bool {
+        searchOptions.dateRange != .all || !searchOptions.contentTypes.isEmpty
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -178,71 +228,148 @@ struct ClipboardHistoryTabView: View {
             
             Divider()
             
-            // Quick Actions Section (Convert Text)
-            QuickActionsSection()
-            
-            Divider()
-            
-            // Search Bar
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 14))
+            // Search Bar with Advanced Options
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 15))
 
-                TextField("Search clipboard...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .font(.system(size: 13))
+                    TextField("Search clipboard...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .focused($isSearchFocused)
+                        .font(.system(size: 14))
 
-                if !searchText.isEmpty {
+                    // Regex toggle
                     Button(action: {
-                        searchText = ""
+                        searchOptions.useRegex.toggle()
                     }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                        Image(systemName: searchOptions.useRegex ? "textformat.123" : "textformat")
+                            .foregroundColor(searchOptions.useRegex ? .accentColor : .secondary)
                             .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
+                    .help("Use Regular Expression")
+
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    // Advanced filters toggle
+                    Button(action: {
+                        withAnimation {
+                            showAdvancedFilters.toggle()
+                        }
+                    }) {
+                        Image(systemName: showAdvancedFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .foregroundColor(hasActiveFilters ? .accentColor : .secondary)
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Advanced Filters")
+                }
+                .padding(10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                
+                // Advanced Filters Panel
+                if showAdvancedFilters {
+                    AdvancedFiltersPanel(searchOptions: $searchOptions)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
 
             Divider()
 
-            // History List
+            // Recent History Footer (like Clipboard app)
+            if !filteredHistory.isEmpty {
+                RecentHistoryFooter(
+                    items: filteredHistory,
+                    maxRows: SettingsManager.shared.recentHistoryRowsCount,
+                    onPasteItem: onPasteItem
+                )
+                Divider()
+            }
+
+            // History List or Grid
             if filteredHistory.isEmpty {
                 EmptyStateView(isSearching: !searchText.isEmpty)
                     .frame(height: 200)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 6) {
-                            ForEach(Array(filteredHistory.enumerated()), id: \.element.id) { index, item in
-                                HistoryItemRow(
-                                    item: item,
-                                    isSelected: index == selectedIndex,
-                                    onPaste: { plainTextOnly in
-                                        onPasteItem(item, plainTextOnly)
-                                    },
-                                    onTogglePin: {
-                                        ClipboardHistoryManager.shared.togglePin(for: item)
-                                    },
-                                    onDelete: {
-                                        ClipboardHistoryManager.shared.deleteItem(item)
-                                        if selectedIndex >= filteredHistory.count - 1 {
-                                            selectedIndex = max(0, filteredHistory.count - 2)
+                if layoutSettings.viewMode == .grid {
+                    // Grid View
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 8)], spacing: 8) {
+                                ForEach(Array(filteredHistory.enumerated()), id: \.element.id) { index, item in
+                                    HistoryItemGridCard(
+                                        item: item,
+                                        isSelected: index == selectedIndex,
+                                        itemSize: layoutSettings.itemSize,
+                                        theme: layoutSettings.theme,
+                                        onPaste: { option in
+                                            onPasteItem(item, option)
+                                        },
+                                        onTogglePin: {
+                                            ClipboardHistoryManager.shared.togglePin(for: item)
+                                        },
+                                        onDelete: {
+                                            ClipboardHistoryManager.shared.deleteItem(item)
+                                            if selectedIndex >= filteredHistory.count - 1 {
+                                                selectedIndex = max(0, filteredHistory.count - 2)
+                                            }
                                         }
-                                    }
-                                )
-                                .id(index)
+                                    )
+                                    .id(index)
+                                }
+                            }
+                            .padding(8)
+                        }
+                        .onChange(of: selectedIndex) { _, newValue in
+                            withAnimation {
+                                proxy.scrollTo(newValue, anchor: .center)
                             }
                         }
-                        .padding(8)
                     }
-                    .onChange(of: selectedIndex) { _, newValue in
-                        withAnimation {
-                            proxy.scrollTo(newValue, anchor: .center)
+                } else {
+                    // List View
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 6) {
+                                ForEach(Array(filteredHistory.enumerated()), id: \.element.id) { index, item in
+                                    HistoryItemRow(
+                                        item: item,
+                                        isSelected: index == selectedIndex,
+                                        itemSize: layoutSettings.itemSize,
+                                        theme: layoutSettings.theme,
+                                        onPaste: { option in
+                                            onPasteItem(item, option)
+                                        },
+                                        onTogglePin: {
+                                            ClipboardHistoryManager.shared.togglePin(for: item)
+                                        },
+                                        onDelete: {
+                                            ClipboardHistoryManager.shared.deleteItem(item)
+                                            if selectedIndex >= filteredHistory.count - 1 {
+                                                selectedIndex = max(0, filteredHistory.count - 2)
+                                            }
+                                        }
+                                    )
+                                    .id(index)
+                                }
+                            }
+                            .padding(8)
+                        }
+                        .onChange(of: selectedIndex) { _, newValue in
+                            withAnimation {
+                                proxy.scrollTo(newValue, anchor: .center)
+                            }
                         }
                     }
                 }
@@ -251,35 +378,36 @@ struct ClipboardHistoryTabView: View {
             Divider()
 
             // Footer
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 FooterHintView(icon: "return", text: "Paste")
-                FooterHintView(icon: "shift", text: "⇧ Plain Text")
+                FooterHintView(icon: "shift", text: "⇧ Plain")
+                FooterHintView(icon: "command", text: "⌘⇧ MD")
+                FooterHintView(icon: "command", text: "⌘⌥ Code")
                 FooterHintView(icon: "arrow.up.arrow.down", text: "Navigate")
                 FooterHintView(icon: "command", text: "⌫ Clear")
+                
+                // Additional formatting hints (compact)
+                Text("⌃ No Breaks • ⌥ Trim")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
 
                 Spacer()
 
                 Text("\(filteredHistory.count) items")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         }
-        .frame(width: 500)
+        .frame(minWidth: 600, idealWidth: 700, maxWidth: 900, minHeight: 700, idealHeight: 800, maxHeight: 1000)
         .background(Color.clear) // Transparent to show blur
         .onAppear {
-            isSearchFocused = true
             selectedIndex = 0
-            // CRITICAL FIX: Force refresh of history when view appears
-            // This ensures history is displayed even on first open
-            if ClipboardHistoryManager.shared.history.isEmpty {
-                // History might not be loaded yet, trigger a refresh
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    // Force SwiftUI to refresh by accessing history
-                    _ = ClipboardHistoryManager.shared.history
-                }
+            // Delay focus to allow SwiftUI to complete initial render and data binding
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isSearchFocused = true
             }
         }
         .onKeyPress(.upArrow) {
@@ -296,9 +424,25 @@ struct ClipboardHistoryTabView: View {
         }
         .onKeyPress(.return) {
             if !filteredHistory.isEmpty {
-                // Check if Shift is held for plain text paste
-                let isShiftHeld = NSEvent.modifierFlags.contains(.shift)
-                onPasteItem(filteredHistory[selectedIndex], isShiftHeld)
+                // Detect modifier keys for formatting options
+                let modifiers = NSEvent.modifierFlags
+                let option: PasteFormattingOption
+                
+                if modifiers.contains(.command) && modifiers.contains(.shift) {
+                    option = .markdown
+                } else if modifiers.contains(.command) && modifiers.contains(.option) {
+                    option = .code
+                } else if modifiers.contains(.control) {
+                    option = .removeLineBreaks
+                } else if modifiers.contains(.option) {
+                    option = .trimWhitespace
+                } else if modifiers.contains(.shift) {
+                    option = .plainText
+                } else {
+                    option = .normal
+                }
+                
+                onPasteItem(filteredHistory[selectedIndex], option)
             }
             return .handled
         }
@@ -317,11 +461,30 @@ struct ClipboardHistoryTabView: View {
 struct HistoryItemRow: View {
     let item: ClipboardItem
     let isSelected: Bool
-    let onPaste: (Bool) -> Void  // Bool indicates plainTextOnly
+    let itemSize: PopoverLayoutSettings.ItemSize
+    let theme: PopoverLayoutSettings.Theme
+    let onPaste: (PasteFormattingOption) -> Void
     let onTogglePin: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered = false
+    @State private var showPreview = false
+    @State private var showHoverPreview = false
+    @State private var hoverTimer: Timer?
+    
+    init(item: ClipboardItem, isSelected: Bool, itemSize: PopoverLayoutSettings.ItemSize = .normal, theme: PopoverLayoutSettings.Theme = .default, onPaste: @escaping (PasteFormattingOption) -> Void, onTogglePin: @escaping () -> Void, onDelete: @escaping () -> Void) {
+        self.item = item
+        self.isSelected = isSelected
+        self.itemSize = itemSize
+        self.theme = theme
+        self.onPaste = onPaste
+        self.onTogglePin = onTogglePin
+        self.onDelete = onDelete
+    }
+    
+    private func showEnhancedPreview() {
+        showPreview = true
+    }
 
     var contentIcon: String {
         let text = item.plainTextPreview.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -385,42 +548,42 @@ struct HistoryItemRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 if item.isImage {
                     Text("Image")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.primary)
                 } else {
                     // Mask sensitive content (passwords) for security
                     if item.isSensitive {
                         Text("••••••")
-                            .font(.system(size: 13))
-                            .lineLimit(2)
+                            .font(.system(size: 14))
+                            .lineLimit(3)
                             .foregroundColor(.secondary)
                     } else {
-                        Text(item.singleLineText(maxLength: 60))
-                            .font(.system(size: 13))
-                            .lineLimit(2)
-                            .foregroundColor(.primary)
+                    Text(item.singleLineText(maxLength: 100))
+                        .font(.system(size: itemSize.fontSize))
+                        .lineLimit(itemSize == .compact ? 2 : 3)
+                        .foregroundColor(.primary)
                     }
                 }
 
                 HStack(spacing: 8) {
                     // Timestamp
                     Text(timeAgo(from: item.timestamp))
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundColor(.secondary)
 
                     // Character count or image indicator
                     if item.isImage {
                         Text("Image")
-                            .font(.system(size: 10))
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     } else if item.isSensitive {
                         // Don't show character count for sensitive items
                         Text("Password")
-                            .font(.system(size: 10))
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     } else {
                         Text("\(item.plainTextPreview.count) chars")
-                            .font(.system(size: 10))
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
                 }
@@ -454,37 +617,57 @@ struct HistoryItemRow: View {
                 }
             }
         }
-        .padding(10)
+        .padding(itemSize == .compact ? 6 : (itemSize == .large ? 14 : 10))
+        .frame(height: itemSize.rowHeight)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : (isHovered ? Color.accentColor.opacity(0.08) : Color(NSColor.controlBackgroundColor)))
+                .fill(isSelected ? theme.accentColor.opacity(0.15) : (isHovered ? theme.accentColor.opacity(0.08) : theme.backgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : (isHovered ? Color.accentColor.opacity(0.3) : Color.clear), lineWidth: isSelected ? 1.5 : 1)
+                .stroke(isSelected ? theme.accentColor : (isHovered ? theme.accentColor.opacity(0.3) : Color.clear), lineWidth: isSelected ? 1.5 : 1)
         )
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
-        .onTapGesture {
-            // Check modifier keys for plain text paste
-            let event = NSApp.currentEvent
-            let isShiftHeld = event?.modifierFlags.contains(.shift) ?? false
-            let isOptionHeld = event?.modifierFlags.contains(.option) ?? false
-            let plainTextOnly = isShiftHeld || isOptionHeld
-            onPaste(plainTextOnly)
-        }
-        .help(tooltipText) // Display full text content or image info on hover
     }
     
-    private var tooltipText: String {
-        if let imagePath = item.imagePath {
-             return "Image: \(imagePath)"
+    private func handleHover(_ hovering: Bool) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isHovered = hovering
         }
-        // Return full text content for tooltip (handles multi-line and long text)
-        return item.textForPasting
+        
+        // Show hover preview after a short delay
+        if hovering {
+            hoverTimer?.invalidate()
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+                showHoverPreview = true
+            }
+        } else {
+            hoverTimer?.invalidate()
+            hoverTimer = nil
+            showHoverPreview = false
+        }
+    }
+    
+    private func handleTap() {
+        // Single click - check modifier keys for formatting options
+        let event = NSApp.currentEvent
+        let modifiers = event?.modifierFlags ?? []
+        let option: PasteFormattingOption
+        
+        if modifiers.contains(.command) && modifiers.contains(.shift) {
+            option = .markdown
+        } else if modifiers.contains(.command) && modifiers.contains(.option) {
+            option = .code
+        } else if modifiers.contains(.control) {
+            option = .removeLineBreaks
+        } else if modifiers.contains(.option) {
+            option = .trimWhitespace
+        } else if modifiers.contains(.shift) {
+            option = .plainText
+        } else {
+            option = .normal
+        }
+        
+        onPaste(option)
     }
 
     private func timeAgo(from date: Date) -> String {
@@ -630,109 +813,6 @@ struct ToolsSection: View {
     }
 }
 
-// MARK: - Quick Actions Section
-
-struct QuickActionsSection: View {
-    @ObservedObject private var settings = SettingsManager.shared
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: {
-            convertClipboardText()
-        }) {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 16))
-                    .foregroundColor(.accentColor)
-                    .frame(width: 24)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Convert Text Layout")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.primary)
-                    
-                    Text(settings.hotkeyDisplayString)
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-            }
-            .padding(8) // Reduced from 10
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isHovered ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-    }
-    
-    private func convertClipboardText() {
-        // Read from clipboard
-        let pasteboard = NSPasteboard.general
-        guard let copiedText = pasteboard.string(forType: .string), !copiedText.isEmpty else {
-            print("❌ No text in clipboard")
-            return
-        }
-        
-        print("📋 Original: '\(copiedText)'")
-        
-        // Convert the text
-        let convertedText = TextConverter.convert(copiedText)
-        print("✅ Converted: '\(convertedText)'")
-        
-        // Notify clipboard manager to ignore this write
-        ClipboardHistoryManager.shared.notifyInternalWrite()
-        
-        // Write back to clipboard
-        pasteboard.clearContents()
-        pasteboard.setString(convertedText, forType: .string)
-        print("📋 Converted text written to clipboard")
-        
-        // Optionally auto-paste if enabled
-        if settings.autoPasteAfterConvert {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                simulatePaste()
-                
-                // Play success sound if enabled
-                if settings.playSoundOnConvert {
-                    SoundManager.shared.playSuccess()
-                }
-            }
-        } else {
-            // Still play sound even if not pasting
-            if settings.playSoundOnConvert {
-                SoundManager.shared.playSuccess()
-            }
-        }
-    }
-    
-    private func simulatePaste() {
-        let keyCode = CGKeyCode(kVK_ANSI_V)
-        guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
-              let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
-            return
-        }
-        
-        keyDownEvent.flags = CGEventFlags.maskCommand
-        keyUpEvent.flags = CGEventFlags.maskCommand
-        
-        let location = CGEventTapLocation.cghidEventTap
-        keyDownEvent.post(tap: location)
-        usleep(10000) // 10ms delay
-        keyUpEvent.post(tap: location)
-    }
-}
-
 // MARK: - Prompt Library Tab
 
 struct PromptLibraryTabView: View {
@@ -745,11 +825,59 @@ struct PromptLibraryTabView: View {
     var onClose: () -> Void
     @ObservedObject var promptManager = PromptLibraryManager.shared
     @State private var selectedCategory: PromptCategory? = nil
+    @State private var showingPromptDetail: PromptTemplate? = nil
+    @State private var sortOption: SortOption = .lastUsed
+    @State private var showFavoritesOnly = false
+    @State private var selectedCollection: String? = nil
+    @State private var selectedTag: String? = nil
     
-    // Computed: Get prompts to display based on search and category
+    enum SortOption: String, CaseIterable {
+        case lastUsed = "Last Used"
+        case mostUsed = "Most Used"
+        case rating = "Rating"
+        case title = "Title"
+        case createdAt = "Created Date"
+    }
+    
+    // Computed: Get prompts to display based on search, category, filters, and sorting
     var displayedPrompts: [PromptTemplate] {
-        let categoryFiltered = selectedCategory == nil ? filteredPrompts : filteredPrompts.filter { $0.category == selectedCategory }
-        return categoryFiltered
+        var result = filteredPrompts
+        
+        // Category filter
+        if let category = selectedCategory {
+            result = result.filter { $0.category == category }
+        }
+        
+        // Favorites filter
+        if showFavoritesOnly {
+            result = result.filter { $0.isFavorite }
+        }
+        
+        // Collection filter
+        if let collection = selectedCollection {
+            result = result.filter { $0.collection == collection }
+        }
+        
+        // Tag filter
+        if let tag = selectedTag {
+            result = result.filter { $0.tags.contains(tag) }
+        }
+        
+        // Sorting
+        switch sortOption {
+        case .lastUsed:
+            result = result.sorted { ($0.lastUsed ?? Date.distantPast) > ($1.lastUsed ?? Date.distantPast) }
+        case .mostUsed:
+            result = result.sorted { $0.usageCount > $1.usageCount }
+        case .rating:
+            result = result.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
+        case .title:
+            result = result.sorted { $0.title < $1.title }
+        case .createdAt:
+            result = result.sorted { $0.createdAt > $1.createdAt }
+        }
+        
+        return result
     }
     
     var body: some View {
@@ -798,6 +926,28 @@ struct PromptLibraryTabView: View {
                                 .font(.system(size: 10))
                         }
                         .tag(nil as PromptCategory?)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedCategory = nil
+                        }
+                        
+                        // Favorites
+                        HStack {
+                            Image(systemName: "heart.fill")
+                                .foregroundColor(.pink)
+                                .frame(width: 16)
+                            Text("Favorites")
+                                .font(.system(size: 12))
+                            Spacer()
+                            Text("\(promptManager.favoritePrompts.count)")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 10))
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            showFavoritesOnly = true
+                            selectedCategory = nil
+                        }
                         
                         ForEach(PromptCategory.allCases) { category in
                             HStack {
@@ -812,18 +962,71 @@ struct PromptLibraryTabView: View {
                                     .font(.system(size: 10))
                             }
                             .tag(category as PromptCategory?)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedCategory = category
+                            }
+                        }
+                    }
+                    
+                    // Tags section (if any tags exist)
+                    if !promptManager.allTags.isEmpty {
+                        Section("Tags") {
+                            ForEach(promptManager.allTags.prefix(10), id: \.self) { tag in
+                                HStack {
+                                    Image(systemName: "tag.fill")
+                                        .foregroundColor(.blue)
+                                        .frame(width: 16)
+                                    Text(tag)
+                                        .font(.system(size: 12))
+                                    Spacer()
+                                    Text("\(promptManager.prompts(withTag: tag).count)")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 10))
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedTag = tag
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Collections section (if any collections exist)
+                    if !promptManager.allCollections.isEmpty {
+                        Section("Collections") {
+                            ForEach(promptManager.allCollections, id: \.self) { collection in
+                                HStack {
+                                    Image(systemName: "folder.fill")
+                                        .foregroundColor(.orange)
+                                        .frame(width: 16)
+                                    Text(collection)
+                                        .font(.system(size: 12))
+                                    Spacer()
+                                    Text("\(promptManager.prompts(in: collection).count)")
+                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 10))
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedCollection = collection
+                                }
+                            }
                         }
                     }
                 }
                 .listStyle(.sidebar)
-                .frame(minWidth: 180)
+                .onChange(of: selectedCategory) { oldValue, newValue in
+                    // Ensure selection is updated
+                }
             }
-            .frame(width: 200)
+            .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
 
             // RIGHT: Prompts List
             VStack(spacing: 0) {
-                // Add Prompt Button
-                HStack {
+                // Toolbar with filters and sorting
+                HStack(spacing: 8) {
+                    // Add Prompt Button
                     Button(action: {
                         editingPrompt = nil
                         showingEditor = true
@@ -834,10 +1037,44 @@ struct PromptLibraryTabView: View {
                             Text(NSLocalizedString("library.add.new", comment: "Add Prompt"))
                                 .font(.system(size: 13))
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
                     }
                     .buttonStyle(.borderedProminent)
+                    
+                    Spacer()
+                    
+                    // Favorites filter
+                    Button(action: {
+                        showFavoritesOnly.toggle()
+                    }) {
+                        Image(systemName: showFavoritesOnly ? "heart.fill" : "heart")
+                            .foregroundColor(showFavoritesOnly ? .pink : .secondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Show favorites only")
+                    
+                    // Sort picker
+                    Picker("Sort", selection: $sortOption) {
+                        ForEach(SortOption.allCases, id: \.self) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 120)
+                    
+                    // Collection picker (if any collections exist)
+                    if !promptManager.allCollections.isEmpty {
+                        Picker("Collection", selection: $selectedCollection) {
+                            Text("All Collections").tag(nil as String?)
+                            ForEach(promptManager.allCollections, id: \.self) { collection in
+                                Text(collection).tag(collection as String?)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 140)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -872,6 +1109,7 @@ struct PromptLibraryTabView: View {
                                                 promptManager: promptManager,
                                                 editingPrompt: $editingPrompt,
                                                 showingEditor: $showingEditor,
+                                                showingPromptDetail: $showingPromptDetail,
                                                 onClose: onClose
                                             )
                                         }
@@ -887,6 +1125,9 @@ struct PromptLibraryTabView: View {
                                             onCopy: {
                                                 promptManager.copyPromptToClipboard(prompt)
                                                 onClose()
+                                            },
+                                            onView: {
+                                                showingPromptDetail = prompt
                                             },
                                             onEdit: {
                                                 editingPrompt = prompt
@@ -905,7 +1146,7 @@ struct PromptLibraryTabView: View {
                                 .padding(8)
                             }
                         }
-                        .frame(height: min(CGFloat(displayedPrompts.count * 70 + 16), 400))
+                        .frame(maxHeight: .infinity)
                         .onChange(of: selectedIndex) { _, newValue in
                             withAnimation {
                                 proxy.scrollTo(newValue, anchor: .center)
@@ -933,7 +1174,7 @@ struct PromptLibraryTabView: View {
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             }
         }
-        .frame(width: 1200, height: 900)
+        .frame(minWidth: 900, idealWidth: 1000, maxWidth: 1200, minHeight: 600, idealHeight: 700, maxHeight: 900)
         .background(Color.clear)
         .onKeyPress(.upArrow) {
             if selectedIndex > 0 {
@@ -966,6 +1207,18 @@ struct PromptLibraryTabView: View {
             }
             return .ignored
         }
+        .sheet(item: $showingPromptDetail) { prompt in
+            PromptDetailView(prompt: prompt)
+                .frame(minWidth: 800, idealWidth: 900, maxWidth: 1200, minHeight: 600, idealHeight: 700, maxHeight: 1000)
+                .onDisappear {
+                    // Clear sheet state when dismissed
+                    showingPromptDetail = nil
+                }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("PromptDetailWindowClosed"))) { _ in
+            // Clear sheet state when window closes to prevent reopening
+            showingPromptDetail = nil
+        }
     }
 }
 
@@ -978,6 +1231,7 @@ struct CategorySection: View {
     @ObservedObject var promptManager: PromptLibraryManager
     @Binding var editingPrompt: PromptTemplate?
     @Binding var showingEditor: Bool
+    @Binding var showingPromptDetail: PromptTemplate?
     var onClose: () -> Void
     
     var body: some View {
@@ -1008,6 +1262,9 @@ struct CategorySection: View {
                         promptManager.copyPromptToClipboard(prompt)
                         onClose()
                     },
+                    onView: {
+                        showingPromptDetail = prompt
+                    },
                     onEdit: {
                         editingPrompt = prompt
                         showingEditor = true
@@ -1027,10 +1284,13 @@ struct PromptRowView: View {
     let prompt: PromptTemplate
     let isSelected: Bool
     let onCopy: () -> Void
+    var onView: (() -> Void)? = nil
     let onEdit: () -> Void
     let onDelete: () -> Void
-    
+    @ObservedObject var promptManager = PromptLibraryManager.shared
+
     @State private var isHovered = false
+    @State private var showHoverPreview = false
     
     var body: some View {
         HStack(spacing: 10) {
@@ -1041,17 +1301,90 @@ struct PromptRowView: View {
                 .frame(width: 24)
             
             // Content
-            VStack(alignment: .leading, spacing: 2) {
-                Text(prompt.title)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundColor(.primary)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(prompt.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundColor(.primary)
+                    
+                    // Favorite indicator
+                    if prompt.isFavorite {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.pink)
+                    }
+                    
+                    // Rating stars (interactive)
+                    HStack(spacing: 2) {
+                        ForEach(1...5, id: \.self) { star in
+                            Button(action: {
+                                let newRating = prompt.rating == star ? nil : star
+                                promptManager.updateRating(for: prompt, rating: newRating)
+                            }) {
+                                Image(systemName: star <= (prompt.rating ?? 0) ? "star.fill" : "star")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(star <= (prompt.rating ?? 0) ? .yellow : .gray.opacity(0.3))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Rate \(star) star\(star == 1 ? "" : "s")")
+                        }
+                    }
+                }
                 
                 Text(truncatedContent)
                     .font(.system(size: 11))
                     .lineLimit(2)
                     .foregroundColor(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Tags and metadata
+                HStack(spacing: 6) {
+                    // Tags
+                    if !prompt.tags.isEmpty {
+                        ForEach(prompt.tags.prefix(2), id: \.self) { tag in
+                            Text("#\(tag)")
+                                .font(.system(size: 9))
+                                .foregroundColor(.blue)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                        if prompt.tags.count > 2 {
+                            Text("+\(prompt.tags.count - 2)")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    // Usage count
+                    if prompt.usageCount > 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 8))
+                            Text("\(prompt.usageCount)")
+                                .font(.system(size: 9))
+                        }
+                        .foregroundColor(.secondary)
+                    }
+                    
+                    // Collection badge
+                    if let collection = prompt.collection {
+                        HStack(spacing: 2) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 8))
+                            Text(collection)
+                                .font(.system(size: 9))
+                        }
+                        .foregroundColor(.orange)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             
             Spacer()
             
@@ -1079,19 +1412,62 @@ struct PromptRowView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : (isHovered ? Color.accentColor.opacity(0.08) : Color(NSColor.controlBackgroundColor)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                .stroke(isSelected ? Color.accentColor : (isHovered ? Color.accentColor.opacity(0.3) : Color.clear), lineWidth: 1.5)
         )
         .onHover { hovering in
             isHovered = hovering
+            // Show hover preview after a short delay
+            if hovering {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if isHovered {
+                        showHoverPreview = true
+                    }
+                }
+            } else {
+                showHoverPreview = false
+            }
+        }
+        .popover(isPresented: $showHoverPreview, arrowEdge: .leading) {
+            PromptHoverPreviewView(prompt: prompt)
+                .frame(width: 400, height: 300)
         }
         .onTapGesture {
-            onCopy()
+            // Single click - open detail window for editing/viewing
+            if let onView = onView {
+                onView()
+            } else {
+                PromptDetailWindowController.shared.show(prompt: prompt)
+            }
         }
-        .help(prompt.content) // Display full prompt content on hover
+        .contextMenu {
+            Button(action: onCopy) {
+                Label("Copy to Clipboard", systemImage: "doc.on.doc")
+            }
+            
+            Divider()
+            
+            Button(action: {
+                Task { @MainActor in
+                    PromptLibraryManager.shared.toggleFavorite(for: prompt)
+                }
+            }) {
+                Label(prompt.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: prompt.isFavorite ? "heart.slash" : "heart")
+            }
+            
+            if !prompt.isSystem {
+                Divider()
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+                Button(action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
     }
     
     private var truncatedContent: String {
@@ -1100,6 +1476,69 @@ struct PromptRowView: View {
             return String(prompt.content.prefix(maxLength)) + "..."
         }
         return prompt.content
+    }
+}
+
+// MARK: - Prompt Hover Preview View
+
+struct PromptHoverPreviewView: View {
+    let prompt: PromptTemplate
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(prompt.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.primary)
+                    
+                    HStack(spacing: 6) {
+                        Image(systemName: prompt.category.icon)
+                            .foregroundColor(prompt.category.color)
+                            .font(.system(size: 10))
+                        Text(prompt.category.rawValue)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Spacer()
+            }
+            
+            Divider()
+            
+            // Full content
+            ScrollView {
+                Text(prompt.content)
+                    .font(.system(size: 12))
+                    .foregroundColor(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            
+            // Footer with metadata
+            HStack {
+                if prompt.isSystem {
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.orange)
+                            .font(.system(size: 9))
+                        Text("System Prompt")
+                            .font(.system(size: 9))
+                            .foregroundColor(.orange)
+                    }
+                }
+                
+                Spacer()
+                
+                Text("\(prompt.content.count) characters")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(width: 400, height: 300)
     }
 }
 
@@ -1112,14 +1551,16 @@ struct PromptEditorView: View {
     
     @State private var title: String
     @State private var content: String
+    @State private var selectedCategory: PromptCategory
     @FocusState private var isTitleFocused: Bool
-    
+
     init(prompt: PromptTemplate?, onSave: @escaping (PromptTemplate) -> Void, onCancel: @escaping () -> Void) {
         self.prompt = prompt
         self.onSave = onSave
         self.onCancel = onCancel
         _title = State(initialValue: prompt?.title ?? "")
         _content = State(initialValue: prompt?.content ?? "")
+        _selectedCategory = State(initialValue: prompt?.category ?? .productivity)
     }
     
     var body: some View {
@@ -1140,19 +1581,46 @@ struct PromptEditorView: View {
                     TextField("", text: $title)
                         .textFieldStyle(.roundedBorder)
                         .focused($isTitleFocused)
+                        .font(.system(size: 14))
                 }
-                
-                // Content field
+
+                // Category picker
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(NSLocalizedString("library.editor.content.label", comment: "Prompt Content"))
+                    Text(NSLocalizedString("library.editor.category.label", comment: "Category"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.secondary)
-                    
+
+                    Picker("", selection: $selectedCategory) {
+                        ForEach(PromptCategory.allCases) { category in
+                            HStack {
+                                Image(systemName: category.icon)
+                                Text(category.rawValue)
+                            }
+                            .tag(category)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // Content field
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(NSLocalizedString("library.editor.content.label", comment: "Prompt Content"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(content.count) characters")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
                     TextEditor(text: $content)
-                        .frame(height: 200)
-                        .padding(4)
+                        .frame(minHeight: 300, maxHeight: .infinity)
+                        .padding(8)
+                        .font(.system(size: 13))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
+                            RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color(NSColor.separatorColor), lineWidth: 1)
                         )
                 }
@@ -1174,8 +1642,16 @@ struct PromptEditorView: View {
                         id: prompt?.id ?? UUID(),
                         title: title,
                         content: content,
+                        category: selectedCategory,
                         isSystem: prompt?.isSystem ?? false,
-                        lastUsed: prompt?.lastUsed
+                        lastUsed: prompt?.lastUsed,
+                        rating: prompt?.rating,
+                        tags: prompt?.tags ?? [],
+                        isFavorite: prompt?.isFavorite ?? false,
+                        usageCount: prompt?.usageCount ?? 0,
+                        createdAt: prompt?.createdAt ?? Date(),
+                        notes: prompt?.notes,
+                        collection: prompt?.collection
                     )
                     onSave(newPrompt)
                 }) {
@@ -1188,7 +1664,7 @@ struct PromptEditorView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
-        .frame(width: 650, height: 550)  // More spacious for editing prompts
+        .frame(minWidth: 700, idealWidth: 800, maxWidth: 900, minHeight: 600, idealHeight: 700, maxHeight: 850)
         .onAppear {
             isTitleFocused = true
         }
@@ -1201,37 +1677,102 @@ struct ScratchpadTabView: View {
     @ObservedObject private var scratchpadManager = ScratchpadManager.shared
     var onClose: () -> Void
     
+    @State private var showingRenameDialog = false
+    @State private var renamingTabId: UUID? = nil
+    @State private var newTabName = ""
+    
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Scratchpad")
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(action: {
-                    scratchpadManager.clear()
-                }) {
+            // Header with Tabs
+            VStack(spacing: 0) {
+                // Tabs Bar
+                ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 11))
-                            .foregroundColor(.red)
-                        Text("Clear")
-                            .font(.system(size: 11))
-                            .foregroundColor(.red)
+                        ForEach(scratchpadManager.tabs) { tab in
+                            ScratchpadTabButton(
+                                tab: tab,
+                                isSelected: scratchpadManager.selectedTabId == tab.id,
+                                onSelect: {
+                                    scratchpadManager.selectTab(tab.id)
+                                },
+                                onClose: {
+                                    scratchpadManager.deleteTab(tab.id)
+                                },
+                                onRename: {
+                                    renamingTabId = tab.id
+                                    newTabName = tab.name
+                                    showingRenameDialog = true
+                                },
+                                canClose: scratchpadManager.tabs.count > 1
+                            )
+                        }
+                        
+                        // Add new tab button
+                        Button(action: {
+                            scratchpadManager.createNewTab()
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 10))
+                                Text("New")
+                                    .font(.system(size: 11))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
                 }
-                .buttonStyle(.plain)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+                
+                Divider()
+                
+                // Toolbar
+                HStack {
+                    Text("Scratchpad")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button(action: {
+                        scratchpadManager.clear()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10))
+                            Text("Clear")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             }
-            .padding(12)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             
             Divider()
             
             // Text Editor
-            TextEditor(text: $scratchpadManager.content)
-                .font(.system(size: 13))
-                .padding(8)
+            if scratchpadManager.selectedTabId != nil {
+                TextEditor(text: $scratchpadManager.content)
+                    .font(.system(size: 13))
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: scratchpadManager.content) { oldValue, newValue in
+                        // Content is automatically saved via didSet in ScratchpadManager
+                    }
+            } else {
+                VStack {
+                    Text("No tab selected")
+                        .foregroundColor(.secondary)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             
             Divider()
             
@@ -1241,15 +1782,225 @@ struct ScratchpadTabView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("\(scratchpadManager.content.count) chars")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                if let currentTab = scratchpadManager.currentTab {
+                    Text("\(currentTab.content.count) chars")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         }
-        .frame(width: 500)
+        .frame(minWidth: 600, idealWidth: 700, maxWidth: 900, minHeight: 700, idealHeight: 800, maxHeight: 1000)
+        .alert("Rename Tab", isPresented: $showingRenameDialog) {
+            TextField("Tab name", text: $newTabName)
+            Button("Cancel", role: .cancel) {
+                renamingTabId = nil
+                newTabName = ""
+            }
+            Button("Rename") {
+                if let tabId = renamingTabId {
+                    scratchpadManager.renameTab(tabId, newName: newTabName)
+                    renamingTabId = nil
+                    newTabName = ""
+                }
+            }
+        } message: {
+            Text("Enter a new name for this tab")
+        }
+    }
+}
+
+// MARK: - Scratchpad Tab Button
+
+struct ScratchpadTabButton: View {
+    let tab: ScratchpadTab
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    let onRename: () -> Void
+    let canClose: Bool
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(action: onSelect) {
+                Text(tab.name)
+                    .font(.system(size: 11))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 120)
+            }
+            .buttonStyle(.plain)
+            
+            if isHovered || isSelected {
+                Button(action: onRename) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                
+                if canClose {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : (isHovered ? Color.accentColor.opacity(0.1) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Recent History Footer
+
+struct RecentHistoryFooter: View {
+    let items: [ClipboardItem]
+    let maxRows: Int
+    var onPasteItem: (ClipboardItem, PasteFormattingOption) -> Void
+    
+    private var recentItems: [ClipboardItem] {
+        Array(items.prefix(maxRows))
+    }
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(recentItems.enumerated()), id: \.element.id) { index, item in
+                    RecentHistoryRow(
+                        item: item,
+                        index: index,
+                        onPaste: { option in
+                            onPasteItem(item, option)
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .frame(height: 50)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+    }
+}
+
+// MARK: - Recent History Row
+
+struct RecentHistoryRow: View {
+    let item: ClipboardItem
+    let index: Int
+    var onPaste: (PasteFormattingOption) -> Void
+    
+    @State private var isHovered = false
+    
+    private var keyboardShortcut: String {
+        "⌘\(index)"
+    }
+    
+    private var compactTime: String {
+        let seconds = Date().timeIntervalSince(item.timestamp)
+        if seconds < 60 {
+            return "now"
+        } else if seconds < 3600 {
+            return "\(Int(seconds / 60))m"
+        } else if seconds < 86400 {
+            return "\(Int(seconds / 3600))h"
+        } else {
+            return "\(Int(seconds / 86400))d"
+        }
+    }
+    
+    private var previewText: String {
+        if item.isSensitive {
+            return "••••••"
+        } else if item.isImage {
+            return "Image"
+        } else {
+            let text = item.plainTextPreview.replacingOccurrences(of: "\n", with: " ")
+            if text.count > 70 {
+                return String(text.prefix(70)) + "..."
+            }
+            return text
+        }
+    }
+    
+    var body: some View {
+        Button(action: {
+            let event = NSApp.currentEvent
+            let modifiers = event?.modifierFlags ?? []
+            let option: PasteFormattingOption
+            
+            if modifiers.contains(.command) && modifiers.contains(.shift) {
+                option = .markdown
+            } else if modifiers.contains(.command) && modifiers.contains(.option) {
+                option = .code
+            } else if modifiers.contains(.control) {
+                option = .removeLineBreaks
+            } else if modifiers.contains(.option) {
+                option = .trimWhitespace
+            } else if modifiers.contains(.shift) {
+                option = .plainText
+            } else {
+                option = .normal
+            }
+            
+            onPaste(option)
+        }) {
+            HStack(spacing: 6) {
+                // Keyboard shortcut
+                Text(keyboardShortcut)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .frame(width: 32)
+                
+                // Preview text
+                Text(previewText)
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 200, alignment: .leading)
+                
+                // Time
+                Text(compactTime)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .frame(width: 30, alignment: .trailing)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isHovered ? Color.accentColor.opacity(0.1) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isHovered ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+        .help(item.isSensitive ? "Password" : (item.isImage ? "Image" : item.textForPasting))
     }
 }
 

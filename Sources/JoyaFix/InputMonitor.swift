@@ -96,12 +96,25 @@ class InputMonitor {
             // Reset flag if permission check fails (already inside lock, no need to lock again)
             _isMonitoring = false
             Logger.snippet("Accessibility permission required for snippet expansion", level: .warning)
+            Logger.snippet("Snippet expansion disabled - Accessibility permission required", level: .warning)
+
+            // Notify user about permission requirement
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Snippets disabled: Accessibility permission required",
+                        style: .warning,
+                        duration: 4.0
+                    )
+                )
+            }
             return
         }
         
         // Skip event tap creation in test mode
         if disableEventTapForTesting {
-            print("✓ InputMonitor started (TEST MODE) - snippet expansion simulated")
+            Logger.snippet("InputMonitor started (TEST MODE) - snippet expansion simulated", level: .info)
             return
         }
         
@@ -141,6 +154,19 @@ class InputMonitor {
             // Reset flag if creation fails (already inside lock, no need to lock again)
             _isMonitoring = false
             Logger.snippet("Failed to create event tap for InputMonitor", level: .error)
+            Logger.snippet("Failed to create event tap - snippet expansion will not work", level: .error)
+
+            // Notify user about the failure
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .showToast,
+                    object: ToastMessage(
+                        text: "Snippets failed to start. Try restarting the app.",
+                        style: .error,
+                        duration: 4.0
+                    )
+                )
+            }
             return
         }
         
@@ -152,7 +178,7 @@ class InputMonitor {
         // Create run loop source
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         guard let runLoopSource = runLoopSource else {
-            print("❌ Failed to create run loop source")
+            Logger.snippet("Failed to create run loop source", level: .error)
             return
         }
         
@@ -166,7 +192,7 @@ class InputMonitor {
         registerAllSnippetTriggers()
         
         // Flag already set to true above
-        print("✓ InputMonitor started - snippet expansion active")
+        Logger.snippet("InputMonitor started - snippet expansion active", level: .info)
     }
     
     func stopMonitoring() {
@@ -205,7 +231,7 @@ class InputMonitor {
         // Unregister all snippet triggers from centralized service
         unregisterAllSnippetTriggers()
         
-        print("✓ InputMonitor stopped")
+        Logger.snippet("InputMonitor stopped", level: .info)
     }
     
     // MARK: - Snippet Trigger Registration
@@ -222,7 +248,7 @@ class InputMonitor {
             }
         }
         
-        print("✓ Registered \(registeredSnippetTriggers.count) snippet triggers in centralized service")
+        Logger.snippet("Registered \(registeredSnippetTriggers.count) snippet triggers in centralized service", level: .info)
     }
     
     /// Unregisters all snippet triggers from the centralized shortcut service
@@ -232,7 +258,7 @@ class InputMonitor {
             shortcutService.unregisterShortcut(identifier: identifier)
         }
         registeredSnippetTriggers.removeAll()
-        print("✓ Unregistered all snippet triggers from centralized service")
+        Logger.snippet("Unregistered all snippet triggers from centralized service", level: .info)
     }
     
     /// Registers a new snippet trigger (called when snippet is added)
@@ -241,7 +267,7 @@ class InputMonitor {
         let success = shortcutService.registerSnippetTrigger(trigger: trigger, identifier: identifier)
         if success {
             registeredSnippetTriggers.insert(trigger)
-            print("✓ Registered new snippet trigger: \(trigger)")
+            Logger.snippet("Registered new snippet trigger: \(trigger)", level: .info)
         }
     }
     
@@ -250,7 +276,7 @@ class InputMonitor {
         let identifier = "snippet.\(trigger)"
         shortcutService.unregisterShortcut(identifier: identifier)
         registeredSnippetTriggers.remove(trigger)
-        print("✓ Unregistered snippet trigger: \(trigger)")
+        Logger.snippet("Unregistered snippet trigger: \(trigger)", level: .info)
     }
     
     // MARK: - Event Handling
@@ -454,9 +480,17 @@ class InputMonitor {
     /// PERFORMANCE: O(k) Trie-based snippet matching (k = trigger length)
     /// This is 10-100x faster than the old O(n log n) sorting approach
     private func checkForSnippetMatch(buffer: String) {
+        // Debug logging for snippet matching
+        #if DEBUG
+        if buffer.count >= 2 {
+            Logger.snippet("Checking buffer for snippet: '\(buffer)' (length: \(buffer.count))", level: .debug)
+        }
+        #endif
+
         // Use Trie for efficient O(k) lookup instead of O(n log n) sorting
         // The Trie automatically handles longest-match priority (e.g., !mail1 before !mail)
         if let snippet = snippetManager.findSnippetMatch(in: buffer, requireWordBoundary: true) {
+            Logger.snippet("Snippet match found: '\(snippet.trigger)' in buffer '\(buffer)'", level: .debug)
             expandSnippet(trigger: snippet.trigger)
         }
     }
@@ -492,9 +526,10 @@ class InputMonitor {
     }
     
     /// Determines if a character is a word delimiter
+    /// This must match the logic in SnippetTrie.isWordDelimiter for consistency
     private func isWordDelimiter(_ char: Character) -> Bool {
-        return char.isWhitespace || char.isNewline || 
-               [".", ",", ";", ":", "!", "?", "-", "_", "(", ")", "[", "]", "{", "}", "/", "\\"].contains(char)
+        return char.isWhitespace || char.isNewline ||
+               [".", ",", ";", ":", "!", "?", "-", "_", "(", ")", "[", "]", "{", "}", "/", "\\", "'", "\"", "@", "#", "$", "%", "^", "&", "*", "+", "=", "<", ">", "`", "~"].contains(char)
     }
     
     /// Clears buffer when word delimiter is encountered and no snippet matched
@@ -511,10 +546,11 @@ class InputMonitor {
     
     private func expandSnippet(trigger: String) {
         guard let snippet = snippetManager.findSnippet(trigger: trigger) else {
+            Logger.snippet("Snippet lookup failed for trigger: '\(trigger)' - trigger matched in Trie but not found in SnippetManager", level: .warning)
             return
         }
-        
-        print("🔤 Expanding snippet: \(trigger) → \(snippet.content.prefix(30))...")
+
+        Logger.snippet("Expanding snippet: '\(trigger)' → '\(snippet.content.prefix(50))...'", level: .info)
         
         // Process snippet content first (Snippets 2.0: dynamic variables and cursor placement)
         // Note: processSnippetContent is @MainActor and may prompt user for variable values
@@ -556,7 +592,7 @@ class InputMonitor {
                 }
             } else {
                 // Fallback: Use traditional backspace method if selection deletion fails
-                print("⚠️ Selection deletion failed, using backspace fallback")
+                Logger.snippet("Selection deletion failed, using backspace fallback", level: .warning)
                 await deleteTriggerByBackspace(triggerLength: triggerLength)
                 
                 let adaptiveDelay = calculateAdaptiveDelay(triggerLength: triggerLength)

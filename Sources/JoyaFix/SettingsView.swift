@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var localPromptKeyCode: UInt32
     @State private var localPromptModifiers: UInt32
     @State private var localMaxHistoryCount: Int
+    @State private var localRecentHistoryRowsCount: Int
     @State private var localPlaySound: Bool
     @State private var localAutoPaste: Bool
     @State private var localGeminiKey: String
@@ -32,6 +33,7 @@ struct SettingsView: View {
         _localPromptKeyCode = State(initialValue: settings.promptHotkeyKeyCode)
         _localPromptModifiers = State(initialValue: settings.promptHotkeyModifiers)
         _localMaxHistoryCount = State(initialValue: settings.maxHistoryCount)
+        _localRecentHistoryRowsCount = State(initialValue: settings.recentHistoryRowsCount)
         _localPlaySound = State(initialValue: settings.playSoundOnConvert)
         _localAutoPaste = State(initialValue: settings.autoPasteAfterConvert)
         _localGeminiKey = State(initialValue: settings.geminiKey)
@@ -52,6 +54,7 @@ struct SettingsView: View {
                 localPromptKeyCode: $localPromptKeyCode,
                 localPromptModifiers: $localPromptModifiers,
                 localMaxHistoryCount: $localMaxHistoryCount,
+                localRecentHistoryRowsCount: $localRecentHistoryRowsCount,
                 localPlaySound: $localPlaySound,
                 localAutoPaste: $localAutoPaste,
                 localGeminiKey: $localGeminiKey,
@@ -78,7 +81,7 @@ struct SettingsView: View {
                     Label(NSLocalizedString("settings.snippets.title", comment: "Snippets"), systemImage: "text.bubble")
                 }
         }
-        .frame(width: 750, height: 700)
+        .frame(minWidth: 750, idealWidth: 800, maxWidth: 900, minHeight: 700, idealHeight: 750, maxHeight: 900)
     }
     
     // MARK: - Actions
@@ -153,6 +156,7 @@ struct SettingsView: View {
         settings.promptHotkeyKeyCode = localPromptKeyCode
         settings.promptHotkeyModifiers = localPromptModifiers
         settings.maxHistoryCount = localMaxHistoryCount
+        settings.recentHistoryRowsCount = localRecentHistoryRowsCount
         settings.playSoundOnConvert = localPlaySound
         settings.autoPasteAfterConvert = localAutoPaste
         settings.geminiKey = localGeminiKey
@@ -178,7 +182,7 @@ struct SettingsView: View {
         }
 
         // Print results
-        if result.convertSuccess && result.ocrSuccess && result.keyboardLockSuccess && result.promptSuccess {
+        if result.convertSuccess && result.keyboardLockSuccess && result.promptSuccess {
             print("✓ Settings saved and hotkeys rebound successfully")
         } else {
             print("⚠️ Settings saved but some hotkeys failed to bind")
@@ -193,6 +197,7 @@ struct SettingsView: View {
         localPromptKeyCode = UInt32(kVK_ANSI_P)
         localPromptModifiers = UInt32(cmdKey | optionKey)
         localMaxHistoryCount = 20
+        localRecentHistoryRowsCount = 10
         localPlaySound = true
         localAutoPaste = true
         localGeminiKey = ""

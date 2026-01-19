@@ -20,6 +20,18 @@ struct PromptReviewView: View {
                 Text("Review Enhanced Prompt")
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
+                
+                // Close button
+                Button(action: {
+                    onCancel()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 16))
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+                .keyboardShortcut(.escape, modifiers: [])
             }
             .padding(.horizontal)
             .padding(.top)
@@ -88,13 +100,17 @@ struct PromptReviewView: View {
             
             // Action Buttons
             HStack(spacing: 12) {
-                Button("Cancel", action: onCancel)
+                Button("Cancel", action: {
+                    onCancel()
+                })
                     .buttonStyle(.bordered)
                     .keyboardShortcut(.escape)
                 
                 Spacer()
                 
-                Button("Confirm & Paste", action: onConfirm)
+                Button("Confirm & Paste", action: {
+                    onConfirm()
+                })
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return)
             }

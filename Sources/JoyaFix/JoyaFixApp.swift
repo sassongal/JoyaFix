@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import Pulse
+import QuartzCore
 
 @main
 struct JoyaFixApp: App {
@@ -21,25 +22,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardManager = ClipboardHistoryManager.shared
     private var cancellables = Set<AnyCancellable>()
     
-    /// Resizes the popover based on the selected tab
+    deinit {
+        // Remove all NotificationCenter observers
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    /// Resizes the popover dynamically based on content intrinsic size
     func resizePopover(for tab: Int) {
         guard let popover = popover else { return }
-        
+
+        // Get the hosting controller from the BlurredPopoverViewController
+        guard let blurredVC = popover.contentViewController as? BlurredPopoverViewController,
+              let hostingController = blurredVC.hostingController else {
+            // Fallback to hard-coded sizes if we can't access the hosting controller
+            resizePopoverFallback(for: tab)
+            return
+        }
+
+        // Calculate intrinsic size from SwiftUI content
+        let intrinsicSize = hostingController.view.fittingSize
+
+        // Define constraints to prevent unreasonable sizes
+        let minSize = NSSize(width: 600, height: 700)
+        let maxSize = NSSize(width: 1200, height: 1000)
+
+        // Apply constraints
+        let constrainedWidth = max(minSize.width, min(intrinsicSize.width, maxSize.width))
+        let constrainedHeight = max(minSize.height, min(intrinsicSize.height, maxSize.height))
+
+        let newSize = NSSize(width: constrainedWidth, height: constrainedHeight)
+
+        // Animate the size change
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.allowsImplicitAnimation = true
+            popover.contentSize = newSize
+        }
+    }
+
+    /// Fallback to hard-coded sizes if dynamic sizing fails
+    private func resizePopoverFallback(for tab: Int) {
+        guard let popover = popover else { return }
+
         let newSize: NSSize
         switch tab {
         case 0: // Clipboard
-            newSize = NSSize(width: 500, height: 600)
+            newSize = NSSize(width: 700, height: 800)
         case 1: // Scratchpad
-            newSize = NSSize(width: 500, height: 600)
+            newSize = NSSize(width: 700, height: 800)
         case 2: // Library
-            newSize = NSSize(width: 1200, height: 900)
+            newSize = NSSize(width: 1000, height: 750)
         case 3: // Vision Lab
-            newSize = NSSize(width: 600, height: 700)
+            newSize = NSSize(width: 650, height: 750)
         default:
-            newSize = NSSize(width: 500, height: 600)
+            newSize = NSSize(width: 700, height: 800)
         }
-        
-        // Animate the size change
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
             context.allowsImplicitAnimation = true
@@ -78,8 +116,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // CRITICAL FIX: Prevent app from hiding when ESC is pressed during keyboard lock
     func applicationShouldHide(_ sender: NSApplication) -> Bool {
-        // If keyboard is locked, don't allow the app to hide (ESC should only unlock, not hide)
-        if KeyboardBlocker.shared.isKeyboardLocked {
+        // If keyboard is locked OR unlocking, don't allow the app to hide
+        // The unlocking flag prevents race condition where unlock completes before this check
+        if KeyboardBlocker.shared.shouldPreventHiding {
             return false
         }
         return true
@@ -89,7 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // CRITICAL: Set activation policy early for LSUIElement apps
         // This must be done before applicationDidFinishLaunching
         NSApp.setActivationPolicy(.accessory)
-        print("✓ Activation policy set to .accessory")
+        Logger.info("Activation policy set to .accessory")
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -111,19 +150,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         
         // Create the status bar item
-        print("📊 Creating status bar item...")
+        Logger.info("Creating status bar item...")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        print("✓ Status bar item created: \(statusItem != nil)")
-
+        Logger.info("Status bar item created: \(statusItem != nil)")
+        
         if let button = statusItem?.button {
-            print("✓ Status bar button exists")
+            Logger.info("Status bar button exists")
             updateMenubarIcon(button: button)
             
             // Set up button action
             button.action = #selector(statusBarButtonClicked)
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            print("✓ Button actions configured")
+            Logger.info("Button actions configured")
+            
+            // Note: Menubar hover preview disabled to allow normal clicking
+            // Hover effects are available on clipboard items in the popover
             
             // Observe keyboard lock state changes
             NotificationCenter.default.addObserver(
@@ -133,17 +175,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 object: nil
             )
         } else {
-            print("❌ Status bar button is nil!")
+            Logger.error("Status bar button is nil!")
         }
         
-        print("✅ Status bar setup complete")
+        Logger.info("Status bar setup complete")
         
         // CRITICAL: Force status bar item to be visible
         // Sometimes the icon doesn't appear immediately, so we ensure it's visible
         if let button = statusItem?.button {
             button.isHidden = false
             button.appearsDisabled = false
-            print("✓ Status bar button visibility ensured")
+            Logger.info("Status bar button visibility ensured")
         }
 
         // Create popover
@@ -169,33 +211,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // CRITICAL FIX: Always register hotkeys, regardless of permission status
         // Permissions will be checked when hotkeys are actually pressed
         let convertSuccess = HotkeyManager.shared.registerHotkey()
-        // let ocrSuccess = HotkeyManager.shared.registerOCRHotkey() // Disabled
         let keyboardLockSuccess = HotkeyManager.shared.registerKeyboardLockHotkey()
         let promptSuccess = HotkeyManager.shared.registerPromptHotkey()
+        let voiceInputSuccess = HotkeyManager.shared.registerVoiceInputHotkey()
 
-        if convertSuccess && keyboardLockSuccess && promptSuccess {
-            print("✓ Hotkeys registered successfully")
-            print("  - Text conversion hotkey registered")
-            print("  - Keyboard lock hotkey registered")
-            print("  - Prompt enhancer hotkey registered")
+        if convertSuccess && keyboardLockSuccess && promptSuccess && voiceInputSuccess {
+            Logger.info("Hotkeys registered successfully")
+            Logger.info("  - Text conversion hotkey registered")
+            Logger.info("  - Keyboard lock hotkey registered")
+            Logger.info("  - Prompt enhancer hotkey registered")
+            Logger.info("  - Voice input hotkey registered")
         } else {
             if !convertSuccess {
-                print("✗ Failed to register conversion hotkey")
+                Logger.error("Failed to register conversion hotkey")
             }
-            if !convertSuccess {
-                print("✗ Failed to register conversion hotkey")
-            }
-            // if !ocrSuccess { print("✗ Failed to register OCR hotkey") }
             if !keyboardLockSuccess {
-                print("✗ Failed to register keyboard lock hotkey")
+                Logger.error("Failed to register keyboard lock hotkey")
             }
             if !promptSuccess {
-                print("✗ Failed to register prompt enhancer hotkey")
+                Logger.error("Failed to register prompt enhancer hotkey")
+            }
+            if !voiceInputSuccess {
+                Logger.error("Failed to register voice input hotkey")
             }
         }
         
-        // OCR Hotkey disabled for now (feature refactored to upcoming)
-        // HotkeyManager.shared.registerOCRHotkey()
+        // Listen for voice input hotkey
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleVoiceInputHotkey),
+            name: Notification.Name("HotkeyManager.voiceInputHotkeyPressed"),
+            object: nil
+        )
+        
+        // Listen for prompt hotkey
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePromptHotkey),
+            name: Notification.Name("HotkeyManager.promptHotkeyPressed"),
+            object: nil
+        )
         
         // Check if this is first run and show onboarding
         checkAndShowOnboarding()
@@ -204,17 +259,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover Setup
 
     private func setupPopover() {
+        // CRITICAL FIX: Only create popover once, don't recreate on every show
+        if popover != nil {
+            Logger.info("✓ Popover already exists - skipping setup")
+            return
+        }
+
+        Logger.info("🔧 Setting up popover...")
         let popover = NSPopover()
-        // Initial size for Clipboard/Scratchpad tab (default)
-        popover.contentSize = NSSize(width: 500, height: 600)
+        // Initial size for Clipboard/Scratchpad tab (default) - will be updated based on tab
+        popover.contentSize = NSSize(width: 700, height: 800)
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = true // Enable smooth animations for show/hide
 
         let historyView = HistoryView(
-            onPasteItem: { [weak self] item, plainTextOnly in
+            onPasteItem: { [weak self] item, formattingOption in
                 Task { @MainActor in
-                    self?.clipboardManager.pasteItem(item, simulatePaste: true, plainTextOnly: plainTextOnly)
-                    self?.closePopover()
+                    // Paste item first
+                    self?.clipboardManager.pasteItem(item, simulatePaste: true, formattingOption: formattingOption)
+                    // Close popover after a short delay to ensure paste completes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self?.closePopover()
+                    }
                 }
             },
             onClose: { [weak self] in
@@ -225,6 +291,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Use custom view controller with native blur background
         popover.contentViewController = BlurredPopoverViewController(rootView: historyView)
         self.popover = popover
+        Logger.info("✓ Popover setup complete")
     }
 
     @objc func statusBarButtonClicked(_ sender: NSStatusBarButton) {
@@ -240,24 +307,59 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func togglePopover() {
-        guard let button = statusItem?.button else { return }
+        Logger.info("🔄 togglePopover() called")
+        guard let button = statusItem?.button else {
+            Logger.error("❌ Cannot toggle popover - statusItem button is nil")
+            return
+        }
 
         if let popover = popover, popover.isShown {
+            Logger.info("📂 Popover is shown - closing")
             closePopover()
         } else {
+            Logger.info("📂 Popover is not shown - opening")
             showPopover(relativeTo: button)
         }
     }
 
     private func showPopover(relativeTo view: NSView) {
-        // Recreate the popover content to refresh the view state
+        Logger.info("📂 showPopover() called")
+        
+        // CRITICAL FIX: Setup popover first (setupPopover checks if already created)
         setupPopover()
         
-        Logger.info("📂 Showing History Popover")
+        // Verify popover was created successfully
+        guard let popover = popover else {
+            Logger.error("❌ Failed to create popover - popover is nil after setup")
+            return
+        }
         
-        // Show immediately without delay
-        popover?.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+        Logger.info("✓ Popover created successfully")
+        
+        // CRITICAL: Activate app BEFORE showing popover to ensure it appears
         NSApp.activate(ignoringOtherApps: true)
+        Logger.info("✓ App activated")
+        
+        // Small delay to ensure activation completes, then show with smooth animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            // Animate popover appearance smoothly
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.2
+                context.allowsImplicitAnimation = true
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                
+                // Show popover with proper bounds
+                popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+                Logger.info("✓ Popover.show() called with animation")
+            }) {
+                // Verify popover is actually shown after animation
+                if popover.isShown {
+                    Logger.info("✓ Popover is now visible")
+                } else {
+                    Logger.error("❌ Popover.show() called but popover.isShown is false")
+                }
+            }
+        }
         
         // Refresh history in background just in case
         Task { @MainActor in
@@ -271,7 +373,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePopover() {
-        popover?.performClose(nil)
+        if let popover = popover, popover.isShown {
+            Logger.info("📂 Closing popover")
+            // Animate popover close smoothly
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.15
+                context.allowsImplicitAnimation = true
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                
+                popover.performClose(nil)
+            }) {
+                Logger.info("✓ Popover closed")
+            }
+        } else {
+            Logger.info("📂 Popover already closed or doesn't exist")
+        }
     }
     
     @objc private func handlePopoverResize(_ notification: Notification) {
@@ -284,7 +400,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenubarIcon(button: NSStatusBarButton) {
         // Fail-safe logo loading for menubar icon
         if let logoImage = loadMenubarLogo() {
-            print("✓ Logo loaded successfully")
+            Logger.info("Logo loaded successfully")
             // Resize logo to menubar size (22px)
             let resizedLogo = NSImage(size: NSSize(width: JoyaFixConstants.menubarIconSize, height: JoyaFixConstants.menubarIconSize))
             resizedLogo.lockFocus()
@@ -311,12 +427,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             resizedLogo.unlockFocus()
             resizedLogo.isTemplate = true  // Enable template mode for Dark Mode support
             button.image = resizedLogo
-            print("✓ Logo set on button")
+            Logger.info("Logo set on button")
         } else {
             // Fallback to text icon if logo not found
             let fallbackTitle = KeyboardBlocker.shared.isKeyboardLocked ? "🔒 א/A" : "א/A"
             button.title = fallbackTitle
-            print("⚠️ Logo not found - using text fallback: '\(fallbackTitle)'")
+            Logger.warning("Logo not found - using text fallback: '\(fallbackTitle)'")
         }
     }
     
@@ -362,6 +478,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         translateItem.target = self
         translateItem.image = createColoredIcon(systemName: "globe", color: .green)
         menu.addItem(translateItem)
+        
+        // Add Voice Input menu item
+        let voiceInputItem = NSMenuItem(
+            title: "Voice Input",
+            action: #selector(startVoiceInput),
+            keyEquivalent: "v"
+        )
+        voiceInputItem.keyEquivalentModifierMask = [.command, .option]
+        voiceInputItem.target = self
+        voiceInputItem.image = createColoredIcon(systemName: "mic.fill", color: .blue)
+        menu.addItem(voiceInputItem)
         
         // Add Keyboard Cleaner menu item
         let keyboardCleanerItem = NSMenuItem(
@@ -465,6 +592,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     
+    @objc func handleVoiceInputHotkey() {
+        startVoiceInput()
+    }
+    
+    @objc func startVoiceInput() {
+        Task { @MainActor in
+            let voiceManager = VoiceInputManager.shared
+            
+            if voiceManager.isRecording {
+                // Stop recording
+                voiceManager.stopRecording()
+            } else {
+                // Show voice input window first
+                VoiceInputWindowController.show()
+                // Small delay to let window appear
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+                // Start recording
+                await voiceManager.startRecording()
+            }
+        }
+    }
+    
+    @objc func handlePromptHotkey() {
+        // Check permissions first (with fresh check)
+        let hasAccessibility = PermissionManager.shared.refreshAccessibilityStatus()
+        guard hasAccessibility else {
+            Logger.error("Accessibility permission missing for prompt enhancer hotkey")
+            PermissionManager.shared.invalidateCache()
+            PermissionManager.shared.openAccessibilitySettings()
+            return
+        }
+        
+        // Call the prompt enhancement method
+        Task { @MainActor in
+            PromptEnhancerManager.shared.enhanceSelectedText()
+        }
+    }
+    
     /// Translates selected text using AI Context-Aware Translation
     @objc func smartTranslate() {
         // Check permissions first
@@ -480,18 +645,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     /// Enhances selected text prompt
     @objc func enhancePrompt() {
-        // Check permissions first
-        guard PermissionManager.shared.isAccessibilityTrusted() else {
-            let alert = NSAlert()
-            alert.messageText = NSLocalizedString("alert.accessibility.title", comment: "Accessibility alert title")
-            alert.informativeText = NSLocalizedString("alert.accessibility.message", comment: "Accessibility alert message")
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: NSLocalizedString("alert.button.open.settings", comment: "Open settings"))
-            alert.addButton(withTitle: NSLocalizedString("alert.button.cancel", comment: "Cancel"))
-            
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                PermissionManager.shared.openAccessibilitySettings()
+        // Check permissions first (with fresh check)
+        let hasAccessibility = PermissionManager.shared.refreshAccessibilityStatus()
+        guard hasAccessibility else {
+            Logger.error("Accessibility permission missing for prompt enhancer menu item")
+            // Let PromptEnhancerManager handle the alert with better messaging
+            Task { @MainActor in
+                PromptEnhancerManager.shared.enhanceSelectedText() // Will show proper alert
             }
             return
         }
@@ -559,11 +719,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hasCompletedOnboarding = UserDefaults.standard.bool(forKey: JoyaFixConstants.UserDefaultsKeys.hasCompletedOnboarding)
         
         if !hasCompletedOnboarding {
-            print("📋 First run detected - showing onboarding")
+            Logger.info("First run detected - showing onboarding")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 OnboardingWindowController.shared.show {
                     // Onboarding completed
-                    print("✓ Onboarding completed")
+                    Logger.info("Onboarding completed")
                     // Start InputMonitor if permissions are granted
                     if PermissionManager.shared.isAccessibilityTrusted() {
                         InputMonitor.shared.startMonitoring()
@@ -575,7 +735,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             PermissionManager.shared.synchronizePermissions()
             // Start InputMonitor if permissions are granted
             if PermissionManager.shared.isAccessibilityTrusted() {
+                Logger.info("Accessibility permission granted - starting snippet monitoring")
                 InputMonitor.shared.startMonitoring()
+            } else {
+                Logger.warning("Accessibility permission NOT granted - snippets will not work")
             }
         }
     }

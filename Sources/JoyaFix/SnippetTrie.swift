@@ -67,8 +67,15 @@ class SnippetTrie {
         let index = text.index(text.startIndex, offsetBy: position - 1)
         let charBefore = text[index]
 
-        // Word boundary is whitespace, punctuation, or newline
-        return charBefore.isWhitespace || charBefore.isPunctuation || charBefore.isNewline
+        // Word boundary check - consistent with InputMonitor's isWordDelimiter
+        return isWordDelimiter(charBefore)
+    }
+
+    /// Determines if a character is a word delimiter
+    /// This must match the logic in InputMonitor.isWordDelimiter for consistency
+    private func isWordDelimiter(_ char: Character) -> Bool {
+        return char.isWhitespace || char.isNewline ||
+               [".", ",", ";", ":", "!", "?", "-", "_", "(", ")", "[", "]", "{", "}", "/", "\\", "'", "\"", "@", "#", "$", "%", "^", "&", "*", "+", "=", "<", ">", "`", "~"].contains(char)
     }
 
     /// Rebuilds the entire trie from a list of snippets

@@ -16,9 +16,23 @@ enum LocalizationHelper {
             with: "/Resources/\(language).lproj/Localizable.strings"
         )
 
+        // Try loading from source file first (development mode)
         if let strings = loadStringsFile(at: sourcePath) {
-            if let value = strings[key] {
+            if let value = strings[key], !value.isEmpty {
                 return value
+            }
+        }
+
+        // Try English as fallback if current language is Hebrew and key not found
+        if language == "he" {
+            let englishPath = #file.replacingOccurrences(
+                of: "/LocalizationHelper.swift",
+                with: "/Resources/en.lproj/Localizable.strings"
+            )
+            if let englishStrings = loadStringsFile(at: englishPath),
+               let englishValue = englishStrings[key], !englishValue.isEmpty {
+                Logger.warning("⚠️ Localization key '\(key)' not found in Hebrew, using English fallback")
+                return englishValue
             }
         }
 
@@ -26,11 +40,20 @@ enum LocalizationHelper {
         let localized = Bundle.main.localizedString(forKey: key, value: nil, table: nil)
 
         // If it returns the key itself, localization failed
-        if localized != key {
+        if localized != key && !localized.isEmpty {
             return localized
         }
 
-        // Last resort: return the key itself
+        // Last resort: try to provide a human-readable version of the key
+        // Convert "menu.convert.selection" to "Convert Selection" for better UX
+        if key.contains(".") {
+            let readableKey = key.components(separatedBy: ".").last?.replacingOccurrences(of: "_", with: " ").capitalized ?? key
+            Logger.warning("⚠️ Localization key '\(key)' not found, using readable fallback: '\(readableKey)'")
+            return readableKey
+        }
+
+        // Absolute last resort: return the key itself
+        Logger.warning("⚠️ Localization key '\(key)' not found, returning key as-is")
         return key
     }
 

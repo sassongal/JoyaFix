@@ -1,5 +1,7 @@
 import Cocoa
 import ApplicationServices
+import AVFoundation
+import Speech
 
 /// Manages system permissions required by JoyaFix
 class PermissionManager {
@@ -166,18 +168,51 @@ class PermissionManager {
     
     // MARK: - Permission Status
     
+    /// Checks if Microphone permission is granted
+    func isMicrophoneGranted() -> Bool {
+        return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+    
+    /// Checks if Speech Recognition permission is granted
+    func isSpeechRecognitionGranted() -> Bool {
+        return SFSpeechRecognizer.authorizationStatus() == .authorized
+    }
+    
+    /// Opens System Settings to the Microphone section
+    func openMicrophoneSettings() {
+        if #available(macOS 13.0, *) {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+        } else {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+        }
+    }
+    
+    /// Opens System Settings to the Speech Recognition section
+    func openSpeechRecognitionSettings() {
+        if #available(macOS 13.0, *) {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
+        } else {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
+        }
+    }
+    
     /// Returns a dictionary with the status of all required permissions (fresh check)
     func getAllPermissionStatus() -> [String: Bool] {
-        // Force fresh check for both permissions
+        // Force fresh check for all permissions
         return [
             "accessibility": refreshAccessibilityStatus(),
-            "screenRecording": isScreenRecordingTrusted()
+            "screenRecording": isScreenRecordingTrusted(),
+            "microphone": isMicrophoneGranted(),
+            "speechRecognition": isSpeechRecognitionGranted()
         ]
     }
     
     /// Checks if all required permissions are granted (fresh check)
     func hasAllPermissions() -> Bool {
-        return refreshAccessibilityStatus() && isScreenRecordingTrusted()
+        return refreshAccessibilityStatus() && 
+               isScreenRecordingTrusted() && 
+               isMicrophoneGranted() && 
+               isSpeechRecognitionGranted()
     }
     
     /// Synchronizes permission status with system (forces refresh of all permissions)
@@ -188,8 +223,12 @@ class PermissionManager {
         invalidateCache()
         let accessibilityStatus = refreshAccessibilityStatus()
         let screenRecordingStatus = isScreenRecordingTrusted()
+        let microphoneStatus = isMicrophoneGranted()
+        let speechRecognitionStatus = isSpeechRecognitionGranted()
         print("  - Accessibility: \(accessibilityStatus ? "✓ Granted" : "✗ Not granted")")
         print("  - Screen Recording: \(screenRecordingStatus ? "✓ Granted" : "✗ Not granted")")
+        print("  - Microphone: \(microphoneStatus ? "✓ Granted" : "✗ Not granted")")
+        print("  - Speech Recognition: \(speechRecognitionStatus ? "✓ Granted" : "✗ Not granted")")
     }
     
     // MARK: - Onboarding Alert
@@ -204,6 +243,8 @@ class PermissionManager {
             
             • Accessibility: Required to simulate keyboard shortcuts (Cmd+C, Cmd+V, Delete)
             • Screen Recording: Required to capture screen regions for OCR
+            • Microphone: Required for voice input feature (⌘⌥V)
+            • Speech Recognition: Required for voice input transcription
             
             Click "Open Settings" to grant these permissions, then return to this app.
             """
@@ -217,23 +258,22 @@ class PermissionManager {
                 // Open Accessibility settings first
                 self.openAccessibilitySettings()
                 
-                // After a delay, also show screen recording info
+                // After a delay, also show other permissions info
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     let screenAlert = NSAlert()
-                    screenAlert.messageText = "Screen Recording Permission"
+                    screenAlert.messageText = "Additional Permissions"
                     screenAlert.informativeText = """
-                    Screen Recording permission will be requested automatically when you use the OCR feature (⌥⌘X).
+                    You may also need to grant:
                     
-                    You can also grant it now in System Settings → Privacy & Security → Screen Recording.
+                    • Screen Recording: For OCR feature (⌥⌘X)
+                    • Microphone: For voice input (⌘⌥V)
+                    • Speech Recognition: For voice input transcription
+                    
+                    These can be granted in System Settings → Privacy & Security.
                     """
                     screenAlert.alertStyle = .informational
-                    screenAlert.addButton(withTitle: "Open Screen Recording Settings")
                     screenAlert.addButton(withTitle: "OK")
-                    
-                    let screenResponse = screenAlert.runModal()
-                    if screenResponse == .alertFirstButtonReturn {
-                        self.openScreenRecordingSettings()
-                    }
+                    _ = screenAlert.runModal()
                 }
             }
         }

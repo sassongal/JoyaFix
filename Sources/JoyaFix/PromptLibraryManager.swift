@@ -91,7 +91,7 @@ class PromptLibraryManager: ObservableObject {
         }
         if migrated {
             savePrompts()
-            print("✓ Migrated prompts to categorized system")
+            Logger.info("Migrated prompts to categorized system", category: Logger.general)
         }
     }
     
@@ -140,7 +140,7 @@ class PromptLibraryManager: ObservableObject {
         
         prompts = defaultPrompts
         savePrompts()
-        print("✓ Initialized prompt library with \(defaultPrompts.count) professional prompts across \(Set(defaultPrompts.map { $0.category }).count) categories")
+        Logger.info("Initialized prompt library with \(defaultPrompts.count) professional prompts across \(Set(defaultPrompts.map { $0.category }).count) categories", category: Logger.general)
     }
     
     // MARK: - Prompt Management
@@ -151,7 +151,7 @@ class PromptLibraryManager: ObservableObject {
     func addPrompt(_ prompt: PromptTemplate) {
         prompts.append(prompt)
         savePrompts()
-        print("📝 Added prompt to library: \(prompt.title)")
+        Logger.info("Added prompt to library: \(prompt.title)", category: Logger.general)
     }
     
     /// Updates an existing prompt
@@ -159,7 +159,7 @@ class PromptLibraryManager: ObservableObject {
     @MainActor
     func updatePrompt(_ prompt: PromptTemplate) {
         guard let index = prompts.firstIndex(where: { $0.id == prompt.id }) else {
-            print("⚠️ Prompt not found for update: \(prompt.id)")
+            Logger.warning("Prompt not found for update: \(prompt.id)", category: Logger.general)
             return
         }
         
@@ -174,7 +174,7 @@ class PromptLibraryManager: ObservableObject {
         }
         
         savePrompts()
-        print("📝 Updated prompt: \(prompt.title)")
+        Logger.info("Updated prompt: \(prompt.title)", category: Logger.general)
     }
     
     /// Deletes a prompt from the library (cannot delete system prompts)
@@ -182,16 +182,16 @@ class PromptLibraryManager: ObservableObject {
     @MainActor
     func deletePrompt(_ prompt: PromptTemplate) {
         guard !prompt.isSystem else {
-            print("⚠️ Cannot delete system prompt: \(prompt.title)")
+            Logger.warning("Cannot delete system prompt: \(prompt.title)", category: Logger.general)
             return
         }
         
         prompts.removeAll { $0.id == prompt.id }
         savePrompts()
-        print("🗑️ Deleted prompt: \(prompt.title)")
+        Logger.info("Deleted prompt: \(prompt.title)", category: Logger.general)
     }
     
-    /// Records that a prompt was used (updates lastUsed timestamp)
+    /// Records that a prompt was used (updates lastUsed timestamp and usage count)
     /// MUST be called on MainActor to ensure thread safety for @Published prompts
     @MainActor
     func recordUsage(of prompt: PromptTemplate) {
@@ -201,8 +201,126 @@ class PromptLibraryManager: ObservableObject {
         
         var updatedPrompt = prompts[index]
         updatedPrompt.lastUsed = Date()
+        updatedPrompt.usageCount += 1
         prompts[index] = updatedPrompt
         savePrompts()
+    }
+    
+    /// Updates prompt rating
+    @MainActor
+    func updateRating(for prompt: PromptTemplate, rating: Int?) {
+        guard let index = prompts.firstIndex(where: { $0.id == prompt.id }) else {
+            return
+        }
+        
+        var updatedPrompt = prompts[index]
+        updatedPrompt.rating = rating
+        prompts[index] = updatedPrompt
+        savePrompts()
+    }
+    
+    /// Toggles favorite status
+    @MainActor
+    func toggleFavorite(for prompt: PromptTemplate) {
+        guard let index = prompts.firstIndex(where: { $0.id == prompt.id }) else {
+            return
+        }
+        
+        var updatedPrompt = prompts[index]
+        updatedPrompt.isFavorite.toggle()
+        prompts[index] = updatedPrompt
+        savePrompts()
+    }
+    
+    /// Adds or removes tags
+    @MainActor
+    func updateTags(for prompt: PromptTemplate, tags: [String]) {
+        guard let index = prompts.firstIndex(where: { $0.id == prompt.id }) else {
+            return
+        }
+        
+        var updatedPrompt = prompts[index]
+        updatedPrompt.tags = tags
+        prompts[index] = updatedPrompt
+        savePrompts()
+    }
+    
+    /// Updates prompt notes
+    @MainActor
+    func updateNotes(for prompt: PromptTemplate, notes: String?) {
+        guard let index = prompts.firstIndex(where: { $0.id == prompt.id }) else {
+            return
+        }
+        
+        var updatedPrompt = prompts[index]
+        updatedPrompt.notes = notes
+        prompts[index] = updatedPrompt
+        savePrompts()
+    }
+    
+    /// Assigns prompt to a collection
+    @MainActor
+    func assignToCollection(for prompt: PromptTemplate, collection: String?) {
+        guard let index = prompts.firstIndex(where: { $0.id == prompt.id }) else {
+            return
+        }
+        
+        var updatedPrompt = prompts[index]
+        updatedPrompt.collection = collection
+        prompts[index] = updatedPrompt
+        savePrompts()
+    }
+    
+    /// Returns all unique tags across all prompts
+    var allTags: [String] {
+        Array(Set(prompts.flatMap { $0.tags })).sorted()
+    }
+    
+    /// Returns all unique collections
+    var allCollections: [String] {
+        Array(Set(prompts.compactMap { $0.collection })).sorted()
+    }
+    
+    /// Returns favorite prompts
+    var favoritePrompts: [PromptTemplate] {
+        prompts.filter { $0.isFavorite }
+    }
+    
+    /// Returns prompts in a collection
+    func prompts(in collection: String) -> [PromptTemplate] {
+        prompts.filter { $0.collection == collection }
+    }
+    
+    /// Returns prompts with a specific tag
+    func prompts(withTag tag: String) -> [PromptTemplate] {
+        prompts.filter { $0.tags.contains(tag) }
+    }
+    
+    /// Exports prompts to JSON
+    @MainActor
+    func exportPrompts() -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(prompts)
+    }
+    
+    /// Imports prompts from JSON
+    @MainActor
+    func importPrompts(from data: Data) -> Bool {
+        let decoder = JSONDecoder()
+        guard let imported = try? decoder.decode([PromptTemplate].self, from: data) else {
+            return false
+        }
+        
+        // Merge with existing prompts (avoid duplicates by ID)
+        for prompt in imported {
+            if !prompts.contains(where: { $0.id == prompt.id }) {
+                prompts.append(prompt)
+            }
+        }
+        
+        savePrompts()
+        return true
     }
     
     /// Copies prompt content to clipboard and records usage
@@ -216,7 +334,7 @@ class PromptLibraryManager: ObservableObject {
             recordUsage(of: prompt)
         }
         
-        print("📋 Copied prompt to clipboard: \(prompt.title)")
+        Logger.info("Copied prompt to clipboard: \(prompt.title)", category: Logger.general)
     }
     
     // MARK: - Persistence
@@ -239,7 +357,7 @@ class PromptLibraryManager: ObservableObject {
             let decoder = JSONDecoder()
             if let decoded = try? decoder.decode([PromptTemplate].self, from: data) {
                 prompts = decoded
-                print("✓ Loaded \(prompts.count) prompts from library")
+                Logger.info("Loaded \(prompts.count) prompts from library", category: Logger.general)
             }
         }
     }
@@ -287,13 +405,29 @@ struct PromptTemplate: Codable, Identifiable, Equatable {
     let isSystem: Bool
     var lastUsed: Date?
     
-    init(id: UUID = UUID(), title: String, content: String, category: PromptCategory = .productivity, isSystem: Bool = false, lastUsed: Date? = nil) {
+    // Enhanced features
+    var rating: Int? // 1-5 stars
+    var tags: [String] // User-defined tags
+    var isFavorite: Bool // Favorite flag
+    var usageCount: Int // How many times used
+    var createdAt: Date // When created
+    var notes: String? // User notes about the prompt
+    var collection: String? // Collection/folder name
+    
+    init(id: UUID = UUID(), title: String, content: String, category: PromptCategory = .productivity, isSystem: Bool = false, lastUsed: Date? = nil, rating: Int? = nil, tags: [String] = [], isFavorite: Bool = false, usageCount: Int = 0, createdAt: Date = Date(), notes: String? = nil, collection: String? = nil) {
         self.id = id
         self.title = title
         self.content = content
         self.category = category
         self.isSystem = isSystem
         self.lastUsed = lastUsed
+        self.rating = rating
+        self.tags = tags
+        self.isFavorite = isFavorite
+        self.usageCount = usageCount
+        self.createdAt = createdAt
+        self.notes = notes
+        self.collection = collection
     }
     
     // Custom decoding to handle migration from old prompts without category
@@ -313,6 +447,20 @@ struct PromptTemplate: Codable, Identifiable, Equatable {
             // Auto-assign category based on title/content for migration
             self.category = PromptTemplate.autoAssignCategory(title: title, content: content)
         }
+        
+        // Decode new fields with defaults for migration
+        rating = try container.decodeIfPresent(Int.self, forKey: .rating)
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        usageCount = try container.decodeIfPresent(Int.self, forKey: .usageCount) ?? 0
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        collection = try container.decodeIfPresent(String.self, forKey: .collection)
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, title, content, category, isSystem, lastUsed
+        case rating, tags, isFavorite, usageCount, createdAt, notes, collection
     }
     
     // Helper for migration: Auto-assign category based on prompt content

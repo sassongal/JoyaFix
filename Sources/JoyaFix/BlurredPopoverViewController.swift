@@ -5,6 +5,7 @@ import SwiftUI
 class BlurredPopoverViewController: NSViewController {
     private let rootView: AnyView
     private var hostingView: NSView?
+    private(set) var hostingController: NSHostingController<AnyView>?  // NEW: Expose for sizing
 
     init<Content: View>(rootView: Content) {
         self.rootView = AnyView(rootView)
@@ -32,6 +33,7 @@ class BlurredPopoverViewController: NSViewController {
 
         // Create hosting controller for SwiftUI content
         let hostingController = NSHostingController(rootView: rootView)
+        self.hostingController = hostingController  // Store reference for dynamic sizing
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
 
         // Make SwiftUI view transparent so blur shows through

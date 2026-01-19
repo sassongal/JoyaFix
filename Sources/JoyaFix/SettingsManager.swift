@@ -19,6 +19,12 @@ class SettingsManager: ObservableObject {
         }
     }
 
+    @Published var recentHistoryRowsCount: Int {
+        didSet {
+            UserDefaults.standard.set(recentHistoryRowsCount, forKey: Keys.recentHistoryRowsCount)
+        }
+    }
+
     @Published var hotkeyKeyCode: UInt32 {
         didSet {
             UserDefaults.standard.set(hotkeyKeyCode, forKey: Keys.hotkeyKeyCode)
@@ -40,18 +46,6 @@ class SettingsManager: ObservableObject {
     @Published var autoPasteAfterConvert: Bool {
         didSet {
             UserDefaults.standard.set(autoPasteAfterConvert, forKey: Keys.autoPasteAfterConvert)
-        }
-    }
-
-    @Published var ocrHotkeyKeyCode: UInt32 {
-        didSet {
-            UserDefaults.standard.set(ocrHotkeyKeyCode, forKey: Keys.ocrHotkeyKeyCode)
-        }
-    }
-
-    @Published var ocrHotkeyModifiers: UInt32 {
-        didSet {
-            UserDefaults.standard.set(ocrHotkeyModifiers, forKey: Keys.ocrHotkeyModifiers)
         }
     }
 
@@ -78,12 +72,6 @@ class SettingsManager: ObservableObject {
         }
     }
 
-    @Published var useCloudOCR: Bool {
-        didSet {
-            UserDefaults.standard.set(useCloudOCR, forKey: Keys.useCloudOCR)
-        }
-    }
-    
     @Published var selectedAIProvider: AIProvider {
         didSet {
             if let encoded = try? JSONEncoder().encode(selectedAIProvider),
@@ -109,23 +97,46 @@ class SettingsManager: ObservableObject {
             UserDefaults.standard.set(openRouterModel, forKey: Keys.openRouterModel)
         }
     }
+    
+    @Published var popoverLayoutSettings: PopoverLayoutSettings {
+        didSet {
+            if let encoded = try? JSONEncoder().encode(popoverLayoutSettings) {
+                UserDefaults.standard.set(encoded, forKey: Keys.popoverLayoutSettings)
+            }
+        }
+    }
+    
+    @Published var toastSettings: ToastSettings {
+        didSet {
+            if let encoded = try? JSONEncoder().encode(toastSettings) {
+                UserDefaults.standard.set(encoded, forKey: Keys.toastSettings)
+            }
+        }
+    }
+    
+    @Published var enableMenubarPreview: Bool {
+        didSet {
+            UserDefaults.standard.set(enableMenubarPreview, forKey: Keys.enableMenubarPreview)
+        }
+    }
 
     // MARK: - Keys
 
     private enum Keys {
         static let maxHistoryCount = "maxHistoryCount"
+        static let recentHistoryRowsCount = "recentHistoryRowsCount"
         static let hotkeyKeyCode = "hotkeyKeyCode"
         static let hotkeyModifiers = "hotkeyModifiers"
         static let playSoundOnConvert = "playSoundOnConvert"
         static let autoPasteAfterConvert = "autoPasteAfterConvert"
-        static let ocrHotkeyKeyCode = "ocrHotkeyKeyCode"
-        static let ocrHotkeyModifiers = "ocrHotkeyModifiers"
         static let promptHotkeyKeyCode = "promptHotkeyKeyCode"
         static let promptHotkeyModifiers = "promptHotkeyModifiers"
         static let geminiKey = "geminiKey"
-        static let useCloudOCR = "useCloudOCR"
         static let selectedAIProvider = "selectedAIProvider"
         static let openRouterModel = "openRouterModel"
+        static let popoverLayoutSettings = "popoverLayoutSettings"
+        static let toastSettings = "toastSettings"
+        static let enableMenubarPreview = "enableMenubarPreview"
     }
 
     // MARK: - Initialization
@@ -133,12 +144,11 @@ class SettingsManager: ObservableObject {
     private init() {
         // Load settings or use defaults
         self.maxHistoryCount = UserDefaults.standard.object(forKey: Keys.maxHistoryCount) as? Int ?? Int(JoyaFixConstants.defaultMaxClipboardHistoryCount)
+        self.recentHistoryRowsCount = UserDefaults.standard.object(forKey: Keys.recentHistoryRowsCount) as? Int ?? 10
         self.hotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.hotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_K)
         self.hotkeyModifiers = UserDefaults.standard.object(forKey: Keys.hotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
         self.playSoundOnConvert = UserDefaults.standard.object(forKey: Keys.playSoundOnConvert) as? Bool ?? true
         self.autoPasteAfterConvert = UserDefaults.standard.object(forKey: Keys.autoPasteAfterConvert) as? Bool ?? true
-        self.ocrHotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.ocrHotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_X)
-        self.ocrHotkeyModifiers = UserDefaults.standard.object(forKey: Keys.ocrHotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
         self.promptHotkeyKeyCode = UserDefaults.standard.object(forKey: Keys.promptHotkeyKeyCode) as? UInt32 ?? UInt32(kVK_ANSI_P)
         self.promptHotkeyModifiers = UserDefaults.standard.object(forKey: Keys.promptHotkeyModifiers) as? UInt32 ?? UInt32(cmdKey | optionKey)
         
@@ -155,8 +165,6 @@ class SettingsManager: ObservableObject {
         } else {
             self.geminiKey = ""
         }
-        
-        self.useCloudOCR = UserDefaults.standard.object(forKey: Keys.useCloudOCR) as? Bool ?? true
         
         // Load AI Provider selection
         if let providerString = UserDefaults.standard.string(forKey: Keys.selectedAIProvider),
@@ -177,6 +185,25 @@ class SettingsManager: ObservableObject {
         
         // Load OpenRouter model (default to deepseek/deepseek-chat)
         self.openRouterModel = UserDefaults.standard.string(forKey: Keys.openRouterModel) ?? "deepseek/deepseek-chat"
+        
+        // Load popover layout settings
+        if let data = UserDefaults.standard.data(forKey: Keys.popoverLayoutSettings),
+           let settings = try? JSONDecoder().decode(PopoverLayoutSettings.self, from: data) {
+            self.popoverLayoutSettings = settings
+        } else {
+            self.popoverLayoutSettings = PopoverLayoutSettings()
+        }
+        
+        // Load toast settings
+        if let data = UserDefaults.standard.data(forKey: Keys.toastSettings),
+           let settings = try? JSONDecoder().decode(ToastSettings.self, from: data) {
+            self.toastSettings = settings
+        } else {
+            self.toastSettings = ToastSettings()
+        }
+        
+        // Load menubar preview setting
+        self.enableMenubarPreview = UserDefaults.standard.object(forKey: Keys.enableMenubarPreview) as? Bool ?? true
     }
 
     // MARK: - Hotkey Helpers

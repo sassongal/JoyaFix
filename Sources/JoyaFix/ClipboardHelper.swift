@@ -3,37 +3,41 @@ import Carbon
 
 /// Helper class for clipboard operations and key simulations
 /// Consolidated from PromptEnhancerManager logic
+/// CRITICAL FIX: All NSPasteboard operations MUST run on @MainActor since NSPasteboard is NOT thread-safe
 class ClipboardHelper {
-    
+
     // MARK: - Clipboard Operations
-    
+
+    @MainActor
     static func readFromClipboard() -> String? {
         let pasteboard = NSPasteboard.general
         return pasteboard.string(forType: .string)
     }
-    
+
+    @MainActor
     static func writeToClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }
-       
+
+    @MainActor
     static func getSelectedText() async -> String? {
         // Clear clipboard first to ensure we capture new copy
         let oldClipboard = readFromClipboard()
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        
+
         // Simulate Cmd+C
         simulateCopy()
-        
+
         // Wait asynchronously for system copy (100ms)
         try? await Task.sleep(nanoseconds: 100 * 1_000_000)
-        
+
         if let newText = readFromClipboard(), !newText.isEmpty {
             return newText
         }
-        
+
         // Fallback: Restore old clipboard if copy failed
         if let old = oldClipboard {
             writeToClipboard(old)
@@ -41,13 +45,14 @@ class ClipboardHelper {
         return nil
     }
 
+    @MainActor
     static func pasteText(_ text: String) async {
         // Write to clipboard
         writeToClipboard(text)
-        
+
         // Wait asynchronously for system to register clipboard change (50ms)
         try? await Task.sleep(nanoseconds: 50 * 1_000_000)
-        
+
         // Simulate Cmd+V
         simulatePaste()
     }

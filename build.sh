@@ -77,6 +77,18 @@ echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 # --- שלב החתימה הקריטי ---
 echo "🔏 Signing process..."
 
+# Verify Bundle ID is correct before signing
+if [ -f "$CONTENTS_DIR/Info.plist" ]; then
+    BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$CONTENTS_DIR/Info.plist" 2>/dev/null || echo "")
+    if [ "$BUNDLE_ID" != "com.joyafix.app" ]; then
+        echo "⚠️  Fixing Bundle ID from '$BUNDLE_ID' to 'com.joyafix.app'..."
+        /usr/libexec/PlistBuddy -c "Set CFBundleIdentifier com.joyafix.app" "$CONTENTS_DIR/Info.plist"
+        echo "✓ Bundle ID fixed"
+    else
+        echo "✓ Bundle ID verified: com.joyafix.app"
+    fi
+fi
+
 # ניקוי אגרסיבי של metadata לפני חתימה
 xattr -cr "$APP_BUNDLE"
 
@@ -88,5 +100,8 @@ fi
 
 # חתימת האפליקציה הראשית (בלי --deep כדי למנוע שגיאות כפולות)
 codesign --force --sign - "$APP_BUNDLE"
+
+# Verify signing
+codesign -dv "$APP_BUNDLE" 2>&1 | grep -q "com.joyafix.app" && echo "✓ App signed with correct Bundle ID" || echo "⚠️  Warning: Bundle ID verification failed"
 
 echo "✅ Build Complete for $ARCH!"

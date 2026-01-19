@@ -100,7 +100,9 @@ enum JoyaFixConstants {
     // MARK: - API Endpoints
     
     enum API {
-        static let geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        // Updated to gemini-2.5-flash (stable, released June 2025)
+        // gemini-1.5 models were deprecated in September 2025
+        static let geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
         static let openRouterBaseURL = "https://openrouter.ai/api/v1/chat/completions"
     }
     
@@ -110,7 +112,8 @@ enum JoyaFixConstants {
         case deepseekChat
         case mistral7B
         case llama33_70B
-        case gemini15Flash
+        case gemini25Flash
+        case gemini25Pro
         case custom(String)
         
         var displayName: String {
@@ -121,8 +124,10 @@ enum JoyaFixConstants {
                 return "Mistral 7B Instruct (Free)"
             case .llama33_70B:
                 return "Llama 3.3 70B (Free)"
-            case .gemini15Flash:
-                return "Gemini 1.5 Flash (Free, Vision)"
+            case .gemini25Flash:
+                return "Gemini 2.5 Flash (Free, Vision)"
+            case .gemini25Pro:
+                return "Gemini 2.5 Pro (Vision)"
             case .custom(let name):
                 return "Custom: \(name)"
             }
@@ -136,8 +141,10 @@ enum JoyaFixConstants {
                 return "mistralai/mistral-7b-instruct"
             case .llama33_70B:
                 return "meta-llama/llama-3.3-70b-instruct"
-            case .gemini15Flash:
-                return "google/gemini-1.5-flash"
+            case .gemini25Flash:
+                return "google/gemini-2.5-flash"
+            case .gemini25Pro:
+                return "google/gemini-2.5-pro"
             case .custom(let name):
                 return name
             }
@@ -145,7 +152,7 @@ enum JoyaFixConstants {
         
         var supportsVision: Bool {
             switch self {
-            case .gemini15Flash:
+            case .gemini25Flash, .gemini25Pro:
                 return true
             default:
                 return false
@@ -154,15 +161,15 @@ enum JoyaFixConstants {
         
         var isFree: Bool {
             switch self {
-            case .deepseekChat, .mistral7B, .llama33_70B, .gemini15Flash:
+            case .deepseekChat, .mistral7B, .llama33_70B, .gemini25Flash:
                 return true
-            case .custom:
-                return false // Unknown for custom models
+            case .gemini25Pro, .custom:
+                return false
             }
         }
         
         static var recommendedModels: [OpenRouterModel] {
-            return [.deepseekChat, .mistral7B, .llama33_70B, .gemini15Flash]
+            return [.deepseekChat, .mistral7B, .llama33_70B, .gemini25Flash, .gemini25Pro]
         }
         
         static func fromModelID(_ modelID: String) -> OpenRouterModel {
@@ -173,8 +180,13 @@ enum JoyaFixConstants {
                 return .mistral7B
             case "meta-llama/llama-3.3-70b-instruct":
                 return .llama33_70B
+            case "google/gemini-2.5-flash":
+                return .gemini25Flash
+            case "google/gemini-2.5-pro":
+                return .gemini25Pro
             case "google/gemini-1.5-flash":
-                return .gemini15Flash
+                // Legacy support - map to 2.5-flash
+                return .gemini25Flash
             default:
                 return .custom(modelID)
             }

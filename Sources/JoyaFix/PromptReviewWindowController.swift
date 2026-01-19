@@ -41,11 +41,11 @@ class PromptReviewWindowController: NSWindowController {
             ),
             onConfirm: {
                 self.onConfirm()
-                self.close()
+                self.closeWindow()
             },
             onCancel: {
                 self.onCancel()
-                self.close()
+                self.closeWindow()
             },
             onRefine: { refineRequest in
                 self.onRefine(refineRequest)
@@ -60,26 +60,45 @@ class PromptReviewWindowController: NSWindowController {
     }
     
     static func show(promptText: String, onConfirm: @escaping () -> Void, onCancel: @escaping () -> Void, onRefine: @escaping (String) -> Void) {
-        // Close existing window if any
-        shared?.close()
-        
-        // Create new window
-        shared = PromptReviewWindowController(
-            promptText: promptText,
-            onConfirm: onConfirm,
-            onCancel: onCancel,
-            onRefine: onRefine
-        )
-        
-        shared?.showWindow(nil)
-        // HUD-style entrance animation (slide down + fade)
-        shared?.window?.showWithHUDAnimation()
-        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            // Close existing window if any
+            shared?.closeWindow()
+            
+            // Create new window
+            shared = PromptReviewWindowController(
+                promptText: promptText,
+                onConfirm: onConfirm,
+                onCancel: onCancel,
+                onRefine: onRefine
+            )
+            
+            shared?.showWindow(nil)
+            // HUD-style entrance animation (slide down + fade)
+            shared?.window?.showWithHUDAnimation()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+    
+    /// Static method to close the review window
+    static func closeWindow() {
+        DispatchQueue.main.async {
+            shared?.closeWindow()
+        }
     }
     
     override func close() {
-        super.close()
-        PromptReviewWindowController.shared = nil
+        DispatchQueue.main.async {
+            self.window?.close()
+            PromptReviewWindowController.shared = nil
+        }
+    }
+    
+    /// Closes the window programmatically
+    func closeWindow() {
+        DispatchQueue.main.async {
+            self.window?.close()
+            PromptReviewWindowController.shared = nil
+        }
     }
 }
 

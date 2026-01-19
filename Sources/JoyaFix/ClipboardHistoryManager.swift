@@ -43,11 +43,23 @@ class ClipboardHistoryManager: ObservableObject {
 
     private init() {
         // Create directory for clipboard data files (RTF/HTML)
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        // Use safe unwrap with fallback to temporary directory
+        let appSupport: URL
+        if let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            appSupport = supportDir
+        } else {
+            // Fallback to temporary directory if Application Support is unavailable
+            appSupport = FileManager.default.temporaryDirectory
+            Logger.clipboard("Application Support directory unavailable, using temp directory", level: .warning)
+        }
         dataDirectory = appSupport.appendingPathComponent(JoyaFixConstants.FilePaths.clipboardDataDirectory, isDirectory: true)
-        
+
         // Create directory if it doesn't exist
-        try? FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: nil)
+        do {
+            try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            Logger.clipboard("Failed to create clipboard data directory: \(error.localizedDescription)", level: .warning)
+        }
         
         // Load history (before migration) - must be on main thread
         // Use DispatchQueue.main.sync to ensure synchronous loading during init
@@ -297,7 +309,7 @@ class ClipboardHistoryManager: ObservableObject {
             let imagePath = self.saveImageData(imageData)
             
             guard let savedImagePath = imagePath else {
-                print("❌ Failed to save image to disk")
+                Logger.clipboard("Failed to save image to disk", level: .error)
                 return
             }
             
@@ -321,7 +333,7 @@ class ClipboardHistoryManager: ObservableObject {
                 }
                 
                 if isDuplicate {
-                    print("📝 Skipping duplicate image: \(tempItem.plainTextPreview.prefix(30))...")
+                    Logger.clipboard("Skipping duplicate image: \(tempItem.plainTextPreview.prefix(30))...", level: .info)
                     // Delete the saved image file since it's a duplicate
                     try? FileManager.default.removeItem(atPath: savedImagePath)
                     return
@@ -378,10 +390,10 @@ class ClipboardHistoryManager: ObservableObject {
         do {
             try data.write(to: fileURL)
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-            print("✓ Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)")
+            Logger.clipboard("Saved \(type.fileExtension.uppercased()) data to disk: \(fileURL.path) (\(fileSize) bytes)", level: .debug)
             return fileURL.path
         } catch {
-            print("❌ Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)")
+            Logger.clipboard("Failed to save \(type.fileExtension.uppercased()) data to disk: \(error.localizedDescription)", level: .error)
             return nil
         }
     }
@@ -389,16 +401,16 @@ class ClipboardHistoryManager: ObservableObject {
     /// Loads RTF/HTML data from disk
     private func loadRichData(from path: String) -> Data? {
         guard FileManager.default.fileExists(atPath: path) else {
-            print("⚠️ Rich data file not found: \(path)")
+            Logger.clipboard("Rich data file not found: \(path)", level: .warning)
             return nil
         }
         
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
-            print("✓ Loaded rich data from disk: \(path) (\(data.count) bytes)")
+            Logger.clipboard("Loaded rich data from disk: \(path) (\(data.count) bytes)", level: .debug)
             return data
         } catch {
-            print("❌ Failed to load rich data from disk: \(error.localizedDescription)")
+            Logger.clipboard("Failed to load rich data from disk: \(error.localizedDescription)", level: .error)
             return nil
         }
     }
@@ -413,10 +425,10 @@ class ClipboardHistoryManager: ObservableObject {
             do {
                 try data.write(to: fileURL)
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-                print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
+                Logger.clipboard("Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)", level: .debug)
                 completion(fileURL.path)
             } catch {
-                print("❌ Failed to save image data to disk: \(error.localizedDescription)")
+                Logger.clipboard("Failed to save image data to disk: \(error.localizedDescription)", level: .error)
                 completion(nil)
             }
         }
@@ -431,10 +443,10 @@ class ClipboardHistoryManager: ObservableObject {
         do {
             try data.write(to: fileURL)
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
-            print("✓ Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)")
+            Logger.clipboard("Saved image data to disk: \(fileURL.path) (\(fileSize) bytes)", level: .debug)
             return fileURL.path
         } catch {
-            print("❌ Failed to save image data to disk: \(error.localizedDescription)")
+            Logger.clipboard("Failed to save image data to disk: \(error.localizedDescription)", level: .error)
             return nil
         }
     }
@@ -591,7 +603,7 @@ class ClipboardHistoryManager: ObservableObject {
     // MARK: - Paste from History
 
     /// Writes the selected history item back to the clipboard and optionally pastes it
-    func pasteItem(_ item: ClipboardItem, simulatePaste: Bool = true, plainTextOnly: Bool = false) {
+    func pasteItem(_ item: ClipboardItem, simulatePaste: Bool = true, formattingOption: PasteFormattingOption = .normal) {
         // Mark this as an internal write to prevent it from being re-recorded
         isInternalWrite = true
 
@@ -601,17 +613,32 @@ class ClipboardHistoryManager: ObservableObject {
 
         var writtenTypes: [NSPasteboard.PasteboardType] = []
 
-        if plainTextOnly {
-            // Plain text only - strip all formatting
-            pasteboard.setString(item.textForPasting, forType: .string)
+        // Get HTML data if available for markdown conversion
+        var htmlData: Data? = nil
+        if let htmlPath = item.htmlDataPath {
+            htmlData = loadRichData(from: htmlPath)
+        } else if let legacyHtmlData = item.htmlData {
+            htmlData = legacyHtmlData
+        }
+
+        // Apply formatting based on option
+        let formattedText = PasteFormattingOption.format(
+            item.textForPasting,
+            option: formattingOption,
+            htmlData: htmlData
+        )
+
+        if formattingOption != .normal {
+            // Apply formatting - write as plain text only
+            pasteboard.setString(formattedText, forType: .string)
             writtenTypes.append(.string)
-            Logger.clipboard("Restored plain text only to clipboard: \(item.plainTextPreview.prefix(30))...", level: .debug)
+            Logger.clipboard("Restored formatted text to clipboard (\(formattingOption)): \(formattedText.prefix(30))...", level: .debug)
         } else {
             // Write image if available
             if let imagePath = item.imagePath, let imageData = loadRichData(from: imagePath) {
                 pasteboard.setData(imageData, forType: .tiff)
                 writtenTypes.append(.tiff)
-                print("🖼️ Restored image to clipboard (\(imageData.count) bytes)")
+                Logger.clipboard("Restored image to clipboard (\(imageData.count) bytes)", level: .debug)
             }
             
             // Write RTF data if available (preserves formatting)
@@ -619,24 +646,24 @@ class ClipboardHistoryManager: ObservableObject {
             if let rtfPath = item.rtfDataPath, let rtfData = loadRichData(from: rtfPath) {
                 pasteboard.setData(rtfData, forType: .rtf)
                 writtenTypes.append(.rtf)
-                print("📝 Restored RTF data to clipboard (\(rtfData.count) bytes)")
+                Logger.clipboard("Restored RTF data to clipboard (\(rtfData.count) bytes)", level: .debug)
             } else if let legacyRtfData = item.rtfData {
                 // Legacy support: Use old rtfData if path not available
                 pasteboard.setData(legacyRtfData, forType: .rtf)
                 writtenTypes.append(.rtf)
-                print("📝 Restored RTF data to clipboard (legacy, \(legacyRtfData.count) bytes)")
+                Logger.clipboard("Restored RTF data to clipboard (legacy, \(legacyRtfData.count) bytes)", level: .debug)
             }
 
             // Write HTML data if available
             if let htmlPath = item.htmlDataPath, let htmlData = loadRichData(from: htmlPath) {
                 pasteboard.setData(htmlData, forType: .html)
                 writtenTypes.append(.html)
-                print("🌐 Restored HTML data to clipboard")
+                Logger.clipboard("Restored HTML data to clipboard", level: .debug)
             } else if let legacyHtmlData = item.htmlData {
                 // Legacy support: Use old htmlData if path not available
                 pasteboard.setData(legacyHtmlData, forType: .html)
                 writtenTypes.append(.html)
-                print("🌐 Restored HTML data to clipboard (legacy)")
+                Logger.clipboard("Restored HTML data to clipboard (legacy)", level: .debug)
             }
 
             // Always write plain text as fallback (use full text if available)
@@ -644,7 +671,7 @@ class ClipboardHistoryManager: ObservableObject {
             writtenTypes.append(.string)
 
             let typesInfo = writtenTypes.map { $0.rawValue }.joined(separator: ", ")
-            print("📋 Restored to clipboard: \(item.plainTextPreview.prefix(30))... [Types: \(typesInfo)]")
+            Logger.clipboard("Restored to clipboard: \(item.plainTextPreview.prefix(30))... [Types: \(typesInfo)]", level: .debug)
         }
 
         // Optionally simulate Cmd+V to paste immediately
@@ -653,6 +680,12 @@ class ClipboardHistoryManager: ObservableObject {
                 self.simulatePaste()
             }
         }
+    }
+    
+    /// Legacy support: maintain backward compatibility with plainTextOnly parameter
+    func pasteItem(_ item: ClipboardItem, simulatePaste: Bool = true, plainTextOnly: Bool = false) {
+        let option: PasteFormattingOption = plainTextOnly ? .plainText : .normal
+        pasteItem(item, simulatePaste: simulatePaste, formattingOption: option)
     }
 
     /// Simulates Cmd+V key press to paste
@@ -837,7 +870,7 @@ class ClipboardHistoryManager: ObservableObject {
             // Reload from database after migration
             loadHistory()
         } else {
-            print("⚠️ Migration returned false - keeping data in UserDefaults as fallback")
+            Logger.clipboard("Migration returned false - keeping data in UserDefaults as fallback", level: .warning)
         }
     }
     
@@ -887,7 +920,7 @@ class ClipboardHistoryManager: ObservableObject {
             // Get all files in the data directory (on background thread)
             let fileManager = FileManager.default
             guard let directoryContents = try? fileManager.contentsOfDirectory(at: dataDir, includingPropertiesForKeys: nil, options: []) else {
-                print("⚠️ Could not read data directory for cleanup")
+                Logger.clipboard("Could not read data directory for cleanup", level: .warning)
                 return
             }
             
@@ -913,17 +946,17 @@ class ClipboardHistoryManager: ObservableObject {
                 do {
                     try fileManager.removeItem(at: fileURL)
                     deletedCount += 1
-                    print("🗑️ Deleted orphaned file: \(fileURL.lastPathComponent)")
+                    Logger.clipboard("Deleted orphaned file: \(fileURL.lastPathComponent)", level: .debug)
                 } catch {
-                    print("❌ Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                    Logger.clipboard("Failed to delete orphaned file \(fileURL.lastPathComponent): \(error.localizedDescription)", level: .error)
                 }
             }
             
             if deletedCount > 0 {
                 let sizeInMB = Double(totalSizeDeleted) / (1024 * 1024)
-                print("✓ Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB")
+                Logger.clipboard("Cleanup completed: Deleted \(deletedCount) orphaned file(s), freed \(String(format: "%.2f", sizeInMB)) MB", level: .info)
             } else {
-                print("✓ Cleanup completed: No orphaned files found")
+                Logger.clipboard("Cleanup completed: No orphaned files found", level: .info)
             }
         }
     }
@@ -934,7 +967,7 @@ class ClipboardHistoryManager: ObservableObject {
     /// MUST be called on MainActor to ensure thread safety for @Published history
     @MainActor
     private func migrateOldHistory() {
-        print("🔄 Starting clipboard history migration...")
+        Logger.clipboard("Starting clipboard history migration...", level: .info)
         
         let group = DispatchGroup()
         var migratedCount = 0
@@ -1014,9 +1047,9 @@ class ClipboardHistoryManager: ObservableObject {
         if migratedCount > 0 {
             history = migratedItems
             saveHistory()
-            print("✓ Migration completed: \(migratedCount) items migrated to disk storage")
+            Logger.clipboard("Migration completed: \(migratedCount) items migrated to disk storage", level: .info)
         } else {
-            print("ℹ️ No items needed migration")
+            Logger.clipboard("No items needed migration", level: .info)
         }
     }
 }
@@ -1054,7 +1087,7 @@ struct ClipboardItem: Codable, Identifiable {
             } else {
                 // For extremely large text, only keep preview + RTF data
                 self.fullText = nil
-                print("⚠️ Extremely large text truncated (\(plainTextPreview.count) chars)")
+                Logger.clipboard("Extremely large text truncated (\(plainTextPreview.count) chars)", level: .warning)
             }
         } else {
             self.plainTextPreview = plainTextPreview

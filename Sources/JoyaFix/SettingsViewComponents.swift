@@ -8,29 +8,17 @@ struct GeneralSettingsTab: View {
     @ObservedObject var settings: SettingsManager
     @Binding var localConvertKeyCode: UInt32
     @Binding var localConvertModifiers: UInt32
-#if false
-    @Binding var localOCRKeyCode: UInt32
-    @Binding var localOCRModifiers: UInt32
-#endif
-
     @Binding var localPromptKeyCode: UInt32
     @Binding var localPromptModifiers: UInt32
     @Binding var localMaxHistoryCount: Int
+    @Binding var localRecentHistoryRowsCount: Int
     @Binding var localPlaySound: Bool
     @Binding var localAutoPaste: Bool
     @Binding var localGeminiKey: String
     @Binding var localAIProvider: AIProvider
     @Binding var localOpenRouterKey: String
     @Binding var localOpenRouterModel: String
-#if false
-    @Binding var localUseCloudOCR: Bool
-#endif
-
     @Binding var isRecordingConvertHotkey: Bool
-#if false
-    @Binding var isRecordingOCRHotkey: Bool
-#endif
-
     @Binding var isRecordingPromptHotkey: Bool
     @Binding var hasUnsavedChanges: Bool
     @Binding var showSavedMessage: Bool
@@ -51,6 +39,8 @@ struct GeneralSettingsTab: View {
     // Permission status tracking
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
+    @State private var microphoneGranted = false
+    @State private var speechRecognitionGranted = false
     private let permissionManager = PermissionManager.shared
     
     // OpenRouter API Key validation
@@ -68,10 +58,23 @@ struct GeneralSettingsTab: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                settingsContent
+                VStack(spacing: 20) {
+                    settingsContentGroupBoxes
+                }
+                .padding()
             }
-                    // Text Conversion Hotkey Section
-                    GroupBox(label: Label(NSLocalizedString("settings.text.conversion.hotkey", comment: "Text conversion hotkey"), systemImage: "keyboard")) {
+
+            Divider()
+
+            // Bottom Action Bar
+            settingsActionBar
+        }
+    }
+
+    private var settingsContentGroupBoxes: some View {
+        VStack(spacing: 20) {
+            // Text Conversion Hotkey Section
+            GroupBox(label: Label(NSLocalizedString("settings.text.conversion.hotkey", comment: "Text conversion hotkey"), systemImage: "keyboard")) {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(NSLocalizedString("settings.text.conversion.hotkey.description", comment: "Hotkey description"))
                                 .font(.caption)
@@ -88,46 +91,6 @@ struct GeneralSettingsTab: View {
                         }
                         .padding(8)
                     }
-
-#if false
-                    // OCR Hotkey Section
-                    GroupBox(label: 
-                        HStack {
-                            Label(NSLocalizedString("settings.ocr.hotkey", comment: "OCR hotkey"), systemImage: "viewfinder")
-                            Text("בקרוב")
-                                .font(.system(size: 10, weight: .bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.orange.opacity(0.2))
-                                .foregroundColor(.orange)
-                                .cornerRadius(4)
-                        }
-                    ) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("פונקציית OCR זמינה בקרוב")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.bottom, 4)
-                            
-                            Text(NSLocalizedString("settings.ocr.hotkey.description", comment: "OCR hotkey description"))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                            HotkeyRecorderButton(
-                                isRecording: $isRecordingOCRHotkey,
-                                currentHotkey: displayString(localOCRKeyCode, localOCRModifiers)
-                            ) { keyCode, modifiers in
-                                localOCRKeyCode = keyCode
-                                localOCRModifiers = modifiers
-                                hasUnsavedChanges = true
-                            }
-                        }
-                        .padding(8)
-                        .disabled(true)
-                        .opacity(0.6)
-                    }
-#endif
-
 
                     // Prompt Enhancer Hotkey Section
                     GroupBox(label: Label(NSLocalizedString("settings.prompt.enhancer.hotkey", comment: "Prompt enhancer hotkey"), systemImage: "sparkles")) {
@@ -162,6 +125,22 @@ struct GeneralSettingsTab: View {
                             }
 
                             Text(String(format: NSLocalizedString("settings.clipboard.history.current", comment: "Current items"), localMaxHistoryCount))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Divider()
+                            
+                            HStack {
+                                Text("Recent History Rows")
+                                Spacer()
+                                Stepper("\(localRecentHistoryRowsCount)", value: $localRecentHistoryRowsCount, in: 5...20, step: 1)
+                                    .frame(width: 120)
+                                    .onChange(of: localRecentHistoryRowsCount) { _, _ in
+                                        hasUnsavedChanges = true
+                                    }
+                            }
+                            
+                            Text("Number of recent items to show in footer (5-20)")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -213,6 +192,32 @@ struct GeneralSettingsTab: View {
                                 icon: "camera.fill",
                                 onOpenSettings: {
                                     permissionManager.openScreenRecordingSettings()
+                                }
+                            )
+                            
+                            Divider()
+                            
+                            // Microphone Permission
+                            SettingsPermissionRow(
+                                title: "Microphone",
+                                description: "Required for voice input feature. Allows the app to record audio for speech-to-text transcription.",
+                                isGranted: microphoneGranted,
+                                icon: "mic.fill",
+                                onOpenSettings: {
+                                    permissionManager.openMicrophoneSettings()
+                                }
+                            )
+                            
+                            Divider()
+                            
+                            // Speech Recognition Permission
+                            SettingsPermissionRow(
+                                title: "Speech Recognition",
+                                description: "Required for voice input feature. Allows the app to transcribe speech to text in Hebrew and English.",
+                                isGranted: speechRecognitionGranted,
+                                icon: "waveform",
+                                onOpenSettings: {
+                                    permissionManager.openSpeechRecognitionSettings()
                                 }
                             )
                             
@@ -546,42 +551,6 @@ struct GeneralSettingsTab: View {
                         }
                         .padding(8)
                     }
-                    
-#if false
-                    // OCR Configuration Section
-                    GroupBox(label: 
-                        HStack {
-                            Label(NSLocalizedString("settings.ocr.configuration", comment: "OCR configuration"), systemImage: "cloud.fill")
-                            Text("בקרוב")
-                                .font(.system(size: 10, weight: .bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.orange.opacity(0.2))
-                                .foregroundColor(.orange)
-                                .cornerRadius(4)
-                        }
-                    ) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("פונקציית OCR זמינה בקרוב")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.bottom, 4)
-                            
-                            Toggle(NSLocalizedString("settings.ocr.use.cloud", comment: "Use cloud OCR"), isOn: $localUseCloudOCR)
-                                .onChange(of: localUseCloudOCR) { _, _ in
-                                    hasUnsavedChanges = true
-                                }
-
-                            Text("Cloud OCR uses Google's Gemini 1.5 Flash for improved accuracy, especially for Hebrew text.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(8)
-                        .disabled(true)
-                        .opacity(0.6)
-                    }
-#endif
-
 
                     // Export/Import Section
                     GroupBox(label: Label("Backup & Restore", systemImage: "arrow.up.arrow.down")) {
@@ -670,17 +639,11 @@ struct GeneralSettingsTab: View {
                         }
                         .padding(8)
                     }
-
-                    Spacer(minLength: 20)
-                }
-                .padding()
+        }
     }
-    
-    private var settingsContent: some View {
-        VStack(spacing: 20) {
 
-            Divider()
-
+    private var settingsActionBar: some View {
+        VStack(spacing: 0) {
             // Bottom Action Bar
             HStack(spacing: 12) {
                 Button(action: onReset) {
@@ -800,6 +763,8 @@ struct GeneralSettingsTab: View {
     private func refreshPermissionStatus() {
         accessibilityGranted = permissionManager.refreshAccessibilityStatus()
         screenRecordingGranted = permissionManager.isScreenRecordingTrusted()
+        microphoneGranted = permissionManager.isMicrophoneGranted()
+        speechRecognitionGranted = permissionManager.isSpeechRecognitionGranted()
     }
     
     // MARK: - OpenRouter API Key Testing
@@ -961,7 +926,8 @@ struct SnippetsTab: View {
     @State private var editingSnippet: Snippet?
     @State private var newTrigger = ""
     @State private var newContent = ""
-    
+    @State private var showSnippetGuide = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -979,9 +945,85 @@ struct SnippetsTab: View {
                 .buttonStyle(.borderedProminent)
             }
             .padding()
-            
+
             Divider()
-            
+
+            // How to Use Guide (Collapsible)
+            DisclosureGroup(isExpanded: $showSnippetGuide) {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Basic Usage
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Basic Usage")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Type your trigger (e.g., '!mail') followed by a space or punctuation to expand.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    // Dynamic Variables
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Dynamic Variables")
+                            .font(.system(size: 12, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\u{2022} {date} - Current date (dd/MM/yyyy)")
+                            Text("\u{2022} {time} - Current time (HH:mm)")
+                            Text("\u{2022} {datetime} - Full date and time")
+                            Text("\u{2022} {clipboard} - Paste clipboard content")
+                            Text("\u{2022} {year}, {month}, {day} - Date components")
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    // Cursor Placement
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cursor Placement")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Use | (pipe) to set cursor position after expansion.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("Example: 'Hello |,' places cursor before the comma")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 2)
+                    }
+
+                    Divider()
+
+                    // Custom Variables
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom Variables")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Use {variableName} to prompt for custom input.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("Example: 'Dear {recipientName},' prompts for the name")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 2)
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 4)
+            } label: {
+                HStack {
+                    Image(systemName: "questionmark.circle")
+                        .foregroundColor(.accentColor)
+                    Text("How to Use Snippets")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(8)
+            .padding(.horizontal)
+            .padding(.top, 8)
+
             // Snippets List
             if snippetManager.snippets.isEmpty {
                 VStack(spacing: 16) {

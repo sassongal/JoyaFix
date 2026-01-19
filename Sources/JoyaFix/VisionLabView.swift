@@ -5,6 +5,7 @@ struct VisionLabView: View {
     @State private var selectedImage: NSImage?
     @State private var description: String = ""
     @State private var isProcessing = false
+    @State private var processingStatus: String = ""
     @State private var errorMessage: String?
     @State private var isDragging = false
     @State private var showSuccessFeedback = false
@@ -118,7 +119,7 @@ struct VisionLabView: View {
                             Image(systemName: "sparkles")
                                 .foregroundColor(.pink)
                         }
-                        Text(isProcessing ? "Processing..." : "Generate Description")
+                        Text(isProcessing ? (processingStatus.isEmpty ? "Processing..." : processingStatus) : "Generate Description")
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
@@ -129,12 +130,31 @@ struct VisionLabView: View {
             
             // Error Message
             if let error = errorMessage {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
-                    Text(error)
-                        .font(.system(size: 12))
-                        .foregroundColor(.red)
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                    }
+
+                    // Show "Open Settings" button if API key is missing
+                    if error.contains("API key not found") || error.contains("Invalid API key") {
+                        Button(action: {
+                            // Close popover and open settings
+                            SettingsWindowController.shared.show()
+                        }) {
+                            HStack {
+                                Image(systemName: "gearshape")
+                                Text("Open Settings")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
                 .padding(8)
                 .background(Color.red.opacity(0.1))
@@ -189,7 +209,7 @@ struct VisionLabView: View {
             Spacer()
         }
         .padding(20)
-        .frame(width: 500, height: 600)
+        .frame(minWidth: 500, idealWidth: 550, maxWidth: 700, minHeight: 600, idealHeight: 650, maxHeight: 800)
     }
     
     // MARK: - Helper Methods
@@ -218,12 +238,18 @@ struct VisionLabView: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        
-        if panel.runModal() == .OK {
-            if let url = panel.url,
-               let image = NSImage(contentsOf: url) {
-                selectedImage = image
-                errorMessage = nil
+
+        // Use asynchronous begin() to prevent popover from closing
+        panel.begin { response in
+            if response == .OK {
+                if let url = panel.url,
+                   let image = NSImage(contentsOf: url) {
+                    // Update on main thread since this is a SwiftUI @State
+                    DispatchQueue.main.async {
+                        self.selectedImage = image
+                        self.errorMessage = nil
+                    }
+                }
             }
         }
     }
@@ -234,12 +260,18 @@ struct VisionLabView: View {
         isProcessing = true
         errorMessage = nil
         description = ""
+        processingStatus = "Analyzing image..."
         
         Task { @MainActor in
             do {
+                processingStatus = "Sending to AI service..."
+                let providerName = settings.selectedAIProvider == .gemini ? "Gemini" : "OpenRouter"
+                processingStatus = "Processing with \(providerName)..."
+                
                 let result = try await aiService.describeImage(image: image)
                 description = result
                 isProcessing = false
+                processingStatus = ""
                 SoundManager.shared.playSuccess()
             } catch {
                 // Provide user-friendly error messages
@@ -269,6 +301,7 @@ struct VisionLabView: View {
                 
                 errorMessage = userFriendlyMessage
                 isProcessing = false
+                processingStatus = ""
                 Logger.error("Vision Lab error: \(error.localizedDescription)", category: Logger.network)
             }
         }

@@ -5,6 +5,8 @@ struct OnboardingView: View {
     @State private var currentPage = 0
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
+    @State private var microphoneGranted = false
+    @State private var speechRecognitionGranted = false
     @State private var permissionCheckTimer: Timer?
     
     let onComplete: () -> Void
@@ -27,7 +29,9 @@ struct OnboardingView: View {
                 case 5:
                     PermissionsSlide(
                         accessibilityGranted: $accessibilityGranted,
-                        screenRecordingGranted: $screenRecordingGranted
+                        screenRecordingGranted: $screenRecordingGranted,
+                        microphoneGranted: $microphoneGranted,
+                        speechRecognitionGranted: $speechRecognitionGranted
                     )
                 case 6:
                     ReadySlide(onComplete: {
@@ -115,6 +119,8 @@ struct OnboardingView: View {
         // Use refreshAccessibilityStatus to force fresh check (bypass cache)
         accessibilityGranted = PermissionManager.shared.refreshAccessibilityStatus()
         screenRecordingGranted = PermissionManager.shared.isScreenRecordingTrusted()
+        microphoneGranted = PermissionManager.shared.isMicrophoneGranted()
+        speechRecognitionGranted = PermissionManager.shared.isSpeechRecognitionGranted()
     }
     
     private func startPermissionPolling() {
@@ -519,49 +525,71 @@ struct DetailedFeatureRow: View {
 struct PermissionsSlide: View {
     @Binding var accessibilityGranted: Bool
     @Binding var screenRecordingGranted: Bool
+    @Binding var microphoneGranted: Bool
+    @Binding var speechRecognitionGranted: Bool
     
     var body: some View {
-        VStack(spacing: 32) {
-            VStack(spacing: 12) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 50))
-                    .foregroundColor(.blue)
+        ScrollView {
+            VStack(spacing: 32) {
+                VStack(spacing: 12) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 50))
+                        .foregroundColor(.blue)
+                    
+                    Text(NSLocalizedString("onboarding.permissions.title", comment: "Permissions title"))
+                        .font(.system(size: 36, weight: .bold))
+                    
+                    Text(NSLocalizedString("onboarding.permissions.description", comment: "Permissions description"))
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
                 
-                Text(NSLocalizedString("onboarding.permissions.title", comment: "Permissions title"))
-                    .font(.system(size: 36, weight: .bold))
-                
-                Text(NSLocalizedString("onboarding.permissions.description", comment: "Permissions description"))
-                    .font(.system(size: 16))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+                VStack(spacing: 16) {
+                    PermissionRow(
+                        icon: "hand.point.up.left.fill",
+                        title: NSLocalizedString("onboarding.permissions.accessibility.title", comment: "Accessibility permission title"),
+                        description: NSLocalizedString("onboarding.permissions.accessibility.description", comment: "Accessibility permission description"),
+                        isGranted: accessibilityGranted,
+                        onGrant: {
+                            PermissionManager.shared.openAccessibilitySettings()
+                        }
+                    )
+                    
+                    PermissionRow(
+                        icon: "camera.fill",
+                        title: NSLocalizedString("onboarding.permissions.screen.recording.title", comment: "Screen recording permission title"),
+                        description: NSLocalizedString("onboarding.permissions.screen.recording.description", comment: "Screen recording permission description"),
+                        isGranted: screenRecordingGranted,
+                        onGrant: {
+                            PermissionManager.shared.openScreenRecordingSettings()
+                        }
+                    )
+                    
+                    PermissionRow(
+                        icon: "mic.fill",
+                        title: "Microphone",
+                        description: "Required for voice input feature. Allows the app to record audio for speech-to-text transcription.",
+                        isGranted: microphoneGranted,
+                        onGrant: {
+                            PermissionManager.shared.openMicrophoneSettings()
+                        }
+                    )
+                    
+                    PermissionRow(
+                        icon: "waveform",
+                        title: "Speech Recognition",
+                        description: "Required for voice input feature. Allows the app to transcribe speech to text in Hebrew and English.",
+                        isGranted: speechRecognitionGranted,
+                        onGrant: {
+                            PermissionManager.shared.openSpeechRecognitionSettings()
+                        }
+                    )
+                }
             }
-            
-            VStack(spacing: 20) {
-                PermissionRow(
-                    icon: "hand.point.up.left.fill",
-                    title: NSLocalizedString("onboarding.permissions.accessibility.title", comment: "Accessibility permission title"),
-                    description: NSLocalizedString("onboarding.permissions.accessibility.description", comment: "Accessibility permission description"),
-                    isGranted: accessibilityGranted,
-                    onGrant: {
-                        PermissionManager.shared.openAccessibilitySettings()
-                        // Polling will automatically detect the change
-                    }
-                )
-                
-                PermissionRow(
-                    icon: "camera.fill",
-                    title: NSLocalizedString("onboarding.permissions.screen.recording.title", comment: "Screen recording permission title"),
-                    description: NSLocalizedString("onboarding.permissions.screen.recording.description", comment: "Screen recording permission description"),
-                    isGranted: screenRecordingGranted,
-                    onGrant: {
-                        PermissionManager.shared.openScreenRecordingSettings()
-                        // Polling will automatically detect the change
-                    }
-                )
-            }
+            .padding(40)
         }
-        .padding(40)
     }
 }
 

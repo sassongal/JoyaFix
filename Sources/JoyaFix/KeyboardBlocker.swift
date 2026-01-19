@@ -8,6 +8,7 @@ class KeyboardBlocker {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isLocked = false
+    private var isUnlocking = false  // NEW: Prevents hiding during unlock transition
     
     // Overlay window for lock indicator
     private var overlayWindow: NSWindow?
@@ -50,18 +51,30 @@ class KeyboardBlocker {
     /// Unlocks the keyboard
     func unlock() {
         guard isLocked else { return }
-        
+
+        // Set unlocking flag to prevent app from hiding during transition
+        isUnlocking = true
         isLocked = false
         removeEventTap()
         hideOverlay()
         print("🔓 Keyboard unlocked")
         // Notify that lock state changed
         NotificationCenter.default.post(name: NSNotification.Name("JoyaFixKeyboardLockStateChanged"), object: nil)
+
+        // Clear unlocking flag after activation is complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isUnlocking = false
+        }
     }
     
     /// Returns current lock state
     var isKeyboardLocked: Bool {
         return isLocked
+    }
+
+    /// Returns true if app should stay visible (locked or unlocking)
+    var shouldPreventHiding: Bool {
+        return isLocked || isUnlocking
     }
     
     // MARK: - Event Tap Setup
@@ -141,13 +154,24 @@ class KeyboardBlocker {
             
             // Check for ESC key (immediate unlock)
             if keyCode == Int64(kVK_Escape) {
+                print("🔑 ESC pressed - unlocking keyboard cleaner (isLocked: \(isLocked))")
+
                 // Immediately unlock on ESC press (no hold required)
                 unlock()
                 SoundManager.shared.playSuccess()
 
+                print("🔓 Keyboard cleaner unlocked successfully")
+
                 // Keep the app active after unlocking to prevent it from hiding
                 DispatchQueue.main.async {
                     NSApp.activate(ignoringOtherApps: true)
+                    print("✓ App activated after ESC unlock")
+
+                    // Show toast notification for user feedback
+                    NotificationCenter.default.post(
+                        name: .showToast,
+                        object: ToastMessage(text: "Keyboard unlocked", style: .success, duration: 2.0)
+                    )
                 }
 
                 // Consume the ESC event to prevent it from being processed further
