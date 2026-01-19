@@ -75,7 +75,7 @@ class InputMonitor {
     private var watchdogTimer: Timer?
     
     /// How often to check the event tap status (60 seconds)
-    private let watchdogInterval: TimeInterval = 60.0
+    private let watchdogInterval: TimeInterval = 10.0
     
     /// Counter for consecutive recovery attempts
     private var recoveryAttempts = 0
