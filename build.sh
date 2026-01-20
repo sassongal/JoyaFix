@@ -12,6 +12,9 @@ FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 # Entitlements file for Hardened Runtime
 ENTITLEMENTS_FILE="Sources/JoyaFix/Resources/JoyaFix.entitlements"
 
+# Apple Developer Team ID
+TEAM_ID="8CAY5RT71J"
+
 # =========================================
 # Configuration for Notarization
 # =========================================
@@ -258,18 +261,51 @@ if [ "$NOTARIZE" = true ]; then
     fi
 else
     # =========================================
-    # Development Signing (ad-hoc)
+    # Development Signing (with Team ID)
     # =========================================
-    echo "🔧 Development signing (ad-hoc)..."
+    echo "🔧 Development signing with Team ID: $TEAM_ID..."
     
-    # חתימת Frameworks בנפרד
-    if [ -d "$FRAMEWORKS_DIR" ]; then
-        find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec xattr -cr {} \;
-        find "$FRAMEWORKS_DIR" -name "*.framework" -depth -exec codesign --force --deep --sign - {} \;
+    # Try to find an "Apple Development" certificate for this Team ID
+    # For free accounts, the certificate name format is: "Apple Development: Name (TEAM_ID)"
+    SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "$TEAM_ID" | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)".*/\1/' || echo "")
+    
+    if [ -z "$SIGNING_IDENTITY" ]; then
+        echo "⚠️  No 'Apple Development' certificate found for Team ID $TEAM_ID"
+        echo "   Falling back to ad-hoc signing..."
+        SIGNING_IDENTITY="-"
+    else
+        echo "✓ Found signing identity: $SIGNING_IDENTITY"
     fi
     
-    # חתימת האפליקציה הראשית (בלי --deep כדי למנוע שגיאות כפולות)
-    codesign --force --sign - "$APP_BUNDLE"
+    # Clean metadata recursively before signing (critical for macOS builds)
+    xattr -cr "$APP_BUNDLE"
+    
+    # Sign Frameworks first (inside-out signing)
+    if [ -d "$FRAMEWORKS_DIR" ]; then
+        echo "   Signing frameworks..."
+        find "$FRAMEWORKS_DIR" -name "*.framework" -depth | while read fw; do
+            xattr -cr "$fw"
+            codesign --force --sign "$SIGNING_IDENTITY" "$fw"
+            echo "   ✓ Signed: $(basename "$fw")"
+        done
+        
+        # Sign dylibs
+        find "$FRAMEWORKS_DIR" -name "*.dylib" | while read dylib; do
+            xattr -cr "$dylib"
+            codesign --force --sign "$SIGNING_IDENTITY" "$dylib"
+            echo "   ✓ Signed: $(basename "$dylib")"
+        done
+    fi
+    
+    # Sign the main executable
+    echo "   Signing main executable..."
+    codesign --force --sign "$SIGNING_IDENTITY" "$MACOS_DIR/$APP_NAME"
+    
+    # Sign the entire app bundle
+    echo "   Signing app bundle..."
+    codesign --force --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+    
+    echo "✓ Development signing complete"
 fi
 
 # Verify signing
